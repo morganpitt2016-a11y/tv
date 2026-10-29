@@ -4,8 +4,13 @@ import android.accessibilityservice.AccessibilityService
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.graphics.PixelFormat
 import android.os.SystemClock
 import android.provider.Settings
+import android.text.format.DateFormat
+import android.view.Gravity
+import android.view.View
+import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 
 /**
@@ -22,9 +27,12 @@ class HomeRedirectService : AccessibilityService() {
 
     private var otherHomes: Set<String> = emptySet()
     private var lastLaunch = 0L
+    private var keepAliveWindow: View? = null
 
     override fun onServiceConnected() {
         otherHomes = findOtherHomeApps()
+        addKeepAliveWindow()
+        RedirectDiag.connected(this, keepAliveWindow != null)
         // Covers power-on: the service starts after boot, when the stock
         // home screen is (or is about to be) showing.
         if (AutoLaunch.isEnabled(this)) openLauncher()
@@ -34,20 +42,59 @@ class HomeRedirectService : AccessibilityService() {
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
         if (!AutoLaunch.isEnabled(this)) return
         val pkg = event.packageName?.toString() ?: return
+        RedirectDiag.seen(this, pkg)
         if (pkg in otherHomes) openLauncher()
     }
 
     override fun onInterrupt() = Unit
 
+    override fun onDestroy() {
+        keepAliveWindow?.let {
+            try { (getSystemService(WINDOW_SERVICE) as WindowManager).removeView(it) } catch (_: Exception) {}
+        }
+        keepAliveWindow = null
+        super.onDestroy()
+    }
+
+    /**
+     * Android only lets an app open a screen from the background if it
+     * already has a visible window. Accessibility services may add
+     * overlay windows without extra permissions, so keep an invisible
+     * 1x1 pixel one (it can't be seen, focused or touched).
+     */
+    private fun addKeepAliveWindow() {
+        if (keepAliveWindow != null) return
+        val view = View(this)
+        val params = WindowManager.LayoutParams(
+            1, 1,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT
+        ).apply { gravity = Gravity.TOP or Gravity.START }
+        try {
+            (getSystemService(WINDOW_SERVICE) as WindowManager).addView(view, params)
+            keepAliveWindow = view
+        } catch (e: Exception) {
+            RedirectDiag.error(this, "overlay: ${e.javaClass.simpleName}")
+        }
+    }
+
     private fun openLauncher() {
         val now = SystemClock.elapsedRealtime()
         if (now - lastLaunch < 1500) return // avoid bouncing on repeated events
         lastLaunch = now
-        startActivity(
-            Intent(this, MainActivity::class.java).addFlags(
-                Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        RedirectDiag.attempted(this)
+        try {
+            startActivity(
+                Intent(this, MainActivity::class.java).addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                )
             )
-        )
+        } catch (e: Exception) {
+            RedirectDiag.error(this, "launch: ${e.javaClass.simpleName}: ${e.message}")
+        }
     }
 
     /** Every other installed home app, minus setup wizards and fallbacks. */
@@ -89,5 +136,47 @@ object AutoLaunch {
 
     fun setEnabled(context: Context, on: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY, on).apply()
+    }
+}
+
+/**
+ * What the auto-open service has seen and done, shown in Settings so a
+ * problem can be diagnosed from a photo of the screen.
+ */
+object RedirectDiag {
+    private const val PREFS = "redirect_diag"
+
+    private fun prefs(c: Context) = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    private fun now() = System.currentTimeMillis()
+
+    fun connected(c: Context, overlayOk: Boolean) =
+        prefs(c).edit().putLong("connected", now()).putBoolean("overlay", overlayOk).apply()
+
+    fun seen(c: Context, pkg: String) {
+        val recent = (prefs(c).getString("seen", "") ?: "").split(",").filter { it.isNotBlank() && it != pkg }
+        prefs(c).edit().putString("seen", (listOf(pkg) + recent).take(4).joinToString(",")).apply()
+    }
+
+    fun attempted(c: Context) = prefs(c).edit().putLong("attempt", now()).apply()
+    fun launcherShown(c: Context) = prefs(c).edit().putLong("shown", now()).apply()
+    fun error(c: Context, msg: String) = prefs(c).edit().putString("error", msg).apply()
+
+    fun summary(c: Context): String {
+        val p = prefs(c)
+        fun time(key: String) = p.getLong(key, 0L).let { if (it == 0L) "never" else DateFormat.format("HH:mm:ss", it).toString() }
+        val attempt = p.getLong("attempt", 0L)
+        val shown = p.getLong("shown", 0L)
+        val result = when {
+            attempt == 0L -> "no attempt yet"
+            shown >= attempt && shown - attempt < 5000 -> "launcher opened"
+            else -> "launcher did NOT open"
+        }
+        return buildString {
+            append("Service started: ").append(time("connected"))
+            append(if (p.getBoolean("overlay", false)) " (overlay ok)" else " (overlay missing)").append('\n')
+            append("Recent apps seen: ").append(p.getString("seen", "").orEmpty().ifBlank { "none" }).append('\n')
+            append("Last switch: ").append(time("attempt")).append(" → ").append(result)
+            p.getString("error", null)?.let { append('\n').append("Error: ").append(it) }
+        }
     }
 }

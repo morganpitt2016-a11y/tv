@@ -93,6 +93,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        RedirectDiag.launcherShown(this)
         handler.post(clockTick)
         rotator.start()
         refreshAll()

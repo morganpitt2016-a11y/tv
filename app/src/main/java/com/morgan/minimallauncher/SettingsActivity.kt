@@ -93,6 +93,7 @@ class SettingsActivity : AppCompatActivity() {
             serviceOn -> "Working. Minimal Launcher opens when the TV turns on and when you leave an app."
             else -> "One more step: turn on the accessibility service (button below)."
         }
+        findViewById<TextView>(R.id.autoLaunchDiag).text = RedirectDiag.summary(this)
     }
 
     private fun showAddProfileDialog() {
