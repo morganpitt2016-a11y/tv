@@ -1,8 +1,9 @@
 name: Fetch wallpaper candidates
 
-# One-off helper: downloads candidate landscape photos (Unsplash License)
-# at 1920px so they can be reviewed and the best ones bundled into the app.
-# Results are pushed to the `wallpaper-candidates` branch, not main.
+# One-off helper: searches Wikimedia Commons for freely licensed mountain /
+# lake / sunset photos, downloads 1920px versions plus their licence and
+# author details, and pushes them to the `wallpaper-candidates` branch for
+# review. The chosen ones are then bundled into the app.
 on:
   workflow_dispatch:
 
@@ -13,24 +14,68 @@ jobs:
   fetch:
     runs-on: ubuntu-latest
     steps:
-      - name: Download candidates
+      - name: Search and download
+        shell: python
         run: |
-          mkdir -p out
-          UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-          for id in rmX6kki4Ht4 N7snRVB4usc m07cD8ChI1A D3odArjJIzc XY9tbPYhR34 U_mKUrPMXW0 \
-                    7Z94A-v9kvw OtokIOPILX8 HdgZMuaKUsk 11i8fNhgWFM aCusqffy5sY HzcCapUboxE \
-                    T_YG9paUo5I IUUGhLfVUuk; do
-            echo "== $id"
-            page=$(curl -sS -L -A "$UA" -w "\n%{http_code}" "https://unsplash.com/photos/$id" || true)
-            echo "  page: $(echo "$page" | tail -1)"
-            img=$(echo "$page" | grep -oE 'https://images\.unsplash\.com/photo-[A-Za-z0-9_-]+' | head -1)
-            echo "  image: ${img:-NOT FOUND}"
-            [ -z "$img" ] && continue
-            echo "$img" > "out/$id.url"
-            echo -n "  download: "
-            curl -sS -L -o "out/$id.jpg" -w "%{http_code} %{content_type} %{size_download}\n" "$img?w=1920&q=85&fm=jpg&fit=max" || true
-          done
-          ls -la out
+          import json, os, urllib.parse, urllib.request
+          UA = "MinimalTVLauncher/1.0 (https://github.com/morganpitt2016-a11y/tv; wallpaper picker)"
+          QUERIES = [
+              "mountain lake sunset reflection",
+              "alpine lake dusk reflection forest",
+              "Moraine Lake sunset",
+              "Lake Louise sunset",
+              "Lago di Braies sunset",
+              "Emerald Lake British Columbia sunset",
+              "Maligne Lake sunset",
+              "mountain lake twilight pink sky",
+              "Bow Lake sunrise",
+              "Lac Blanc sunset Mont Blanc reflection",
+          ]
+          OK_LICENCES = ("cc0", "cc by", "cc-by", "public domain", "pd")
+          os.makedirs("out", exist_ok=True)
+
+          def get(url):
+              req = urllib.request.Request(url, headers={"User-Agent": UA})
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  return r.read()
+
+          seen, meta = set(), []
+          for q in QUERIES:
+              params = {
+                  "action": "query", "format": "json", "generator": "search",
+                  "gsrnamespace": "6", "gsrsearch": f"{q} filetype:bitmap", "gsrlimit": "12",
+                  "prop": "imageinfo", "iiprop": "url|size|extmetadata", "iiurlwidth": "1920",
+              }
+              data = json.loads(get("https://commons.wikimedia.org/w/api.php?" + urllib.parse.urlencode(params)))
+              pages = sorted(data.get("query", {}).get("pages", {}).values(), key=lambda p: p.get("index", 0))
+              kept = 0
+              for p in pages:
+                  ii = (p.get("imageinfo") or [{}])[0]
+                  w, h = ii.get("width", 0), ii.get("height", 0)
+                  em = ii.get("extmetadata", {})
+                  lic = em.get("LicenseShortName", {}).get("value", "")
+                  title = p["title"]
+                  if title in seen or w < 1920 or not (1.4 <= w / max(h, 1) <= 2.1):
+                      continue
+                  if not lic.lower().startswith(OK_LICENCES):
+                      continue
+                  seen.add(title)
+                  n = len(meta)
+                  fname = f"c{n:02d}.jpg"
+                  try:
+                      with open(f"out/{fname}", "wb") as f:
+                          f.write(get(ii["thumburl"]))
+                  except Exception as e:
+                      print("download failed", title, e); continue
+                  artist = em.get("Artist", {}).get("value", "")
+                  meta.append({"file": fname, "title": title, "query": q, "width": w, "height": h,
+                               "licence": lic, "artist": artist, "page": ii.get("descriptionurl")})
+                  print(f"{fname}  {lic:14s} {w}x{h}  {title}")
+                  kept += 1
+                  if kept >= 4:
+                      break
+          json.dump(meta, open("out/meta.json", "w"), indent=1)
+          print(len(meta), "candidates")
 
       - name: Push to wallpaper-candidates branch
         run: |
