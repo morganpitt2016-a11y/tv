@@ -52,5 +52,19 @@
             </intent-filter>
 
         </activity>
+
+        <activity
+            android:name=".AllAppsActivity"
+            android:exported="false"
+            android:screenOrientation="landscape"
+            android:parentActivityName=".MainActivity"
+            android:theme="@style/Theme.MinimalLauncher" />
+
+        <activity
+            android:name=".SettingsActivity"
+            android:exported="false"
+            android:screenOrientation="landscape"
+            android:parentActivityName=".MainActivity"
+            android:theme="@style/Theme.MinimalLauncher" />
     </application>
 </manifest>

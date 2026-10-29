@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Simple 2x2 grid icon for "All Apps". -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <path android:fillColor="#FFFFFF" android:pathData="M6,6h16v16h-16z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M26,6h16v16h-16z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M6,26h16v16h-16z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M26,26h16v16h-16z" />
+</vector>

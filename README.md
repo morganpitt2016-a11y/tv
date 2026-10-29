@@ -135,3 +135,28 @@ Change the rotation interval by editing `rotateEveryMs` in
 - Weather needs an internet connection on first load; if both lookups
   fail (no connection, API down) it shows "Weather unavailable"
   instead of a temperature
+
+## What's new: Apple-TV-style look, profiles, and Govee smart plug/light toggles
+
+- **Redesigned home screen**: the old app grid is now a bottom icon dock
+  (apps you pin, plus device toggles), closer to the Apple TV / Google TV
+  look — ambient photo background stays, clock/weather stay top-left/right.
+- **All Apps**: tap the grid-icon dock tile to see every installed TV app,
+  for anything you haven't pinned to the dock.
+- **Profiles**: tap the gear tile → Settings to add/switch/delete profiles
+  (like the Person 1/Person 2 switcher on Apple TV). Each profile has its
+  own pinned-apps set, chosen with checkboxes in Settings.
+- **Govee devices**: in Settings, paste in a free Govee API key (get one
+  in the Govee Home app: Settings → About Us → Apply for API Key — arrives
+  by email, usually within minutes, no OAuth/Google Cloud needed). Tap
+  "Refresh devices" to confirm it's connected. Your Govee plugs/lights then
+  show up as toggle tiles in the home screen dock.
+  - This uses Govee's long-standing v1 REST API
+    (`developer-api.govee.com`). If Govee has since moved everything to a
+    newer platform, only `GoveeHelper.kt`'s `BASE_URL` and request shapes
+    need updating.
+  - Known limitation: the dock doesn't yet fetch each device's *current*
+    on/off state from Govee at startup (that needs one extra API call per
+    device) — it assumes "off" until you toggle it, then trusts the result
+    of that toggle. Fine for a quick on/off button; not a live status
+    display yet.
