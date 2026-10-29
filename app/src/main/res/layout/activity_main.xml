@@ -19,60 +19,42 @@
         android:background="@drawable/background_scrim" />
 
     <!-- Layer 3: the actual UI -->
-    <LinearLayout
+    <RelativeLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:orientation="vertical"
-        android:padding="48dp">
+        android:padding="40dp">
 
+        <!-- Profile switch: top-left, one pill, active segment highlighted -->
         <LinearLayout
-            android:layout_width="match_parent"
+            android:id="@+id/profileSwitchContainer"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:orientation="horizontal">
+            android:layout_alignParentTop="true"
+            android:layout_alignParentStart="true"
+            android:orientation="horizontal"
+            android:gravity="center_vertical" />
 
-            <LinearLayout
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical">
-
-                <androidx.recyclerview.widget.RecyclerView
-                    android:id="@+id/profileRow"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="12dp"
-                    android:clipToPadding="false" />
-
-                <TextView
-                    android:id="@+id/clockText"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:textSize="72sp"
-                    android:textColor="@color/text_white"
-                    android:fontFamily="sans-serif-light"
-                    android:text="00:00" />
-
-                <TextView
-                    android:id="@+id/dateText"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:textSize="20sp"
-                    android:textColor="@color/text_grey"
-                    android:layout_marginTop="4dp"
-                    android:text="Loading date" />
-            </LinearLayout>
+        <!-- Weather + night-mode button: top-right -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentTop="true"
+            android:layout_alignParentEnd="true"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
 
             <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:gravity="end">
+                android:gravity="end"
+                android:layout_marginEnd="16dp">
 
                 <TextView
                     android:id="@+id/weatherTempText"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:textSize="36sp"
+                    android:textSize="30sp"
                     android:textColor="@color/text_white"
                     android:fontFamily="sans-serif-light"
                     android:text="--°" />
@@ -81,26 +63,86 @@
                     android:id="@+id/weatherPlaceText"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:textSize="14sp"
+                    android:textSize="13sp"
                     android:textColor="@color/text_grey"
-                    android:layout_marginTop="2dp"
                     android:text="Locating..." />
             </LinearLayout>
 
+            <TextView
+                android:id="@+id/nightModeButton"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:gravity="center"
+                android:background="@drawable/round_icon_button_bg"
+                android:text="&#9789;"
+                android:textColor="@color/text_white"
+                android:textSize="20sp"
+                android:focusable="true"
+                android:focusableInTouchMode="true" />
+
         </LinearLayout>
 
-        <Space
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1" />
+        <!-- Clock + date: centered, Apple-TV-style -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_centerHorizontal="true"
+            android:layout_centerVertical="true"
+            android:orientation="vertical"
+            android:gravity="center">
 
-        <!-- Bottom dock: pinned apps, Govee device toggles, All Apps, Settings -->
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/dockRow"
+            <TextView
+                android:id="@+id/dateText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="16sp"
+                android:textColor="@color/text_grey"
+                android:text="Loading date" />
+
+            <TextView
+                android:id="@+id/clockText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="88sp"
+                android:textColor="@color/text_white"
+                android:fontFamily="sans-serif-light"
+                android:text="00:00" />
+
+        </LinearLayout>
+
+        <!-- Bottom: "Keep watching" (recently opened apps) + dock -->
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:clipToPadding="false" />
+            android:layout_alignParentBottom="true"
+            android:orientation="vertical">
 
-    </LinearLayout>
+            <TextView
+                android:id="@+id/continueWatchingLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Keep watching"
+                android:textColor="@color/text_grey"
+                android:textSize="13sp"
+                android:layout_marginBottom="8dp"
+                android:visibility="gone" />
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/continueWatchingRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:clipToPadding="false"
+                android:layout_marginBottom="16dp"
+                android:visibility="gone" />
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/dockRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:clipToPadding="false" />
+
+        </LinearLayout>
+
+    </RelativeLayout>
 
 </FrameLayout>

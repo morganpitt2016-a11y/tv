@@ -17,6 +17,7 @@ class AllAppsActivity : AppCompatActivity() {
         val grid = findViewById<RecyclerView>(R.id.allAppsGrid)
         grid.layoutManager = GridLayoutManager(this, 6)
         grid.adapter = AppAdapter(AppListHelper.loadLaunchableTvApps(this)) { intent ->
+            intent.component?.packageName?.let { RecentAppsTracker.recordOpened(this, it) }
             startActivity(intent)
         }
     }
