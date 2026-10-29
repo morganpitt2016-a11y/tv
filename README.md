@@ -64,99 +64,28 @@ Same menu, just pick the original Google TV launcher instead, or:
 adb uninstall com.morgan.minimallauncher
 ```
 
-## What to customize next
+## Home screen
 
-- `MainActivity.kt` — clock format, date format, grid column count
-  (`GridLayoutManager(this, 6)` — change `6` to however many columns
-  you want)
-- `activity_main.xml` — padding, font, background color/image
-- `item_app.xml` / `focusable_item_bg.xml` — icon size, focus
-  highlight style, rounded corners
-- To add a background photo instead of flat black: add an `ImageView`
-  behind everything in `activity_main.xml` pointing at a drawable, or
-  load one dynamically from local storage
+Modelled on an Apple-TV-style reference layout, on a fixed 960x540dp
+stage (the 1920x1080 reference at 2x) that scales to fit any screen:
 
-## What's new: background photo (Apple TV style)
+- **Wallpaper**: a bundled mountain/forest/lake sunset scene in two layers
+  (`res/drawable-nodpi/wallpaper_back.webp` and `wallpaper_front.webp`).
+  The clock sits between them, so the peak overlaps the digits. Regenerate
+  or tweak it with `tools/wallpaper/` (see the comments in `gen-art.mjs`).
+  To use your own photo, put it in `wallpaper_back` and remove the
+  `wallpaperFront` ImageView from `activity_main.xml`.
+- **Profile selector** (top-left): Person 1 / Person 2 by default; add,
+  rename or delete profiles in Settings. Each profile has its own dock apps.
+- **Date and clock**: centred, Oswald Light numerals; follows the TV's
+  12/24-hour setting.
+- **Night mode** (moon, top-right): dims the wallpaper.
+- **Keep watching**: the two apps you most recently opened, with their TV
+  banner as the thumbnail. It can't show real episode progress: Android
+  doesn't let third-party launchers read other apps' playback state.
+- **Dock**: up to 10 apps (your pinned apps, or the first 10 installed),
+  then Settings and More (all apps). Real app icons, drawn full-bleed.
+- **Govee lights**: once a Govee API key is saved in Settings, each device
+  appears as a pill next to the moon button; select it to toggle on/off.
 
-Full-screen photo behind everything, with a slow zoom/pan ("Ken Burns"
-effect) over the time it's shown, a dark gradient scrim so the clock/
-app icons stay readable, and a new photo swapped in every 5 minutes
-with a crossfade.
-
-**Photo source right now**: `picsum.photos` — a free, keyless
-placeholder-photo service. This gets the actual effect working
-end-to-end without needing any account, API key, or photo library
-hookup. It is **not** your own photos — it's random stock images, just
-there to prove out the zoom/pan/crossfade mechanics.
-
-**To use your own photos instead**, the only thing to change is
-`fetchRandomPhoto()` in `BackgroundPhotoHelper.kt` — swap the
-`picsum.photos` URL for:
-- A Google Photos album (needs OAuth + the Photos Library API — more
-  setup, real auth flow)
-- A local folder on the TV's storage (no internet needed at all, just
-  point `BitmapFactory.decodeFile()` at files under
-  `/storage/emulated/0/...`)
-- Any other image URL you control
-
-Everything else — the crossfade, the Ken Burns animation, the 5-minute
-rotation timer — stays exactly the same regardless of where the bytes
-come from.
-
-Change the rotation interval by editing `rotateEveryMs` in
-`BackgroundPhotoHelper.kt`. Change how much it zooms by editing the
-`1.12f` target scale in `showPhoto()`.
-
-## What's new: weather + quick settings
-
-- **Weather**: top-right of the screen. Uses two free, keyless APIs —
-  `ip-api.com` guesses a rough location from the device's public IP
-  (no GPS permission needed, which matters since most TV boxes don't
-  have a GPS chip), then `open-meteo.com` turns that into a current
-  temperature. It's city-level accurate, not pinpoint — fine for a
-  home screen, not for anything precise.
-- **Quick settings row** (Wi-Fi / Display / Apps / Power): these open
-  real Android system settings screens via `Intent`, not fake buttons.
-  One honest caveat: **Power doesn't actually power off the TV**. A
-  normal app — including this one — isn't allowed to do that; shutting
-  down or rebooting a device needs system/signature-level permissions
-  that Android reserves for the OS itself. The Power button opens the
-  closest settings screen a regular app can legally reach instead of
-  pretending to do something it can't.
-
-## Known limitations of this minimal version
-
-- No app reordering/favorites yet — it just lists every launchable TV
-  app alphabetically
-- No background photo/ambient rotation (flat black background) —
-  that's a next step if you want it
-- Icons come from each app's own launcher icon, so visual consistency
-  depends on how well those apps' icons are designed
-- Weather needs an internet connection on first load; if both lookups
-  fail (no connection, API down) it shows "Weather unavailable"
-  instead of a temperature
-
-## What's new: Apple-TV-style look, profiles, and Govee smart plug/light toggles
-
-- **Redesigned home screen**: the old app grid is now a bottom icon dock
-  (apps you pin, plus device toggles), closer to the Apple TV / Google TV
-  look — ambient photo background stays, clock/weather stay top-left/right.
-- **All Apps**: tap the grid-icon dock tile to see every installed TV app,
-  for anything you haven't pinned to the dock.
-- **Profiles**: tap the gear tile → Settings to add/switch/delete profiles
-  (like the Person 1/Person 2 switcher on Apple TV). Each profile has its
-  own pinned-apps set, chosen with checkboxes in Settings.
-- **Govee devices**: in Settings, paste in a free Govee API key (get one
-  in the Govee Home app: Settings → About Us → Apply for API Key — arrives
-  by email, usually within minutes, no OAuth/Google Cloud needed). Tap
-  "Refresh devices" to confirm it's connected. Your Govee plugs/lights then
-  show up as toggle tiles in the home screen dock.
-  - This uses Govee's long-standing v1 REST API
-    (`developer-api.govee.com`). If Govee has since moved everything to a
-    newer platform, only `GoveeHelper.kt`'s `BASE_URL` and request shapes
-    need updating.
-  - Known limitation: the dock doesn't yet fetch each device's *current*
-    on/off state from Govee at startup (that needs one extra API call per
-    device) — it assumes "off" until you toggle it, then trusts the result
-    of that toggle. Fine for a quick on/off button; not a live status
-    display yet.
+Fonts: Oswald and Inter (SIL Open Font License). Icons: Lucide (ISC).

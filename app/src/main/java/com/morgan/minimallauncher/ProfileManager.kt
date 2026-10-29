@@ -13,13 +13,13 @@ object ProfileManager {
     private const val KEY_PROFILES = "profiles"
     private const val KEY_ACTIVE = "active_profile"
     private const val KEY_PINNED_PREFIX = "pinned_"
-    private const val DEFAULT_PROFILE = "Profile 1"
+    private val DEFAULT_PROFILES = listOf("Person 1", "Person 2")
 
     fun getProfiles(context: Context): List<String> {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val raw = prefs.getString(KEY_PROFILES, DEFAULT_PROFILE) ?: DEFAULT_PROFILE
+        val raw = prefs.getString(KEY_PROFILES, null) ?: return DEFAULT_PROFILES
         val list = raw.split(",").filter { it.isNotBlank() }
-        return list.ifEmpty { listOf(DEFAULT_PROFILE) }
+        return list.ifEmpty { DEFAULT_PROFILES }
     }
 
     fun addProfile(context: Context, name: String) {
@@ -35,7 +35,7 @@ object ProfileManager {
     fun removeProfile(context: Context, name: String) {
         val profiles = getProfiles(context).toMutableList()
         profiles.remove(name)
-        if (profiles.isEmpty()) profiles.add(DEFAULT_PROFILE)
+        if (profiles.isEmpty()) profiles.add(DEFAULT_PROFILES.first())
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         prefs.edit()
             .putString(KEY_PROFILES, profiles.joinToString(","))

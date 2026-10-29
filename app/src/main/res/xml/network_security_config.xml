@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- ip-api.com's free tier is HTTP-only; allow plain HTTP for that host only. -->
-<network-security-config>
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="false">ip-api.com</domain>
-    </domain-config>
-</network-security-config>

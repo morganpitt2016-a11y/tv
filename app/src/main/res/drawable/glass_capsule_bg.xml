@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Translucent charcoal capsule with a hairline border (profile switch, device pills). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <corners android:radius="999dp" />
+    <solid android:color="#8C1C1A20" />
+    <stroke android:width="0.5dp" android:color="#24FFFFFF" />
+</shape>

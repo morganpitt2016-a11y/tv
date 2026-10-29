@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Inactive profile segment: transparent, faint highlight when focused with the remote. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_focused="true">
+        <shape android:shape="rectangle"><corners android:radius="999dp" /><solid android:color="#33FFFFFF" /></shape>
+    </item>
+    <item><shape android:shape="rectangle"><corners android:radius="999dp" /><solid android:color="#00000000" /></shape></item>
+</selector>

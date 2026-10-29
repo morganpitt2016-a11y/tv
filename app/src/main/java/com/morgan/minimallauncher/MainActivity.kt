@@ -1,34 +1,47 @@
 package com.morgan.minimallauncher
 
 import android.content.Intent
+import android.content.res.ColorStateList
+import android.graphics.Typeface
+import android.graphics.drawable.Drawable
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.text.TextUtils
 import android.text.format.DateFormat
+import android.text.format.DateUtils
+import android.util.TypedValue
+import android.view.Gravity
 import android.view.View
+import android.view.ViewOutlineProvider
+import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
+import androidx.core.content.ContextCompat
+import androidx.core.content.res.ResourcesCompat
 import java.util.Calendar
+import kotlin.math.min
 
 class MainActivity : AppCompatActivity() {
 
+    private lateinit var root: FrameLayout
+    private lateinit var stage: FrameLayout
     private lateinit var clockText: TextView
     private lateinit var dateText: TextView
-    private lateinit var weatherTempText: TextView
-    private lateinit var weatherPlaceText: TextView
-    private lateinit var profileSwitchContainer: LinearLayout
-    private lateinit var continueWatchingLabel: TextView
-    private lateinit var continueWatchingRow: RecyclerView
-    private lateinit var dockRow: RecyclerView
-    private lateinit var nightModeButton: TextView
-    private lateinit var backgroundPhotoHelper: BackgroundPhotoHelper
-    private val handler = Handler(Looper.getMainLooper())
+    private lateinit var profileSwitch: LinearLayout
+    private lateinit var deviceRow: LinearLayout
+    private lateinit var nightModeButton: View
+    private lateinit var nightOverlay: View
+    private lateinit var keepWatchingLabel: TextView
+    private lateinit var keepWatchingRow: LinearLayout
+    private lateinit var dock: LinearLayout
 
-    private var govDevices: MutableList<GoveeHelper.Device> = mutableListOf()
+    private val handler = Handler(Looper.getMainLooper())
+    private var govDevices: List<GoveeHelper.Device> = emptyList()
     private var lastFetchedApiKey: String? = null
 
     private val clockTick = object : Runnable {
@@ -42,42 +55,30 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        root = findViewById(R.id.root)
+        stage = findViewById(R.id.stage)
         clockText = findViewById(R.id.clockText)
         dateText = findViewById(R.id.dateText)
-        weatherTempText = findViewById(R.id.weatherTempText)
-        weatherPlaceText = findViewById(R.id.weatherPlaceText)
-        profileSwitchContainer = findViewById(R.id.profileSwitchContainer)
-        continueWatchingLabel = findViewById(R.id.continueWatchingLabel)
-        continueWatchingRow = findViewById(R.id.continueWatchingRow)
-        dockRow = findViewById(R.id.dockRow)
+        profileSwitch = findViewById(R.id.profileSwitch)
+        deviceRow = findViewById(R.id.deviceRow)
         nightModeButton = findViewById(R.id.nightModeButton)
+        nightOverlay = findViewById(R.id.nightOverlay)
+        keepWatchingLabel = findViewById(R.id.keepWatchingLabel)
+        keepWatchingRow = findViewById(R.id.keepWatchingRow)
+        dock = findViewById(R.id.dock)
 
-        continueWatchingRow.layoutManager = LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
-        dockRow.layoutManager = LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
+        // Scale the 960x540dp stage to fill whatever screen this is.
+        root.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> fitStage() }
 
-        // Most TV boxes don't let a regular app power off/reboot the
-        // device (needs system/signature permissions), so this reuses
-        // the closest thing a normal app can legally reach: the system
-        // Dream (screensaver/ambient) settings screen.
-        nightModeButton.setOnClickListener {
-            try {
-                startActivity(Intent("android.settings.DREAM_SETTINGS"))
-            } catch (e: Exception) {
-                Toast.makeText(this, "Screensaver settings aren't available on this device", Toast.LENGTH_SHORT).show()
-            }
-        }
-
-        loadWeather()
-
-        backgroundPhotoHelper = BackgroundPhotoHelper(findViewById(R.id.backgroundPhoto))
-        backgroundPhotoHelper.start()
+        addFocusScale(nightModeButton, 1.1f)
+        nightModeButton.setOnClickListener { setNightMode(!isNightMode()) }
+        applyNightMode()
     }
 
     override fun onResume() {
         super.onResume()
         handler.post(clockTick)
-        refreshProfileSwitch()
-        refreshDock()
+        refreshAll()
     }
 
     override fun onPause() {
@@ -85,125 +86,236 @@ class MainActivity : AppCompatActivity() {
         handler.removeCallbacks(clockTick)
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        backgroundPhotoHelper.stop()
+    private fun refreshAll() {
+        val allApps = AppListHelper.loadLaunchableTvApps(this)
+        buildProfileSwitch()
+        buildDock(allApps)
+        buildKeepWatching(allApps)
+        buildDeviceRow()
+        fetchDevicesIfNeeded()
+        if (currentFocus == null) dock.getChildAt(0)?.requestFocus()
     }
+
+    private fun fitStage() {
+        if (root.width == 0 || stage.width == 0) return
+        val scale = min(root.width / stage.width.toFloat(), root.height / stage.height.toFloat())
+        stage.scaleX = scale
+        stage.scaleY = scale
+    }
+
+    // ---------- Clock ----------
 
     private fun updateClock() {
         val now = Calendar.getInstance()
-        clockText.text = DateFormat.format("HH:mm", now)
+        val pattern = if (DateFormat.is24HourFormat(this)) "H:mm" else "h:mm"
+        clockText.text = DateFormat.format(pattern, now)
         dateText.text = DateFormat.format("EEEE d MMMM", now)
     }
 
-    private fun loadWeather() {
-        WeatherHelper.fetchCurrentWeather { tempCelsius, place ->
-            if (tempCelsius != null) {
-                weatherTempText.text = "$tempCelsius°"
-                weatherPlaceText.text = place
-            } else {
-                weatherTempText.text = "--°"
-                weatherPlaceText.text = place
-            }
-        }
+    // ---------- Night mode ----------
+
+    private fun isNightMode() = getPreferences(MODE_PRIVATE).getBoolean("night", false)
+
+    private fun setNightMode(on: Boolean) {
+        getPreferences(MODE_PRIVATE).edit().putBoolean("night", on).apply()
+        applyNightMode()
     }
 
-    /** One pill container; only the active profile gets a solid white background. */
-    private fun refreshProfileSwitch() {
-        val profiles = ProfileManager.getProfiles(this)
+    private fun applyNightMode() {
+        val on = isNightMode()
+        nightOverlay.visibility = if (on) View.VISIBLE else View.GONE
+        nightModeButton.isActivated = on
+    }
+
+    // ---------- Profile selector ----------
+
+    private fun buildProfileSwitch() {
+        profileSwitch.removeAllViews()
         val active = ProfileManager.getActiveProfile(this)
-        profileSwitchContainer.removeAllViews()
-
-        for (name in profiles) {
+        for (name in ProfileManager.getProfiles(this)) {
             val isActive = name == active
-            val pill = TextView(this)
-            pill.text = name
-            pill.textSize = 13f
-            pill.setPadding(dp(18), dp(8), dp(18), dp(8))
-            pill.setTextColor(if (isActive) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
-            if (!isActive) pill.alpha = 0.65f
-            pill.background = if (isActive) {
-                androidx.core.content.ContextCompat.getDrawable(this, R.drawable.profile_pill_active_bg)
-            } else null
-            pill.isFocusable = true
-            pill.isFocusableInTouchMode = true
-            pill.setOnClickListener {
-                ProfileManager.setActiveProfile(this, name)
-                refreshProfileSwitch()
-                refreshDock()
-            }
-            val params = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-            params.marginEnd = dp(6)
-            profileSwitchContainer.addView(pill, params)
-        }
-    }
-
-    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
-
-    /**
-     * Builds the bottom dock: the active profile's pinned apps, then any
-     * Govee smart-plug/light devices (tap to toggle on/off), then a tile
-     * to the full app grid and one to Settings. Also refreshes the
-     * "Keep watching" row (recently-opened apps - see RecentAppsTracker).
-     */
-    private fun refreshDock() {
-        val allApps = AppListHelper.loadLaunchableTvApps(this)
-        val pinned = ProfileManager.getPinnedApps(this)
-        val pinnedApps = if (pinned.isEmpty()) {
-            // Sensible default so the dock isn't empty before anyone picks favorites in Settings.
-            allApps.take(6)
-        } else {
-            allApps.filter { pinned.contains(it.packageName) }
-        }
-
-        val items = mutableListOf<DockItem>()
-        items += pinnedApps.map { DockItem.AppTile(it) }
-        items += govDevices.map { DockItem.DeviceTile(it) }
-        items += DockItem.MoreAppsTile
-        items += DockItem.SettingsTile
-
-        dockRow.adapter = DockAdapter(
-            items,
-            onAppClick = { entry -> launchApp(entry) },
-            onDeviceToggle = { device -> toggleDevice(device) },
-            onMoreAppsClick = { startActivity(Intent(this, AllAppsActivity::class.java)) },
-            onSettingsClick = { startActivity(Intent(this, SettingsActivity::class.java)) }
-        )
-
-        refreshContinueWatching(allApps)
-
-        val currentKey = GoveeHelper.getApiKey(this)
-        if (currentKey != null && (govDevices.isEmpty() || currentKey != lastFetchedApiKey)) {
-            GoveeHelper.listDevices(this) { devices, _ ->
-                // Errors are silent here; the detail lives in the Settings screen.
-                if (devices != null) {
-                    govDevices = devices.toMutableList()
-                    lastFetchedApiKey = currentKey
-                    refreshDock()
+            val seg = TextView(this).apply {
+                text = name
+                typeface = font(R.font.inter_semibold)
+                setTextSize(TypedValue.COMPLEX_UNIT_DIP, 11f)
+                includeFontPadding = false
+                gravity = Gravity.CENTER
+                setPadding(dp(13), 0, dp(13), 0)
+                setTextColor(if (isActive) 0xFF141414.toInt() else 0xBFFFFFFF.toInt())
+                background = ContextCompat.getDrawable(
+                    this@MainActivity,
+                    if (isActive) R.drawable.segment_active_bg else R.drawable.segment_bg
+                )
+                isFocusable = true
+                contentDescription = if (isActive) "$name, selected profile" else "Switch to $name"
+                setOnClickListener {
+                    ProfileManager.setActiveProfile(this@MainActivity, name)
+                    refreshAll()
                 }
             }
+            addFocusScale(seg, 1.06f)
+            profileSwitch.addView(seg, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(21)))
         }
     }
 
-    private fun refreshContinueWatching(allApps: List<AppEntry>) {
-        val recents = RecentAppsTracker.getRecent(this, allApps, limit = 3)
-        if (recents.isEmpty()) {
-            continueWatchingLabel.visibility = View.GONE
-            continueWatchingRow.visibility = View.GONE
-        } else {
-            continueWatchingLabel.visibility = View.VISIBLE
-            continueWatchingRow.visibility = View.VISIBLE
-            continueWatchingRow.adapter = ContinueWatchingAdapter(recents) { entry -> launchApp(entry) }
+    // ---------- App dock ----------
+
+    /** Up to 10 of the active profile's apps, then Settings and More. */
+    private fun buildDock(allApps: List<AppEntry>) {
+        dock.removeAllViews()
+        val pinned = ProfileManager.getPinnedApps(this)
+        val apps = (if (pinned.isEmpty()) allApps else allApps.filter { it.packageName in pinned }).take(10)
+
+        val tileSize = dp(56)
+        for (app in apps) {
+            val image = ImageView(this).apply {
+                scaleType = ImageView.ScaleType.FIT_XY
+                setImageBitmap(TileRenderer.render(app.icon, tileSize))
+            }
+            addDockTile(image, 0, "Open ${app.label}") { launchApp(app) }
+        }
+        addDockTile(glyph(R.drawable.ic_lucide_settings, 22), SYSTEM_TILE, getString(R.string.settings)) {
+            startActivity(Intent(this, SettingsActivity::class.java))
+        }
+        addDockTile(glyph(R.drawable.ic_lucide_more, 22), SYSTEM_TILE, getString(R.string.more_apps)) {
+            startActivity(Intent(this, AllAppsActivity::class.java))
         }
     }
 
-    private fun launchApp(entry: AppEntry) {
-        entry.launchIntent?.let {
-            RecentAppsTracker.recordOpened(this, entry.packageName)
-            startActivity(it)
+    private fun glyph(res: Int, sizeDp: Int) = ImageView(this).apply {
+        setImageResource(res)
+        scaleType = ImageView.ScaleType.CENTER_INSIDE
+        val pad = (dp(56) - dp(sizeDp)) / 2
+        setPadding(pad, pad, pad, pad)
+    }
+
+    private fun addDockTile(content: View, background: Int, label: String, onClick: () -> Unit) {
+        val tile = FrameLayout(this).apply {
+            this.background = GradientDrawable().apply {
+                cornerRadius = dp(12).toFloat()
+                setColor(background)
+            }
+            clipToOutline = true
+            outlineProvider = ViewOutlineProvider.BACKGROUND
+            foreground = ContextCompat.getDrawable(this@MainActivity, R.drawable.focus_ring_tile)
+            isFocusable = true
+            contentDescription = label
+            setOnClickListener { onClick() }
+            addView(content, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+        }
+        addFocusScale(tile, 1.12f)
+        val lp = LinearLayout.LayoutParams(dp(56), dp(56))
+        if (dock.childCount > 0) lp.marginStart = dp(13)
+        dock.addView(tile, lp)
+    }
+
+    // ---------- Keep watching ----------
+
+    private fun buildKeepWatching(allApps: List<AppEntry>) {
+        keepWatchingRow.removeAllViews()
+        val recents = RecentAppsTracker.getRecent(this, allApps, limit = 2)
+        val visibility = if (recents.isEmpty()) View.GONE else View.VISIBLE
+        keepWatchingLabel.visibility = visibility
+        keepWatchingRow.visibility = visibility
+
+        for ((index, recent) in recents.withIndex()) {
+            val app = recent.app
+            val card = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                background = ContextCompat.getDrawable(this@MainActivity, R.drawable.glass_card_bg)
+                foreground = ContextCompat.getDrawable(this@MainActivity, R.drawable.focus_ring_tile)
+                setPadding(dp(8), 0, dp(10), 0)
+                isFocusable = true
+                contentDescription = "Open ${app.label}"
+                setOnClickListener { launchApp(app) }
+            }
+
+            val thumb = ImageView(this).apply {
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                background = GradientDrawable().apply { cornerRadius = dp(6).toFloat(); setColor(0xFF2C2B30.toInt()) }
+                clipToOutline = true
+                outlineProvider = ViewOutlineProvider.BACKGROUND
+                val banner = bannerFor(app)
+                if (banner != null) setImageDrawable(banner) else setImageBitmap(TileRenderer.render(app.icon, dp(48)))
+            }
+            card.addView(thumb, LinearLayout.LayoutParams(dp(84), dp(48)))
+
+            val text = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            val providerRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            val badge = ImageView(this).apply {
+                setImageBitmap(TileRenderer.render(app.icon, dp(9)))
+                background = GradientDrawable().apply { cornerRadius = dp(2).toFloat(); setColor(0) }
+                clipToOutline = true
+                outlineProvider = ViewOutlineProvider.BACKGROUND
+            }
+            providerRow.addView(badge, LinearLayout.LayoutParams(dp(9), dp(9)).apply { marginEnd = dp(4) })
+            providerRow.addView(label(getString(R.string.recently_opened), R.font.inter_medium, 9.5f, 0x99FFFFFF.toInt()).apply {
+                letterSpacing = 0.06f
+            })
+            text.addView(providerRow)
+            text.addView(label(app.label, R.font.inter_semibold, 15f, 0xFFFFFFFF.toInt()), marginTop(4))
+            text.addView(label(relativeTime(recent.openedAt), R.font.inter_regular, 10.5f, 0x9EFFFFFF.toInt()), marginTop(2))
+            card.addView(text, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(10) })
+
+            addFocusScale(card, 1.04f)
+            val lp = LinearLayout.LayoutParams(dp(259), dp(70))
+            if (index > 0) lp.marginStart = dp(11)
+            keepWatchingRow.addView(card, lp)
+        }
+    }
+
+    /** TV apps ship a 16:9 banner, which fits the thumbnail slot exactly. */
+    private fun bannerFor(app: AppEntry): Drawable? = try {
+        packageManager.getApplicationBanner(app.packageName)
+            ?: app.launchIntent?.let { packageManager.getActivityBanner(it) }
+    } catch (e: Exception) {
+        null
+    }
+
+    private fun relativeTime(millis: Long): String =
+        if (millis <= 0L) "Recently"
+        else DateUtils.getRelativeTimeSpanString(millis, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS).toString()
+
+    // ---------- Govee device pills (top-right, only when set up) ----------
+
+    private fun buildDeviceRow() {
+        deviceRow.removeAllViews()
+        for (device in govDevices) {
+            val pill = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                background = ContextCompat.getDrawable(this@MainActivity, R.drawable.glass_capsule_bg)
+                foreground = ContextCompat.getDrawable(this@MainActivity, R.drawable.focus_ring_capsule)
+                setPadding(dp(12), 0, dp(14), 0)
+                isFocusable = true
+                contentDescription = "${device.name}, ${if (device.isOn) "on" else "off"}. Toggle."
+                setOnClickListener { toggleDevice(device) }
+            }
+            val bulb = ImageView(this).apply {
+                setImageResource(R.drawable.ic_lucide_bulb)
+                imageTintList = ColorStateList.valueOf(if (device.isOn) 0xFFFFD27A.toInt() else 0xB3FFFFFF.toInt())
+            }
+            pill.addView(bulb, LinearLayout.LayoutParams(dp(15), dp(15)))
+            pill.addView(label(device.name, R.font.inter_medium, 11f, 0xFFFFFFFF.toInt()),
+                LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(6) })
+            addFocusScale(pill, 1.06f)
+            deviceRow.addView(pill, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(32)).apply { marginEnd = dp(10) })
+        }
+    }
+
+    private fun fetchDevicesIfNeeded() {
+        val key = GoveeHelper.getApiKey(this) ?: return
+        if (govDevices.isNotEmpty() && key == lastFetchedApiKey) return
+        GoveeHelper.listDevices(this) { devices, _ ->
+            if (devices != null) {
+                govDevices = devices
+                lastFetchedApiKey = key
+                buildDeviceRow()
+            }
         }
     }
 
@@ -212,10 +324,48 @@ class MainActivity : AppCompatActivity() {
         GoveeHelper.setPower(this, device, newState) { success, error ->
             if (success) {
                 device.isOn = newState
-                refreshDock()
+                buildDeviceRow()
             } else {
                 Toast.makeText(this, error ?: "Couldn't reach Govee", Toast.LENGTH_SHORT).show()
             }
         }
+    }
+
+    // ---------- Helpers ----------
+
+    private fun launchApp(app: AppEntry) {
+        val intent = app.launchIntent ?: return
+        RecentAppsTracker.recordOpened(this, app.packageName)
+        startActivity(intent)
+    }
+
+    private fun label(text: String, fontRes: Int, sizeDp: Float, color: Int) = TextView(this).apply {
+        this.text = text
+        typeface = font(fontRes)
+        setTextSize(TypedValue.COMPLEX_UNIT_DIP, sizeDp)
+        setTextColor(color)
+        includeFontPadding = false
+        maxLines = 1
+        ellipsize = TextUtils.TruncateAt.END
+    }
+
+    private fun marginTop(dpValue: Int) = LinearLayout.LayoutParams(
+        LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+    ).apply { topMargin = dp(dpValue) }
+
+    private fun font(res: Int): Typeface? = ResourcesCompat.getFont(this, res)
+
+    /** Subtle grow on D-pad focus, like the reference's selected tile. */
+    private fun addFocusScale(view: View, scale: Float) {
+        view.setOnFocusChangeListener { v, hasFocus ->
+            val s = if (hasFocus) scale else 1f
+            v.animate().scaleX(s).scaleY(s).translationZ(if (hasFocus) dp(6).toFloat() else 0f).setDuration(150).start()
+        }
+    }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density + 0.5f).toInt()
+
+    companion object {
+        private const val SYSTEM_TILE = 0xFF48454B.toInt()
     }
 }

@@ -3,32 +3,44 @@ package com.morgan.minimallauncher
 import android.content.Context
 
 /**
- * Powers the "Keep watching"-style row with real, local data: the last
- * few apps actually opened from this launcher. It deliberately does NOT
- * show fake show titles/episode progress - no third-party launcher can
- * read another app's real playback state without Google's own internal
- * Android TV Home APIs, so inventing that data would just be lying to
- * the person looking at it. This is the honest equivalent.
+ * Powers the "Keep watching" row with real, local data: the last few apps
+ * opened from this launcher and when. It does not show show titles or
+ * episode progress: a third-party launcher can't read another app's
+ * playback state (Google's own launcher uses privileged APIs for that).
  */
 object RecentAppsTracker {
     private const val PREFS = "recent_apps"
     private const val KEY_ORDER = "order"
     private const val MAX_ENTRIES = 6
 
+    data class Recent(val app: AppEntry, val openedAt: Long)
+
     fun recordOpened(context: Context, packageName: String) {
-        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val current = (prefs.getString(KEY_ORDER, "") ?: "")
-            .split(",").filter { it.isNotBlank() }.toMutableList()
-        current.remove(packageName)
-        current.add(0, packageName)
-        while (current.size > MAX_ENTRIES) current.removeAt(current.size - 1)
-        prefs.edit().putString(KEY_ORDER, current.joinToString(",")).apply()
+        val entries = load(context).filter { it.first != packageName }.toMutableList()
+        entries.add(0, packageName to System.currentTimeMillis())
+        save(context, entries.take(MAX_ENTRIES))
     }
 
-    fun getRecent(context: Context, allApps: List<AppEntry>, limit: Int = 3): List<AppEntry> {
-        val order = (context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY_ORDER, "") ?: "").split(",").filter { it.isNotBlank() }
+    fun getRecent(context: Context, allApps: List<AppEntry>, limit: Int): List<Recent> {
         val byPackage = allApps.associateBy { it.packageName }
-        return order.mapNotNull { byPackage[it] }.take(limit)
+        return load(context)
+            .mapNotNull { (pkg, time) -> byPackage[pkg]?.let { Recent(it, time) } }
+            .take(limit)
+    }
+
+    /** Entries are stored as "package@millis", newest first. */
+    private fun load(context: Context): List<Pair<String, Long>> =
+        (context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_ORDER, "") ?: "")
+            .split(",")
+            .filter { it.isNotBlank() }
+            .map { raw ->
+                val at = raw.lastIndexOf('@')
+                if (at < 0) raw to 0L else raw.substring(0, at) to (raw.substring(at + 1).toLongOrNull() ?: 0L)
+            }
+
+    private fun save(context: Context, entries: List<Pair<String, Long>>) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putString(KEY_ORDER, entries.joinToString(",") { "${it.first}@${it.second}" })
+            .apply()
     }
 }
