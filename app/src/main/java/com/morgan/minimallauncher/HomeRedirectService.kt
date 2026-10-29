@@ -1,9 +1,11 @@
 package com.morgan.minimallauncher
 
 import android.accessibilityservice.AccessibilityService
+import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.PixelFormat
 import android.os.SystemClock
 import android.provider.Settings
@@ -12,6 +14,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
+import androidx.core.content.ContextCompat
 
 /**
  * Google TV has no setting to change the home app, and its Home button
@@ -29,13 +32,31 @@ class HomeRedirectService : AccessibilityService() {
     private var lastLaunch = 0L
     private var keepAliveWindow: View? = null
 
+    /** "Screen on" is only announced to running apps, so listen from here. */
+    private val wakeReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == Intent.ACTION_SCREEN_ON && AutoLaunch.onWake(context)) {
+                RedirectDiag.event(context, "wake")
+                lastLaunch = 0L // always act on a wake-up, even right after another switch
+                openLauncher()
+            }
+        }
+    }
+    private var wakeReceiverRegistered = false
+
     override fun onServiceConnected() {
         otherHomes = findOtherHomeApps()
         addKeepAliveWindow()
         RedirectDiag.connected(this, keepAliveWindow != null)
+        if (!wakeReceiverRegistered) {
+            ContextCompat.registerReceiver(
+                this, wakeReceiver, IntentFilter(Intent.ACTION_SCREEN_ON), ContextCompat.RECEIVER_NOT_EXPORTED
+            )
+            wakeReceiverRegistered = true
+        }
         // Covers power-on: the service starts after boot, when the stock
         // home screen is (or is about to be) showing.
-        if (AutoLaunch.isEnabled(this)) openLauncher()
+        if (AutoLaunch.isEnabled(this) || AutoLaunch.onBoot(this)) openLauncher()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
@@ -49,6 +70,10 @@ class HomeRedirectService : AccessibilityService() {
     override fun onInterrupt() = Unit
 
     override fun onDestroy() {
+        if (wakeReceiverRegistered) {
+            try { unregisterReceiver(wakeReceiver) } catch (_: Exception) {}
+            wakeReceiverRegistered = false
+        }
         keepAliveWindow?.let {
             try { (getSystemService(WINDOW_SERVICE) as WindowManager).removeView(it) } catch (_: Exception) {}
         }
@@ -87,11 +112,7 @@ class HomeRedirectService : AccessibilityService() {
         lastLaunch = now
         RedirectDiag.attempted(this)
         try {
-            startActivity(
-                Intent(this, MainActivity::class.java).addFlags(
-                    Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-                )
-            )
+            AutoLaunch.open(this)
         } catch (e: Exception) {
             RedirectDiag.error(this, "launch: ${e.javaClass.simpleName}: ${e.message}")
         }
@@ -137,6 +158,29 @@ object AutoLaunch {
     fun setEnabled(context: Context, on: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY, on).apply()
     }
+
+    /** Open the launcher when the TV finishes starting up. */
+    fun onBoot(context: Context) =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("on_boot", true)
+
+    fun setOnBoot(context: Context, on: Boolean) =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean("on_boot", on).apply()
+
+    /** Open the launcher when the TV wakes from sleep, whatever was open before. */
+    fun onWake(context: Context) =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("on_wake", true)
+
+    fun setOnWake(context: Context, on: Boolean) =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean("on_wake", on).apply()
+
+    /** Bring the launcher to the front; used by the service and the boot receiver. */
+    fun open(context: Context) {
+        context.startActivity(
+            Intent(context, MainActivity::class.java).addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            )
+        )
+    }
 }
 
 /**
@@ -158,6 +202,9 @@ object RedirectDiag {
     }
 
     fun attempted(c: Context) = prefs(c).edit().putLong("attempt", now()).apply()
+
+    /** e.g. "boot" or "wake", shown with its time. */
+    fun event(c: Context, name: String) = prefs(c).edit().putLong("event_$name", now()).apply()
     fun launcherShown(c: Context) = prefs(c).edit().putLong("shown", now()).apply()
     fun error(c: Context, msg: String) = prefs(c).edit().putString("error", msg).apply()
 
@@ -175,7 +222,8 @@ object RedirectDiag {
             append("Service started: ").append(time("connected"))
             append(if (p.getBoolean("overlay", false)) " (overlay ok)" else " (overlay missing)").append('\n')
             append("Recent apps seen: ").append(p.getString("seen", "").orEmpty().ifBlank { "none" }).append('\n')
-            append("Last switch: ").append(time("attempt")).append(" → ").append(result)
+            append("Last switch: ").append(time("attempt")).append(" → ").append(result).append('\n')
+            append("Last power-on: ").append(time("event_boot")).append("   Last wake: ").append(time("event_wake"))
             p.getString("error", null)?.let { append('\n').append("Error: ").append(it) }
         }
     }

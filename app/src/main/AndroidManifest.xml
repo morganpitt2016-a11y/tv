@@ -13,9 +13,14 @@
         tools:ignore="QueryAllPackagesPermission"
         xmlns:tools="http://schemas.android.com/tools" />
 
-    <!-- Needed for the weather readout -->
+    <!-- Needed for Govee light control -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Open the launcher when the TV finishes starting up -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Optional backup: lets Android open the launcher from the background -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <application
         android:allowBackup="true"
@@ -65,6 +70,15 @@
             android:screenOrientation="landscape"
             android:parentActivityName=".MainActivity"
             android:theme="@style/Theme.MinimalLauncher" />
+
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
 
         <!-- Opens this launcher whenever the stock Google TV home appears. -->
         <service

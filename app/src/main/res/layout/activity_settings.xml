@@ -67,6 +67,25 @@
                 android:text="Open accessibility settings" />
         </LinearLayout>
 
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="8dp">
+
+            <TextView
+                android:id="@+id/onBootToggle"
+                style="@style/QuickSettingButton" />
+
+            <TextView
+                android:id="@+id/onWakeToggle"
+                style="@style/QuickSettingButton" />
+
+            <TextView
+                android:id="@+id/overlayPermissionButton"
+                style="@style/QuickSettingButton" />
+        </LinearLayout>
+
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

@@ -20,16 +20,18 @@ jobs:
           import json, os, urllib.parse, urllib.request
           UA = "MinimalTVLauncher/1.0 (https://github.com/morganpitt2016-a11y/tv; wallpaper picker)"
           QUERIES = [
-              "mountain lake sunset reflection",
-              "alpine lake dusk reflection forest",
-              "Moraine Lake sunset",
-              "Lake Louise sunset",
-              "Lago di Braies sunset",
-              "Emerald Lake British Columbia sunset",
-              "Maligne Lake sunset",
-              "mountain lake twilight pink sky",
-              "Bow Lake sunrise",
-              "Lac Blanc sunset Mont Blanc reflection",
+              "Dolomites lake sunset reflection",
+              "Mount Rainier reflection lake sunset",
+              "Patagonia lake sunset mountains",
+              "Glacier National Park lake sunset",
+              "Banff lake sunset reflection",
+              "Norway fjord sunset mountains reflection",
+              "Swiss Alps lake sunset reflection",
+              "Grand Teton reflection sunrise",
+              "Lake Tahoe sunset mountains",
+              "Mount Assiniboine Lake Magog sunset",
+              "Hallstatt lake dusk",
+              "mountain lake alpenglow",
           ]
           OK_LICENCES = ("cc0", "cc by", "cc-by", "public domain", "pd")
           os.makedirs("out", exist_ok=True)
@@ -43,7 +45,7 @@ jobs:
           for q in QUERIES:
               params = {
                   "action": "query", "format": "json", "generator": "search",
-                  "gsrnamespace": "6", "gsrsearch": f"{q} filetype:bitmap", "gsrlimit": "12",
+                  "gsrnamespace": "6", "gsrsearch": f"{q} filetype:bitmap", "gsrlimit": "20",
                   "prop": "imageinfo", "iiprop": "url|size|extmetadata", "iiurlwidth": "1920",
               }
               data = json.loads(get("https://commons.wikimedia.org/w/api.php?" + urllib.parse.urlencode(params)))
@@ -72,7 +74,7 @@ jobs:
                                "licence": lic, "artist": artist, "page": ii.get("descriptionurl")})
                   print(f"{fname}  {lic:14s} {w}x{h}  {title}")
                   kept += 1
-                  if kept >= 4:
+                  if kept >= 3:
                       break
           json.dump(meta, open("out/meta.json", "w"), indent=1)
           print(len(meta), "candidates")

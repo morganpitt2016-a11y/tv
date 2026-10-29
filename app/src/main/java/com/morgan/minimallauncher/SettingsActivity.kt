@@ -65,6 +65,23 @@ class SettingsActivity : AppCompatActivity() {
             AutoLaunch.setEnabled(this, !AutoLaunch.isEnabled(this))
             refreshAutoLaunch()
         }
+        findViewById<TextView>(R.id.onBootToggle).setOnClickListener {
+            AutoLaunch.setOnBoot(this, !AutoLaunch.onBoot(this))
+            refreshAutoLaunch()
+        }
+        findViewById<TextView>(R.id.onWakeToggle).setOnClickListener {
+            AutoLaunch.setOnWake(this, !AutoLaunch.onWake(this))
+            refreshAutoLaunch()
+        }
+        findViewById<TextView>(R.id.overlayPermissionButton).setOnClickListener {
+            try {
+                startActivity(
+                    Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, android.net.Uri.parse("package:$packageName"))
+                )
+            } catch (e: Exception) {
+                Toast.makeText(this, "This TV doesn't offer \"Display over other apps\" — the accessibility service covers it instead", Toast.LENGTH_LONG).show()
+            }
+        }
         findViewById<TextView>(R.id.openAccessibilityButton).setOnClickListener {
             try {
                 startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
@@ -87,7 +104,14 @@ class SettingsActivity : AppCompatActivity() {
         val serviceOn = HomeRedirectService.isServiceEnabled(this)
         val wanted = AutoLaunch.isEnabled(this)
         findViewById<TextView>(R.id.autoLaunchToggle).text =
-            if (wanted) "Open automatically: On" else "Open automatically: Off"
+            if (wanted) "Instead of Google TV home: On" else "Instead of Google TV home: Off"
+        findViewById<TextView>(R.id.onBootToggle).text =
+            if (AutoLaunch.onBoot(this)) "When the TV turns on: On" else "When the TV turns on: Off"
+        findViewById<TextView>(R.id.onWakeToggle).text =
+            if (AutoLaunch.onWake(this)) "When waking from sleep: On" else "When waking from sleep: Off"
+        val overlayOk = Settings.canDrawOverlays(this)
+        findViewById<TextView>(R.id.overlayPermissionButton).text =
+            if (overlayOk) "Display over other apps: allowed" else "Allow display over other apps (backup)"
         findViewById<TextView>(R.id.autoLaunchStatus).text = when {
             !wanted -> "Off. The Google TV home screen will show as normal."
             serviceOn -> "Working. Minimal Launcher opens when the TV turns on and when you leave an app."
