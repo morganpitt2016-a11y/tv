@@ -1,0 +1,39 @@
+name: Fetch wallpaper candidates
+
+# One-off helper: downloads candidate landscape photos (Unsplash License)
+# at 1920px so they can be reviewed and the best ones bundled into the app.
+# Results are pushed to the `wallpaper-candidates` branch, not main.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download candidates
+        run: |
+          mkdir -p out
+          ANDROID_UA="Dalvik/2.1.0 (Linux; U; Android 14; Google TV Build/UTTK)"
+          BROWSER_UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+          for id in rmX6kki4Ht4 N7snRVB4usc m07cD8ChI1A D3odArjJIzc XY9tbPYhR34 U_mKUrPMXW0 \
+                    7Z94A-v9kvw OtokIOPILX8 HdgZMuaKUsk 11i8fNhgWFM aCusqffy5sY HzcCapUboxE \
+                    T_YG9paUo5I IUUGhLfVUuk; do
+            url="https://unsplash.com/photos/$id/download?force=true&w=1920"
+            echo "== $id"
+            echo -n "  android UA: "; curl -sS -L -A "$ANDROID_UA" -o /dev/null -w "%{http_code} %{content_type} %{size_download}\n" "$url" || true
+            echo -n "  browser UA: "; curl -sS -L -A "$BROWSER_UA" -o "out/$id.jpg" -w "%{http_code} %{content_type} %{size_download}\n" "$url" || true
+          done
+          ls -la out
+
+      - name: Push to wallpaper-candidates branch
+        run: |
+          cd out
+          git init -q -b wallpaper-candidates
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Wallpaper candidates (run ${{ github.run_number }})"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" wallpaper-candidates
