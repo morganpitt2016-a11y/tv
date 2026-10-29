@@ -24,6 +24,21 @@ jobs:
       - name: Build debug APK
         run: gradle assembleDebug --stacktrace
 
+      - name: Diagnose APK (signing + manifest, as the installer sees them)
+        run: |
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "build-tools dir: $BT"
+          ls -la "$APK"
+          sha256sum "$APK"
+          echo "==== apksigner verify ===="
+          "$BT/apksigner" verify --verbose --print-certs "$APK" || echo "apksigner exit code: $?"
+          echo "==== aapt2 dump badging ===="
+          "$BT/aapt2" dump badging "$APK" || echo "aapt2 badging exit code: $?"
+          echo "==== aapt2 dump xmltree AndroidManifest.xml ===="
+          "$BT/aapt2" dump xmltree "$APK" --file AndroidManifest.xml || echo "aapt2 xmltree exit code: $?"
+
       - name: Create release with APK
         uses: softprops/action-gh-release@v2
         with:
