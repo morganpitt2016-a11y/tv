@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.MinimalLauncher" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowBackground">@color/background_black</item>
+        <item name="android:colorBackground">@color/background_black</item>
+        <item name="android:navigationBarColor">@color/background_black</item>
+        <item name="android:statusBarColor">@color/background_black</item>
+    </style>
+
+    <style name="QuickSettingButton">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginEnd">16dp</item>
+        <item name="android:paddingStart">20dp</item>
+        <item name="android:paddingEnd">20dp</item>
+        <item name="android:paddingTop">10dp</item>
+        <item name="android:paddingBottom">10dp</item>
+        <item name="android:background">@drawable/focusable_item_bg</item>
+        <item name="android:textColor">@color/text_white</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:focusable">true</item>
+        <item name="android:focusableInTouchMode">true</item>
+    </style>
+</resources>

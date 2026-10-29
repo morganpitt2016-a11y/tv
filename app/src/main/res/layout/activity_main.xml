@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/background_black">
+
+    <!-- Layer 1: full-bleed background photo, Ken-Burns animated -->
+    <ImageView
+        android:id="@+id/backgroundPhoto"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:contentDescription="@null" />
+
+    <!-- Layer 2: dark gradient scrim so foreground text/icons stay legible
+         over whatever is in the photo, same idea as Apple TV's aerial
+         screensaver overlay -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/background_scrim" />
+
+    <!-- Layer 3: the actual UI, unchanged from before -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:padding="48dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/clockText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="72sp"
+                android:textColor="@color/text_white"
+                android:fontFamily="sans-serif-light"
+                android:text="00:00" />
+
+            <TextView
+                android:id="@+id/dateText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="20sp"
+                android:textColor="@color/text_grey"
+                android:layout_marginTop="4dp"
+                android:text="Loading date" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="end">
+
+            <TextView
+                android:id="@+id/weatherTempText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="36sp"
+                android:textColor="@color/text_white"
+                android:fontFamily="sans-serif-light"
+                android:text="--°" />
+
+            <TextView
+                android:id="@+id/weatherPlaceText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="14sp"
+                android:textColor="@color/text_grey"
+                android:layout_marginTop="2dp"
+                android:text="Locating..." />
+        </LinearLayout>
+
+    </LinearLayout>
+
+    <Space
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <LinearLayout
+        android:id="@+id/quickSettingsRow"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:layout_marginBottom="20dp">
+
+        <TextView
+            android:id="@+id/qsWifi"
+            style="@style/QuickSettingButton"
+            android:text="Wi-Fi" />
+
+        <TextView
+            android:id="@+id/qsDisplay"
+            style="@style/QuickSettingButton"
+            android:text="Display" />
+
+        <TextView
+            android:id="@+id/qsApps"
+            style="@style/QuickSettingButton"
+            android:text="Apps" />
+
+        <TextView
+            android:id="@+id/qsPower"
+            style="@style/QuickSettingButton"
+            android:text="Power" />
+
+    </LinearLayout>
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/appGrid"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:clipToPadding="false" />
+
+    </LinearLayout>
+
+</FrameLayout>
