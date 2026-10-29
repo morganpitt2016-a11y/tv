@@ -16,15 +16,19 @@ jobs:
       - name: Download candidates
         run: |
           mkdir -p out
-          ANDROID_UA="Dalvik/2.1.0 (Linux; U; Android 14; Google TV Build/UTTK)"
-          BROWSER_UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+          UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
           for id in rmX6kki4Ht4 N7snRVB4usc m07cD8ChI1A D3odArjJIzc XY9tbPYhR34 U_mKUrPMXW0 \
                     7Z94A-v9kvw OtokIOPILX8 HdgZMuaKUsk 11i8fNhgWFM aCusqffy5sY HzcCapUboxE \
                     T_YG9paUo5I IUUGhLfVUuk; do
-            url="https://unsplash.com/photos/$id/download?force=true&w=1920"
             echo "== $id"
-            echo -n "  android UA: "; curl -sS -L -A "$ANDROID_UA" -o /dev/null -w "%{http_code} %{content_type} %{size_download}\n" "$url" || true
-            echo -n "  browser UA: "; curl -sS -L -A "$BROWSER_UA" -o "out/$id.jpg" -w "%{http_code} %{content_type} %{size_download}\n" "$url" || true
+            page=$(curl -sS -L -A "$UA" -w "\n%{http_code}" "https://unsplash.com/photos/$id" || true)
+            echo "  page: $(echo "$page" | tail -1)"
+            img=$(echo "$page" | grep -oE 'https://images\.unsplash\.com/photo-[A-Za-z0-9_-]+' | head -1)
+            echo "  image: ${img:-NOT FOUND}"
+            [ -z "$img" ] && continue
+            echo "$img" > "out/$id.url"
+            echo -n "  download: "
+            curl -sS -L -o "out/$id.jpg" -w "%{http_code} %{content_type} %{size_download}\n" "$img?w=1920&q=85&fm=jpg&fit=max" || true
           done
           ls -la out
 
