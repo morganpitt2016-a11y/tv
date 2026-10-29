@@ -30,7 +30,8 @@ class WallpaperRotator(
     private val photos: List<Int> = context.resources.obtainTypedArray(R.array.wallpapers).let { arr ->
         List(arr.length()) { arr.getResourceId(it, 0) }.filter { it != 0 }.also { arr.recycle() }
     }
-    private var order = photos.shuffled()
+    // The first photo in the list always shows first, then the rest shuffled.
+    private var order = photos.take(1) + photos.drop(1).shuffled()
     private var index = 0
     private var showingA = false
     private var running = false

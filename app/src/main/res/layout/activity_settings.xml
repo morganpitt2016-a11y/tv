@@ -241,6 +241,14 @@
 
         </LinearLayout>
 
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/wallpaper_credits"
+            android:textColor="@color/text_grey"
+            android:textSize="11sp"
+            android:layout_marginBottom="32dp" />
+
     </LinearLayout>
 
 </ScrollView>

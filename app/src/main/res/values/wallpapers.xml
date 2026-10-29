@@ -1,5 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Bundled wallpaper photos, rotated by WallpaperRotator. -->
-    <array name="wallpapers" />
+    <!-- Bundled wallpaper photos, rotated by WallpaperRotator. The first one shows first.
+         Sources and licences: see the README and the photo credits in Settings. -->
+    <array name="wallpapers">
+        <item>@drawable/wp_01</item>
+        <item>@drawable/wp_02</item>
+        <item>@drawable/wp_03</item>
+        <item>@drawable/wp_04</item>
+        <item>@drawable/wp_05</item>
+        <item>@drawable/wp_06</item>
+        <item>@drawable/wp_07</item>
+        <item>@drawable/wp_08</item>
+        <item>@drawable/wp_09</item>
+        <item>@drawable/wp_10</item>
+        <item>@drawable/wp_11</item>
+        <item>@drawable/wp_12</item>
+        <item>@drawable/wp_13</item>
+        <item>@drawable/wp_14</item>
+        <item>@drawable/wp_15</item>
+    </array>
 </resources>

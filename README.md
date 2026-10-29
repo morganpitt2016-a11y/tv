@@ -69,12 +69,9 @@ adb uninstall com.morgan.minimallauncher
 Modelled on an Apple-TV-style reference layout, on a fixed 960x540dp
 stage (the 1920x1080 reference at 2x) that scales to fit any screen:
 
-- **Wallpaper**: real mountain/lake photos from Unsplash (free under the
-  Unsplash License), crossfading every 5 minutes with a slow zoom. The list
-  of photo IDs is at the top of `WallpaperRotator.kt`. Photos are cached on
-  the TV after the first download. Until the first photo loads (or with no
-  internet) a bundled painted scene shows instead
-  (`res/drawable-nodpi/wallpaper_*.webp`, made with `tools/wallpaper/`).
+- **Wallpaper**: 15 real mountain/lake photos bundled in the app, cross-fading
+  every 5 minutes with a slow zoom (no internet needed). They're listed in
+  `res/values/wallpapers.xml`; credits are below and in Settings.
 - **Profile selector** (top-left): Person 1 / Person 2 by default; add,
   rename or delete profiles in Settings. Each profile has its own dock apps.
 - **Date and clock**: centred. The clock uses Roboto Flex tuned (width 72,
@@ -90,7 +87,9 @@ stage (the 1920x1080 reference at 2x) that scales to fit any screen:
 - **Govee lights**: once a Govee API key is saved in Settings, each device
   appears as a pill next to the moon button; select it to toggle on/off.
 
-- **Open automatically**: Google TV doesn't let you change the home app, so
+- **Open automatically**: switches in Settings for (1) instead of the Google
+  TV home, (2) when the TV turns on (`BootReceiver`), and (3) when it wakes
+  from sleep. Google TV doesn't let you change the home app, so
   `HomeRedirectService` (an accessibility service, the approach Projectivy
   uses) opens this launcher whenever the stock Google TV home appears: at
   power-on, on Home, and when leaving an app. Turn it on from Settings →
@@ -98,3 +97,23 @@ stage (the 1920x1080 reference at 2x) that scales to fit any screen:
   restricted settings for the app first (App info, ⋮ menu).
 
 Fonts: Roboto Flex, Oswald and Inter (SIL Open Font License). Icons: Lucide (ISC).
+
+## Photo credits
+
+All from Wikimedia Commons, cropped to 16:9 and resized to 1920x1080.
+
+- [Matterhorn and Stellisee in Twilight](https://commons.wikimedia.org/wiki/File:Matterhorn_and_Stellisee_in_Twilight.jpg) by Michael Kuhn, CC BY-SA 4.0
+- [Reine At Sunrise (139429959)](https://commons.wikimedia.org/wiki/File:Reine_At_Sunrise_(139429959).jpeg) by Russo Francesco F R P I X C O M, CC BY 3.0
+- [Lake Louise Sunrise8](https://commons.wikimedia.org/wiki/File:Lake_Louise_Sunrise8.jpg) by David Zhang, CC BY-SA 2.0
+- [Schwabacher Sunrise - Grand Teton National Park](https://commons.wikimedia.org/wiki/File:Schwabacher_Sunrise_-_Grand_Teton_National_Park.jpg) by Eric Kilby, CC BY-SA 2.0
+- [Jokulsarlon lake, Iceland](https://commons.wikimedia.org/wiki/File:Jokulsarlon_lake,_Iceland.jpg) by Kenny Muir, CC BY 2.0
+- [Glacier National Park sunset](https://commons.wikimedia.org/wiki/File:Glacier_National_Park_sunset.jpg) by B D, CC BY 2.0
+- [Baker Lake - Skoki Valley - Banff](https://commons.wikimedia.org/wiki/File:Baker_Lake_-_Skoki_Valley_-_Banff.jpg) by Jakub Fryš, CC BY-SA 4.0
+- [Alpenglow Maroon Bells, Maroon Lake, Colorado](https://commons.wikimedia.org/wiki/File:Alpenglow_Maroon_Bells,_Maroon_Lake,_Colorado.jpg) by John Fowler from Placitas, NM, USA, CC BY 2.0
+- [Sunset at Maligne Lake - Flickr - Jaykhuang](https://commons.wikimedia.org/wiki/File:Sunset_at_Maligne_Lake_-_Flickr_-_Jaykhuang.jpg) by Jay Huang from Pleasanton, USA, CC BY 2.0
+- [Mountains Reflecting - Grand Teton National Park](https://commons.wikimedia.org/wiki/File:Mountains_Reflecting_-_Grand_Teton_National_Park.jpg) by Eric Kilby, CC BY-SA 2.0
+- [Sunset at General Carrera Lake](https://commons.wikimedia.org/wiki/File:Sunset_at_General_Carrera_Lake.jpg) by Andreizaaa, CC BY-SA 4.0
+- [French alps at Lake Geneva during the blue hour with reflections](https://commons.wikimedia.org/wiki/File:French_alps_at_Lake_Geneva_during_the_blue_hour_with_reflections.jpg) by Deralpinbergsteiger, CC BY-SA 4.0
+- [Lake Louise Sunrise1](https://commons.wikimedia.org/wiki/File:Lake_Louise_Sunrise1.jpg) by David Zhang, CC BY-SA 2.0
+- [Low sunlight at Øksfjorden in Loppa, Troms og Finnmark, Norway, 2022 August](https://commons.wikimedia.org/wiki/File:Low_sunlight_at_%C3%98ksfjorden_in_Loppa,_Troms_og_Finnmark,_Norway,_2022_August.jpg) by Ximonic (Simo Räsänen), CC BY-SA 4.0
+- [Nautical twilight sunset over Sandy Lake (DSCF3005)](https://commons.wikimedia.org/wiki/File:Nautical_twilight_sunset_over_Sandy_Lake_(DSCF3005).jpg) by Trougnouf, CC BY 4.0
