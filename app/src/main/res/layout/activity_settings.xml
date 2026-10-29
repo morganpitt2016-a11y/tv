@@ -21,6 +21,60 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:text="Open automatically"
+            android:textColor="@color/text_white"
+            android:textSize="20sp"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Google TV doesn\'t let you choose a different home app, so this uses an accessibility service: whenever the Google TV home screen appears (when the TV turns on, when you press Home, or when you leave an app) Minimal Launcher opens instead."
+            android:textColor="@color/text_grey"
+            android:textSize="14sp"
+            android:layout_marginBottom="12dp" />
+
+        <TextView
+            android:id="@+id/autoLaunchStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/text_white"
+            android:textSize="15sp"
+            android:layout_marginBottom="8dp" />
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="8dp">
+
+            <TextView
+                android:id="@+id/autoLaunchToggle"
+                style="@style/QuickSettingButton" />
+
+            <TextView
+                android:id="@+id/openAccessibilityButton"
+                style="@style/QuickSettingButton"
+                android:text="Open accessibility settings" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="In accessibility settings, choose \'Minimal Launcher: open automatically\' and turn it on. If it\'s greyed out or says \'Restricted setting\', go to Settings → Apps → Minimal Launcher, open the ⋮ menu or scroll down, choose \'Allow restricted settings\', then try again."
+            android:textColor="@color/text_grey"
+            android:textSize="13sp"
+            android:layout_marginBottom="24dp" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="@color/text_grey"
+            android:layout_marginBottom="24dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
             android:text="Govee smart plugs/lights"
             android:textColor="@color/text_white"
             android:textSize="20sp"

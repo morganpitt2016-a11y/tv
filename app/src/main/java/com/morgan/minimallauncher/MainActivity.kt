@@ -5,6 +5,7 @@ import android.content.res.ColorStateList
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -20,6 +21,7 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.content.res.ResourcesCompat
@@ -39,6 +41,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var keepWatchingLabel: TextView
     private lateinit var keepWatchingRow: LinearLayout
     private lateinit var dock: LinearLayout
+    private lateinit var wallpaperFront: View
+    private lateinit var rotator: WallpaperRotator
 
     private val handler = Handler(Looper.getMainLooper())
     private var govDevices: List<GoveeHelper.Device> = emptyList()
@@ -66,9 +70,21 @@ class MainActivity : AppCompatActivity() {
         keepWatchingLabel = findViewById(R.id.keepWatchingLabel)
         keepWatchingRow = findViewById(R.id.keepWatchingRow)
         dock = findViewById(R.id.dock)
+        wallpaperFront = findViewById(R.id.wallpaperFront)
+
+        setupClockFont()
+        rotator = WallpaperRotator(this, findViewById(R.id.photoA), findViewById(R.id.photoB)) { photoShowing ->
+            // Real photos replace the painted scene, foreground layer included.
+            wallpaperFront.visibility = if (photoShowing) View.GONE else View.VISIBLE
+        }
 
         // Scale the 960x540dp stage to fill whatever screen this is.
         root.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> fitStage() }
+
+        // This is the home screen: Back has nowhere to go.
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() = Unit
+        })
 
         addFocusScale(nightModeButton, 1.1f)
         nightModeButton.setOnClickListener { setNightMode(!isNightMode()) }
@@ -78,12 +94,14 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         handler.post(clockTick)
+        rotator.start()
         refreshAll()
     }
 
     override fun onPause() {
         super.onPause()
         handler.removeCallbacks(clockTick)
+        rotator.stop()
     }
 
     private fun refreshAll() {
@@ -104,6 +122,25 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ---------- Clock ----------
+
+    /**
+     * Apple's SF Pro can't be bundled (its licence only covers mock-ups of
+     * Apple-platform software), so the clock uses Roboto Flex tuned on its
+     * width/weight/figure-height axes to match SF Pro Condensed's tall,
+     * flat-sided numerals in the reference. Variable-font axes need
+     * Android 8+; older devices fall back to Oswald Light.
+     */
+    private fun setupClockFont() {
+        if (Build.VERSION.SDK_INT >= 26) {
+            clockText.typeface = font(R.font.roboto_flex)
+            clockText.setFontVariationSettings("'wdth' 72, 'wght' 480, 'opsz' 144, 'YTFI' 788")
+        } else {
+            clockText.typeface = font(R.font.oswald_light)
+            clockText.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 183f)
+            clockText.letterSpacing = -0.008f
+            (clockText.layoutParams as FrameLayout.LayoutParams).topMargin = dp(16)
+        }
+    }
 
     private fun updateClock() {
         val now = Calendar.getInstance()

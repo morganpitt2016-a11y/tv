@@ -61,8 +61,38 @@ class SettingsActivity : AppCompatActivity() {
             startActivity(Intent(Settings.ACTION_APPLICATION_SETTINGS))
         }
 
+        findViewById<TextView>(R.id.autoLaunchToggle).setOnClickListener {
+            AutoLaunch.setEnabled(this, !AutoLaunch.isEnabled(this))
+            refreshAutoLaunch()
+        }
+        findViewById<TextView>(R.id.openAccessibilityButton).setOnClickListener {
+            try {
+                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            } catch (e: Exception) {
+                Toast.makeText(this, "Accessibility settings aren't available on this device", Toast.LENGTH_SHORT).show()
+            }
+        }
+
         rebuildProfileList()
         rebuildAppCheckboxes()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // The user may be coming back from the accessibility settings.
+        refreshAutoLaunch()
+    }
+
+    private fun refreshAutoLaunch() {
+        val serviceOn = HomeRedirectService.isServiceEnabled(this)
+        val wanted = AutoLaunch.isEnabled(this)
+        findViewById<TextView>(R.id.autoLaunchToggle).text =
+            if (wanted) "Open automatically: On" else "Open automatically: Off"
+        findViewById<TextView>(R.id.autoLaunchStatus).text = when {
+            !wanted -> "Off. The Google TV home screen will show as normal."
+            serviceOn -> "Working. Minimal Launcher opens when the TV turns on and when you leave an app."
+            else -> "One more step: turn on the accessibility service (button below)."
+        }
     }
 
     private fun showAddProfileDialog() {

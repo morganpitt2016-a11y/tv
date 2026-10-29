@@ -69,16 +69,18 @@ adb uninstall com.morgan.minimallauncher
 Modelled on an Apple-TV-style reference layout, on a fixed 960x540dp
 stage (the 1920x1080 reference at 2x) that scales to fit any screen:
 
-- **Wallpaper**: a bundled mountain/forest/lake sunset scene in two layers
-  (`res/drawable-nodpi/wallpaper_back.webp` and `wallpaper_front.webp`).
-  The clock sits between them, so the peak overlaps the digits. Regenerate
-  or tweak it with `tools/wallpaper/` (see the comments in `gen-art.mjs`).
-  To use your own photo, put it in `wallpaper_back` and remove the
-  `wallpaperFront` ImageView from `activity_main.xml`.
+- **Wallpaper**: real mountain/lake photos from Unsplash (free under the
+  Unsplash License), crossfading every 5 minutes with a slow zoom. The list
+  of photo IDs is at the top of `WallpaperRotator.kt`. Photos are cached on
+  the TV after the first download. Until the first photo loads (or with no
+  internet) a bundled painted scene shows instead
+  (`res/drawable-nodpi/wallpaper_*.webp`, made with `tools/wallpaper/`).
 - **Profile selector** (top-left): Person 1 / Person 2 by default; add,
   rename or delete profiles in Settings. Each profile has its own dock apps.
-- **Date and clock**: centred, Oswald Light numerals; follows the TV's
-  12/24-hour setting.
+- **Date and clock**: centred. The clock uses Roboto Flex tuned (width 72,
+  weight 480) to match the tall numerals of Apple's SF Pro Condensed, which
+  can't be bundled: Apple's licence only allows SF fonts in mock-ups of
+  Apple-platform software. Follows the TV's 12/24-hour setting.
 - **Night mode** (moon, top-right): dims the wallpaper.
 - **Keep watching**: the two apps you most recently opened, with their TV
   banner as the thumbnail. It can't show real episode progress: Android
@@ -88,4 +90,11 @@ stage (the 1920x1080 reference at 2x) that scales to fit any screen:
 - **Govee lights**: once a Govee API key is saved in Settings, each device
   appears as a pill next to the moon button; select it to toggle on/off.
 
-Fonts: Oswald and Inter (SIL Open Font License). Icons: Lucide (ISC).
+- **Open automatically**: Google TV doesn't let you change the home app, so
+  `HomeRedirectService` (an accessibility service, the approach Projectivy
+  uses) opens this launcher whenever the stock Google TV home appears: at
+  power-on, on Home, and when leaving an app. Turn it on from Settings →
+  "Open accessibility settings". If Android says "Restricted setting", allow
+  restricted settings for the app first (App info, ⋮ menu).
+
+Fonts: Roboto Flex, Oswald and Inter (SIL Open Font License). Icons: Lucide (ISC).

@@ -32,21 +32,47 @@
             android:src="@drawable/wallpaper_back"
             android:contentDescription="@null" />
 
-        <!-- Clock: oversized, light, condensed numerals -->
+        <!-- Rotating real photos (WallpaperRotator). Own container so the
+             crossfade reorders only these two views, never the clock. -->
+        <FrameLayout
+            android:id="@+id/photoLayer"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent">
+
+            <ImageView
+                android:id="@+id/photoA"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:alpha="0"
+                android:scaleType="centerCrop"
+                android:contentDescription="@null" />
+
+            <ImageView
+                android:id="@+id/photoB"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:alpha="0"
+                android:scaleType="centerCrop"
+                android:contentDescription="@null" />
+        </FrameLayout>
+
+        <!-- Clock: tall condensed numerals (Roboto Flex, axes set in code;
+             closest open match to Apple's SF Pro Condensed). -->
         <TextView
             android:id="@+id/clockText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="top|center_horizontal"
-            android:layout_marginTop="16dp"
-            android:fontFamily="@font/oswald_light"
+            android:layout_marginTop="54dp"
             android:includeFontPadding="false"
-            android:letterSpacing="-0.008"
+            android:letterSpacing="0.03"
             android:textColor="#EDFFFFFF"
-            android:textSize="183dp"
+            android:textSize="191dp"
+            android:shadowColor="#26000000"
+            android:shadowRadius="12"
             android:text="8:47" />
 
-        <!-- Wallpaper: mountains, forest, lake (transparent sky) -->
+        <!-- Painted scene foreground (hidden once a real photo is showing) -->
         <ImageView
             android:id="@+id/wallpaperFront"
             android:layout_width="match_parent"
