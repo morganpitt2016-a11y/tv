@@ -31,3 +31,17 @@ jobs:
           name: Debug build ${{ github.run_number }}
           files: app/build/outputs/apk/debug/app-debug.apk
           make_latest: true
+
+      # GitHub's release-asset download redirects through a signed S3 URL
+      # with a long query string, which some TV-side downloader apps
+      # mishandle. Also publish the same APK as a plain file committed to
+      # the repo, so it can be fetched as a single-hop, redirect-free URL.
+      - name: Publish APK as a plain raw-fetchable file
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/app-debug.apk dist/app-debug.apk
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add dist/app-debug.apk
+          git commit -m "Publish debug APK (run ${{ github.run_number }}) [skip ci]" || echo "No change to commit"
+          git push origin HEAD:main
