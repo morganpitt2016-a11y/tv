@@ -21,42 +21,43 @@ jobs:
         with:
           gradle-version: '8.5'
 
-      - name: Build debug APK
+      - name: Build debug APKs
         run: gradle assembleDebug --stacktrace
 
       - name: Diagnose APK (signing + manifest, as the installer sees them)
         run: |
-          APK=app/build/outputs/apk/debug/app-debug.apk
-          BT=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "build-tools dir: $BT"
-          ls -la "$APK"
-          sha256sum "$APK"
-          echo "==== apksigner verify ===="
-          "$BT/apksigner" verify --verbose --print-certs "$APK" || echo "apksigner exit code: $?"
-          echo "==== aapt2 dump badging ===="
-          "$BT/aapt2" dump badging "$APK" || echo "aapt2 badging exit code: $?"
-          echo "==== aapt2 dump xmltree AndroidManifest.xml ===="
-          "$BT/aapt2" dump xmltree "$APK" --file AndroidManifest.xml || echo "aapt2 xmltree exit code: $?"
+          for APK in app/build/outputs/apk/debug/app-debug.apk testapp/build/outputs/apk/debug/testapp-debug.apk; do
+            BT=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)
+            echo "#### $APK ####"
+            ls -la "$APK"
+            sha256sum "$APK"
+            echo "==== apksigner verify ===="
+            "$BT/apksigner" verify --verbose --print-certs "$APK" || echo "apksigner exit code: $?"
+            echo "==== aapt2 dump badging ===="
+            "$BT/aapt2" dump badging "$APK" || echo "aapt2 badging exit code: $?"
+          done
 
-      - name: Create release with APK
+      - name: Create release with APKs
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
           name: Debug build ${{ github.run_number }}
-          files: app/build/outputs/apk/debug/app-debug.apk
+          files: |
+            app/build/outputs/apk/debug/app-debug.apk
+            testapp/build/outputs/apk/debug/testapp-debug.apk
           make_latest: true
 
       # GitHub's release-asset download redirects through a signed S3 URL
       # with a long query string, which some TV-side downloader apps
-      # mishandle. Also publish the same APK as a plain file committed to
-      # the repo, so it can be fetched as a single-hop, redirect-free URL.
-      - name: Publish APK as a plain raw-fetchable file
+      # mishandle. Also publish the same APKs as plain files committed to
+      # the repo, so they can be fetched as single-hop, redirect-free URLs.
+      - name: Publish APKs as plain raw-fetchable files
         run: |
           mkdir -p dist
           cp app/build/outputs/apk/debug/app-debug.apk dist/app-debug.apk
+          cp testapp/build/outputs/apk/debug/testapp-debug.apk dist/testapp-debug.apk
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add dist/app-debug.apk
-          git commit -m "Publish debug APK (run ${{ github.run_number }}) [skip ci]" || echo "No change to commit"
+          git add dist/app-debug.apk dist/testapp-debug.apk
+          git commit -m "Publish debug APKs (run ${{ github.run_number }}) [skip ci]" || echo "No change to commit"
           git push origin HEAD:main
