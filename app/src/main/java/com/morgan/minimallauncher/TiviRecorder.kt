@@ -82,6 +82,84 @@ object TiviRecorder {
         val keep = list(c).filter { it.stop > now }
         save(c, keep)
         keep.forEach { arm(c, it) }
+        armSeriesCheck(c)
+        refreshSeries(c)
+    }
+
+    // ---------- Series link ----------
+    // "Record Series": every episode of the show on that channel that appears in the
+    // TV guide is scheduled - now, and again each time the guide is refreshed.
+
+    data class Series(val channel: String, val title: String)
+
+    private const val SERIES_KEY = "rec_series"
+    private const val SERIES_ID = 0x5E41E5
+    private const val SERIES_EVERY_MS = 6 * 3600_000L
+
+    private fun seriesKey(t: String) = t.lowercase().replace(Regex("[^a-z0-9]+"), " ").trim()
+
+    fun seriesList(c: Context): List<Series> = try {
+        val a = JSONArray(Prefs.string(c, SERIES_KEY) ?: "[]")
+        (0 until a.length()).map { a.getJSONObject(it) }.map { Series(it.getString("ch"), it.getString("t")) }
+    } catch (e: Exception) { emptyList() }
+
+    private fun saveSeries(c: Context, items: List<Series>) {
+        val a = JSONArray()
+        items.forEach { a.put(JSONObject().put("ch", it.channel).put("t", it.title)) }
+        Prefs.setString(c, SERIES_KEY, a.toString())
+    }
+
+    fun isSeries(c: Context, ch: LiveGuide.Channel, p: LiveGuide.Programme) =
+        seriesList(c).any { it.channel == ch.name && seriesKey(it.title) == seriesKey(p.title) }
+
+    /** Link the series and schedule every episode the guide knows about. Returns how many. */
+    fun addSeries(c: Context, ch: LiveGuide.Channel, p: LiveGuide.Programme, channels: List<LiveGuide.Channel>): Int {
+        val rule = Series(ch.name, p.title)
+        saveSeries(c, seriesList(c).filterNot { it.channel == rule.channel && seriesKey(it.title) == seriesKey(rule.title) } + rule)
+        armSeriesCheck(c)
+        return scheduleSeries(c, channels)
+    }
+
+    fun removeSeries(c: Context, ch: LiveGuide.Channel, p: LiveGuide.Programme) {
+        val key = seriesKey(p.title)
+        saveSeries(c, seriesList(c).filterNot { it.channel == ch.name && seriesKey(it.title) == key })
+        // Drop the episodes it had scheduled too.
+        list(c).filter { it.channel == ch.name && seriesKey(it.title) == key }.forEach { cancel(c, it.id) }
+    }
+
+    /** Schedule every upcoming episode of every linked series. Returns how many were new. */
+    fun scheduleSeries(c: Context, channels: List<LiveGuide.Channel>): Int {
+        val rules = seriesList(c)
+        if (rules.isEmpty()) return 0
+        val now = System.currentTimeMillis()
+        val have = list(c).map { it.id }.toSet()
+        var added = 0
+        for (rule in rules) {
+            val ch = channels.firstOrNull { it.name == rule.channel } ?: continue
+            for (p in ch.programmes) {
+                // Upcoming episodes (one already on is recorded straight away instead).
+                if (p.start <= now) continue
+                if (seriesKey(p.title) != seriesKey(rule.title)) continue
+                if (idOf(ch.name, p.start) in have) continue
+                schedule(c, ch, p)
+                added++
+            }
+        }
+        return added
+    }
+
+    /** Check the guide for new episodes every few hours. */
+    private fun armSeriesCheck(c: Context) {
+        if (seriesList(c).isEmpty()) return
+        val am = c.getSystemService(AlarmManager::class.java)
+        val pi = PendingIntent.getBroadcast(c, SERIES_ID, Intent(c, RecordReceiver::class.java).putExtra("series", true),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        am.setInexactRepeating(AlarmManager.RTC, System.currentTimeMillis() + SERIES_EVERY_MS, SERIES_EVERY_MS, pi)
+    }
+
+    internal fun refreshSeries(c: Context) {
+        if (seriesList(c).isEmpty()) return
+        LiveGuide.load(c) { channels -> if (channels != null) scheduleSeries(c, channels) }
     }
 
     private fun pending(c: Context, id: Int): PendingIntent =
@@ -122,6 +200,7 @@ object TiviRecorder {
 
 class RecordReceiver : BroadcastReceiver() {
     override fun onReceive(c: Context, i: Intent) {
-        TiviRecorder.fire(c.applicationContext, i.getIntExtra("id", 0))
+        if (i.getBooleanExtra("series", false)) TiviRecorder.refreshSeries(c.applicationContext)
+        else TiviRecorder.fire(c.applicationContext, i.getIntExtra("id", 0))
     }
 }

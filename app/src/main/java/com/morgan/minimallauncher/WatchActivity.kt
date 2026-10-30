@@ -424,13 +424,29 @@ class WatchActivity : AppCompatActivity() {
             d.button("Watch in TiviMate", GlassDialog.Style.BOLD) { LiveGuide.openTiviMate(this, ch) }
             when {
                 p.isOn() -> d.button("Record in TiviMate") { TiviRecorder.recordNow(this, ch) }
-                TiviRecorder.isScheduled(this, ch, p) -> d.button("Cancel Recording", GlassDialog.Style.DESTRUCTIVE) {
+                TiviRecorder.isScheduled(this, ch, p) -> d.button("Cancel This Recording", GlassDialog.Style.DESTRUCTIVE) {
                     TiviRecorder.list(this).filter { it.channel == ch.name && it.start == p.start }.forEach { TiviRecorder.cancel(this, it.id) }
                     GlassUi.toast(this, "Recording cancelled")
                 }
-                p.start > System.currentTimeMillis() -> d.button("Record When It Starts") {
+                p.start > System.currentTimeMillis() -> d.button("Record This Episode") {
                     TiviRecorder.schedule(this, ch, p)
                     GlassUi.toast(this, "TiviMate will record ${p.title} - keep the TV on")
+                }
+            }
+            // Series link: every episode on this channel, as the guide shows them.
+            if (TiviRecorder.isSeries(this, ch, p)) {
+                d.button("Cancel Series Recording", GlassDialog.Style.DESTRUCTIVE) {
+                    TiviRecorder.removeSeries(this, ch, p)
+                    GlassUi.toast(this, "Stopped recording ${p.title}")
+                }
+            } else {
+                d.button("Record Series") {
+                    LiveGuide.load(this) { channels ->
+                        val n = TiviRecorder.addSeries(this, ch, p, channels ?: emptyList())
+                        GlassUi.toast(this, "Recording every ${p.title} on ${ch.name}" +
+                            if (n > 0) " - $n episode${if (n == 1) "" else "s"} scheduled" else " - new episodes are added as the guide updates")
+                    }
+                    if (p.isOn()) TiviRecorder.recordNow(this, ch)
                 }
             }
         }
