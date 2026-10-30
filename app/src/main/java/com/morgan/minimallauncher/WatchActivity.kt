@@ -294,12 +294,14 @@ class WatchActivity : AppCompatActivity() {
     /** Continue Watching and My List: refreshed whenever you come back. */
     private fun refreshPersonalRows() {
         if (tab != "home") return
-        listOf("history", "mylist").forEach { key -> findRow(key)?.let { rows.removeView(it) } }
+        listOf("history", "mylist", "recordings").forEach { key -> findRow(key)?.let { rows.removeView(it) } }
         val history = WatchCatalog.history(this)
         val myList = WatchCatalog.myList(this)
         var at = 0
         if (history.isNotEmpty()) { rows.addView(staticTitleRow("history", "Continue Watching", history).view, at++) }
-        if (myList.isNotEmpty()) { rows.addView(staticTitleRow("mylist", "My List", myList).view, at) }
+        if (myList.isNotEmpty()) { rows.addView(staticTitleRow("mylist", "My List", myList).view, at++) }
+        findRow("recordings")?.let { rows.removeView(it) }
+        recordingsRow("recordings")?.let { rows.addView(it, at) }
     }
 
     // ---------- Films / Shows ----------
@@ -623,8 +625,40 @@ class WatchActivity : AppCompatActivity() {
 
     // ---------- My List ----------
 
+    /** Programmes the app recorded: newest first; OK plays, hold OK to delete. */
+    private fun recordingsRow(key: String): View? {
+        val recs = Recordings.list(this)
+        if (recs.isEmpty()) return null
+        val r = row(key, "Recordings", height = 150f)
+        val f = DateFormat.getMediumDateFormat(this)
+        val time = DateFormat.getTimeFormat(this)
+        r.list.adapter = CardAdapter(recs, { p -> wideCard(p) }) { h, rec ->
+            h.label.text = rec.title
+            h.sub?.text = if (Recordings.isRecording(rec)) "● Recording now · ${rec.channel}" else "${rec.channel}  ·  ${f.format(Date(rec.start))} ${time.format(Date(rec.start))}"
+            h.progress?.visibility = View.GONE
+            ImageLoader.load(h.image, rec.image, ImageLoader.CARD)
+            h.root.contentDescription = rec.title
+            h.root.setOnClickListener {
+                PlayerActivity.play(this, android.net.Uri.fromFile(java.io.File(rec.file)).toString(), rec.title, live = false,
+                    subtitle = rec.channel, eyebrow = "RECORDING")
+            }
+            h.root.setOnLongClickListener {
+                GlassDialog(this).title(rec.title).message(if (Recordings.isRecording(rec)) "Still recording." else "Recorded from ${rec.channel}.")
+                    .button(if (Recordings.isRecording(rec)) "Stop and Delete" else "Delete Recording", GlassDialog.Style.DESTRUCTIVE) {
+                        Recordings.delete(this, rec); showTab(tab, focusContent = true)
+                    }
+                    .button("Cancel").show()
+                true
+            }
+            focusEffect(h.root) { showPlainHero("RECORDING", rec.title, rec.channel) }
+        }
+        return r.view
+    }
+
     private fun buildList() {
+        recordingsRow("recordings")?.let { rows.addView(it) }
         val list = WatchCatalog.myList(this)
+        if (list.isEmpty() && Recordings.list(this).isNotEmpty()) return
         if (list.isEmpty()) {
             showPlainHero("MY LIST", "Nothing saved yet", "Open any film or show and choose “Add to My List”.")
             rows.addView(GlassUi.text(this, "Your saved films and shows appear here.", 13f, R.font.inter_medium, 0x99FFFFFF.toInt()),

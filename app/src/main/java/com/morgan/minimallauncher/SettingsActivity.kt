@@ -619,9 +619,17 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun askProviderLogin() {
-        val s = GlassDialog(this).title("Server").message("The server address from your provider, e.g. http://example.com:8080").input("Server address", Prefs.string(this, "xt_server").orEmpty())
+        val s = GlassDialog(this).title("Server").message("The server address from your provider (e.g. http://example.com:8080) - or paste the whole playlist link and the rest fills itself in.").input("Server address", Prefs.string(this, "xt_server").orEmpty())
         s.button("Next", GlassDialog.Style.BOLD) {
             val server = s.inputText
+            // A whole playlist link (…/get.php?username=…&password=…) has everything in it.
+            val link = try { android.net.Uri.parse(if (server.contains("://")) server else "http://$server") } catch (e: Exception) { null }
+            val lu = link?.getQueryParameter("username"); val lp = link?.getQueryParameter("password")
+            if (link != null && !lu.isNullOrBlank() && !lp.isNullOrBlank()) {
+                val base = "${link.scheme}://${link.authority}"
+                Xtream.save(this, base, lu, lp); refreshValues(); checkProviderLogin()
+                return@button
+            }
             val u = GlassDialog(this).title("Username").input("Username", Prefs.string(this, "xt_user").orEmpty())
             u.button("Next", GlassDialog.Style.BOLD) {
                 val user = u.inputText

@@ -29,6 +29,13 @@ object TiviRecorder {
 
     /** Record what's on [ch] now. */
     fun recordNow(activity: Activity, ch: LiveGuide.Channel) {
+        // Signed in to the provider: the app records it itself, straight to My List.
+        if (Xtream.isSetUp(activity)) {
+            val p = ch.now()
+            Recordings.start(activity, ch.name, p?.title ?: ch.name, p?.stop ?: (System.currentTimeMillis() + 3600_000L), p?.image ?: ch.logo)
+            GlassUi.toast(activity, "Recording ${p?.title ?: ch.name} - it’ll be in My List")
+            return
+        }
         if (!TiviTuner.canTune()) {
             GlassUi.toast(activity, "Turn on the accessibility service in Settings to record")
             return
@@ -183,6 +190,11 @@ object TiviRecorder {
         val item = list(c).firstOrNull { it.id == id } ?: return
         save(c, list(c).filter { it.id != id })
         if (System.currentTimeMillis() > item.stop) return
+        if (Xtream.isSetUp(c)) {
+            // Recorded by the app in the background - nothing changes on screen.
+            Recordings.start(c, item.channel, item.title, item.stop, null)
+            return
+        }
         val intent = LiveGuide.launchIntent(c, LiveGuide.TIVIMATE) ?: return say(c, "TiviMate isn’t installed - couldn’t record ${item.title}")
         if (!TiviTuner.canTune()) return say(c, "Couldn’t record ${item.title}: the accessibility service is off")
         say(c, "Recording ${item.title} on ${item.channel}")
