@@ -271,6 +271,25 @@ object LiveGuide {
 
     /** Opens TiviMate (it resumes on the last channel you watched). */
     fun openTiviMate(activity: Activity, channel: Channel?, then: ((Boolean) -> Unit)? = null) {
+        // Signed in to the provider: play the channel straight away in the app's own player.
+        if (channel != null && then == null && Xtream.isSetUp(activity)) {
+            val app = activity.applicationContext
+            Thread {
+                val hit = try { Xtream.findLive(app, channel.name) } catch (e: Exception) { null }
+                activity.runOnUiThread {
+                    if (activity.isDestroyed) return@runOnUiThread
+                    if (hit != null) {
+                        PlayerActivity.play(activity, Xtream.liveUrl(app, hit.id), channel.name, live = true,
+                            subtitle = channel.now()?.title, eyebrow = "LIVE", alt = Xtream.liveUrl(app, hit.id, hls = true))
+                    } else openViaTiviMate(activity, channel, null)
+                }
+            }.start()
+            return
+        }
+        openViaTiviMate(activity, channel, then)
+    }
+
+    private fun openViaTiviMate(activity: Activity, channel: Channel?, then: ((Boolean) -> Unit)?) {
         val intent = launchIntent(activity, TIVIMATE)
         if (intent == null) {
             GlassUi.toast(activity, "TiviMate isn’t installed")

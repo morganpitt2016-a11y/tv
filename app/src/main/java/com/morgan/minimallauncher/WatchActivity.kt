@@ -745,7 +745,7 @@ class WatchActivity : AppCompatActivity() {
         }
         // TiviMate's own films and series (from the TV provider), played the same way as live TV.
         if (LiveGuide.hasTiviMate(c)) {
-            buttons.addView(pillButton("Watch on Dodgy Box") { TiviTuner.playVod(this, t.name, t.year, show = t.type == "SHOW") },
+            buttons.addView(pillButton("Watch on Dodgy Box") { watchOnDodgyBox(t) },
                 LinearLayout.LayoutParams(-2, dp(c, 40f)).apply { marginEnd = dp(c, 10f) })
         }
         val trailerButton = pillButton("Trailer") {}
@@ -791,6 +791,51 @@ class WatchActivity : AppCompatActivity() {
                 more.view.visibility = View.VISIBLE
             }
         }
+    }
+
+    /**
+     * Play a film or show from the provider directly (signed in), or through TiviMate's
+     * search otherwise. Shows offer their episodes to choose from.
+     */
+    private fun watchOnDodgyBox(t: WatchCatalog.Title) {
+        val show = t.type == "SHOW"
+        if (!Xtream.isSetUp(this)) { TiviTuner.playVod(this, t.name, t.year, show); return }
+        GlassUi.toast(this, "Finding ${t.name} on Dodgy Box…")
+        val app = applicationContext
+        Thread {
+            var film: Xtream.Vod? = null
+            var series: Xtream.Series? = null
+            var episodes: List<Xtream.Episode> = emptyList()
+            try {
+                if (show) { series = Xtream.findSeries(app, t.name, t.year); series?.let { episodes = Xtream.episodes(app, it) } }
+                else film = Xtream.findVod(app, t.name, t.year)
+            } catch (e: Exception) {}
+            runOnUiThread {
+                if (isDestroyed) return@runOnUiThread
+                val f = film
+                when {
+                    f != null -> PlayerActivity.play(this, Xtream.vodUrl(app, f), t.name, live = false, subtitle = t.year.takeIf { it > 0 }?.toString(), eyebrow = "FILM")
+                    series != null && episodes.isNotEmpty() -> chooseEpisode(t, episodes)
+                    else -> {
+                        GlassUi.toast(this, "${t.name} isn’t in your Dodgy Box library - trying TiviMate")
+                        TiviTuner.playVod(this, t.name, t.year, show)
+                    }
+                }
+            }
+        }.start()
+    }
+
+    private fun chooseEpisode(t: WatchCatalog.Title, episodes: List<Xtream.Episode>) {
+        val app = applicationContext
+        val d = GlassDialog(this).title(t.name).message("${episodes.size} episodes on Dodgy Box").scrolling()
+        for (e in episodes) {
+            val name = e.title.takeIf { it.isNotBlank() && !it.contains(t.name, ignoreCase = true) }?.let { " · $it" }.orEmpty()
+            d.button("S${e.season} E${e.number}$name") {
+                PlayerActivity.play(this, Xtream.episodeUrl(app, e), t.name, live = false, subtitle = "Season ${e.season}, Episode ${e.number}", eyebrow = "SERIES")
+            }
+        }
+        d.button("Cancel")
+        d.show()
     }
 
     /** Inside the detail page: glide down to More Like This, or back up to the buttons. */

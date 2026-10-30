@@ -149,6 +149,7 @@ class SettingsActivity : AppCompatActivity() {
 
         section("Live TV")
         group {
+            vrow("Dodgy Box Login", { if (Xtream.isSetUp(this)) "Signed In" else "Not Set Up" }) { editProviderLogin() }
             vrow("TV Guide", { if (LiveGuide.customUrl(this) != null) "Your Guide Link" else "Freeview" }) { editGuide() }
             vrow("TiviMate Tuning Log", { "" }, chevron = true) {
                 GlassDialog(this).title("TiviMate Tuning Log")
@@ -156,7 +157,7 @@ class SettingsActivity : AppCompatActivity() {
                     .button("Done", GlassDialog.Style.BOLD).show()
             }
         }
-        footnote("What happened the last time Live TV tried to switch TiviMate to a channel - including what TiviMate showed if it couldn’t find it.")
+        footnote("Sign in with your TV provider’s login (server, username, password - the same as in TiviMate › Settings › Playlists) and channels, films and series play straight away in the app. The login stays on this TV. Without it, the app works through TiviMate.")
 
         section("iPhone Remote")
         group {
@@ -603,6 +604,52 @@ class SettingsActivity : AppCompatActivity() {
             .input("Town or city", Weather.getCity(this).orEmpty())
         d.button("Save", GlassDialog.Style.BOLD) { Weather.setCity(this, d.inputText.ifBlank { null }); refreshValues() }
         d.button("Cancel").show()
+    }
+
+    /** Provider login (Xtream Codes): three short steps, then a check with the provider. */
+    private fun editProviderLogin() {
+        if (Xtream.isSetUp(this)) {
+            GlassDialog(this).title("Dodgy Box Login").message("Signed in. Channels, films and series play in the app.")
+                .button("Check Login", GlassDialog.Style.BOLD) { checkProviderLogin() }
+                .button("Reload Channels and Films") { Xtream.clearCache(this); GlassUi.toast(this, "They’ll reload the next time you watch") }
+                .button("Change Login") { askProviderLogin() }
+                .button("Sign Out", GlassDialog.Style.DESTRUCTIVE) { Xtream.signOut(this); refreshValues() }
+                .button("Cancel").show()
+        } else askProviderLogin()
+    }
+
+    private fun askProviderLogin() {
+        val s = GlassDialog(this).title("Server").message("The server address from your provider, e.g. http://example.com:8080").input("Server address", Prefs.string(this, "xt_server").orEmpty())
+        s.button("Next", GlassDialog.Style.BOLD) {
+            val server = s.inputText
+            val u = GlassDialog(this).title("Username").input("Username", Prefs.string(this, "xt_user").orEmpty())
+            u.button("Next", GlassDialog.Style.BOLD) {
+                val user = u.inputText
+                val p = GlassDialog(this).title("Password").input("Password", secret = true)
+                p.button("Sign In", GlassDialog.Style.BOLD) {
+                    Xtream.save(this, server, user, p.inputText)
+                    refreshValues()
+                    checkProviderLogin()
+                }
+                p.button("Cancel")
+                p.show()
+            }
+            u.button("Cancel")
+            u.show()
+        }
+        s.button("Cancel")
+        s.show()
+    }
+
+    private fun checkProviderLogin() {
+        GlassUi.toast(this, "Checking…")
+        Thread {
+            val result = try { Result.success(Xtream.check(this)) } catch (e: Exception) { Result.failure(e) }
+            runOnUiThread {
+                result.onSuccess { GlassDialog(this).title("Signed In").message("Account: $it").button("Done", GlassDialog.Style.BOLD).show() }
+                result.onFailure { GlassDialog(this).title("Couldn’t Sign In").message(it.message ?: "Check the server address, username and password.").button("OK").show() }
+            }
+        }.start()
     }
 
     private fun editGuide() {
