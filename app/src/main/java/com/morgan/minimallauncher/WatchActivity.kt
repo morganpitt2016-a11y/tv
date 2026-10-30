@@ -348,7 +348,7 @@ class WatchActivity : AppCompatActivity() {
             rows.addView(GlassUi.text(this, "Guide", 15f, R.font.inter_semibold),
                 LinearLayout.LayoutParams(-2, -2).apply { setMargins(dp(this@WatchActivity, 56f), dp(this@WatchActivity, 16f), 0, dp(this@WatchActivity, 4f)) })
             for (ch in channels.take(150)) { try { rows.addView(guideRow(ch)) } catch (e: Exception) {} }
-            if (live.isEmpty() && rows.findFocus() == null) rows.post { firstItem()?.requestFocus() }
+            if (rows.findFocus() == null) rows.post { firstItem()?.requestFocus() }
         }
     }
 
