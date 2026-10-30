@@ -21,16 +21,25 @@ jobs:
         with:
           gradle-version: '8.5'
 
-      # Keep one signing key across builds (in GitHub's private build cache, not
-      # in the repo), so every new APK installs as an update of the last one.
+      # Keep one signing key across builds (in GitHub's private build cache, never
+      # in the repo), so every new APK installs as an update of the last one. The
+      # scheduled TV-guide workflow restores it too, so the cache never expires.
       - name: Restore signing key
+        id: signing
         uses: actions/cache@v4
         with:
-          path: ~/.android/debug.keystore
-          key: debug-signing-key-v1
+          path: ~/signing/debug.keystore
+          key: debug-signing-key-v2
+
+      - name: Create signing key (first run only)
+        if: steps.signing.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/signing
+          keytool -genkeypair -keystore ~/signing/debug.keystore -storepass android -alias androiddebugkey \
+            -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
 
       - name: Build debug APKs
-        run: gradle assembleDebug --stacktrace
+        run: DEBUG_KEYSTORE=$HOME/signing/debug.keystore gradle assembleDebug --stacktrace
 
       - name: Diagnose APK (signing + manifest, as the installer sees them)
         run: |

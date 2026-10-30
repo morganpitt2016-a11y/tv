@@ -15,6 +15,20 @@ android {
         versionName "1.0"
     }
 
+    // GitHub builds sign with one kept key (see .github/workflows/build.yml), so each
+    // new APK installs over the last. Local builds use Android's usual debug key.
+    signingConfigs {
+        debug {
+            def kept = System.getenv("DEBUG_KEYSTORE")
+            if (kept != null && new File(kept).exists()) {
+                storeFile file(kept)
+                storePassword "android"
+                keyAlias "androiddebugkey"
+                keyPassword "android"
+            }
+        }
+    }
+
     buildTypes {
         // Shrinking keeps the APK small: the Claude SDK and its JSON
         // library are large, and only a small part of them is used.

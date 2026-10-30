@@ -15,6 +15,13 @@ jobs:
   guide:
     runs-on: ubuntu-latest
     steps:
+      # Touch the app's signing-key cache so GitHub never expires it (see build.yml).
+      - name: Keep signing key cached
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/signing/debug.keystore
+          key: debug-signing-key-v2
+
       - name: Build guide.json
         shell: python
         run: |
