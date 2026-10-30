@@ -75,6 +75,74 @@ object TiviTuner {
         return added
     }
 
+    // ---------- Channel numbers ----------
+    // TiviMate shows each channel's number beside its name. The picker notes them as it
+    // passes, so next time it knows which way (and how far) to go straight away.
+
+    private val numbers = HashMap<String, Int>()
+    private var numbersLoaded = false
+
+    /** Rough positions of the main UK channels, used until the real numbers are learned. */
+    private val HINTS = mapOf(
+        "bbc one" to 1, "bbc two" to 2, "itv1" to 3, "itv" to 3, "stv" to 3, "channel 4" to 4, "5" to 5,
+        "itv2" to 6, "bbc three" to 7, "bbc four" to 9, "itv3" to 10, "quest" to 12, "e4" to 13,
+        "film4" to 14, "really" to 17, "more4" to 18, "dave" to 19, "drama" to 20, "5usa" to 21,
+        "itv4" to 26, "yesterday" to 27, "itvbe" to 28, "5star" to 31, "bbc news" to 40,
+        "sky news" to 41, "cbbc" to 70, "cbeebies" to 71,
+    )
+
+    private fun loadNumbers(c: android.content.Context) {
+        if (numbersLoaded) return
+        numbersLoaded = true
+        try {
+            val o = org.json.JSONObject(Prefs.string(c, "tivi_numbers") ?: "{}")
+            o.keys().forEach { k -> numbers[k] = o.getInt(k) }
+        } catch (e: Exception) {}
+    }
+
+    private fun saveNumbers(c: android.content.Context) {
+        val o = org.json.JSONObject()
+        numbers.entries.take(3000).forEach { (k, v) -> o.put(k, v) }
+        Prefs.setString(c, "tivi_numbers", o.toString())
+    }
+
+    private val numberOnly = Regex("^\\d{1,4}$")
+    private val numberThenName = Regex("^(\\d{1,4})[.)]?\\s+(.+)$")
+
+    /** Number and name of each row on screen, e.g. 8 → "channel 4". */
+    private fun rowNumbers(list: AccessibilityNodeInfo): List<Pair<Int, String>> {
+        val out = mutableListOf<Pair<Int, String>>()
+        for (i in 0 until list.childCount) {
+            val row = list.getChild(i) ?: continue
+            val t = texts(row).take(4)
+            var num: Int? = null
+            var name: String? = null
+            for (x in t) {
+                if (num == null && numberOnly.matches(x)) { num = x.toInt(); continue }
+                if (num == null) numberThenName.find(x)?.let { m -> num = m.groupValues[1].toInt(); name = m.groupValues[2]; }
+                if (num != null && name == null && !numberOnly.matches(x)) name = x
+                if (num != null && name != null) break
+            }
+            val n = num; val nm = name
+            if (n != null && nm != null) out += n to normalise(nm)
+        }
+        return out
+    }
+
+    /** Remember the numbers of the channels on screen. Returns the visible number range. */
+    private fun harvest(c: android.content.Context, list: AccessibilityNodeInfo): IntRange? {
+        val seen = rowNumbers(list)
+        if (seen.isEmpty()) return null
+        var changed = false
+        for ((n, name) in seen) if (name.isNotEmpty() && numbers[name] != n) { numbers[name] = n; changed = true }
+        if (changed) saveNumbers(c)
+        return seen.minOf { it.first }..seen.maxOf { it.first }
+    }
+
+    /** The channel's number if known (learned beats the built-in guess). */
+    private fun numberFor(wanted: String): Pair<Int, Boolean>? =
+        numbers[wanted]?.let { it to true } ?: HINTS[wanted]?.let { it to false }
+
     /** Only an exact remembered match: a loose one could jump to the wrong channel. */
     private fun learnedRow(wanted: String): Int? = rows[wanted]
 
@@ -122,9 +190,13 @@ object TiviTuner {
         val service = HomeRedirectService.instance ?: run { note("Accessibility service not running"); return done(false) }
         val wanted = normalise(channel)
         loadRows(service)
+        loadNumbers(service)
         note("---- Tune to \"$channel\" (looking for \"$wanted\"${learnedRow(wanted)?.let { ", remembered row $it" } ?: ""})")
         var nudged = false
         var goingDown = true
+        var directedFailed = false
+        var lastRange = ""
+        var rangeSame = 0
         var attempts = 0
         var okPresses = 0
         var settle = 0
@@ -168,6 +240,27 @@ object TiviTuner {
                 note("Highlight isn't in the channel list - pressing Right")
                 service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_DPAD_RIGHT)
                 main.postDelayed({ step() }, 300); return
+            }
+            // Head straight for its number when we know (or can guess) it.
+            val range = harvest(service, list)
+            val target = numberFor(wanted)
+            if (range != null && target != null && !directedFailed) {
+                val (num, learned) = target
+                if (num < range.first || num > range.last) {
+                    val sig = range.toString()
+                    if (sig == lastRange) { if (++rangeSame >= 3) { directedFailed = true; note("The guide won't move - searching instead") } } else rangeSame = 0
+                    lastRange = sig
+                    val up = num < range.first
+                    val dist = if (up) range.first - num else num - range.last
+                    val presses = dist.coerceIn(1, 20)
+                    note("Channel ${if (learned) "is" else "is probably around"} $num, guide shows ${range.first}-${range.last} - ${if (up) "up" else "down"} $presses")
+                    val key = if (up) AccessibilityService.GLOBAL_ACTION_DPAD_UP else AccessibilityService.GLOBAL_ACTION_DPAD_DOWN
+                    for (i in 0 until presses) main.postDelayed({ service.performGlobalAction(key) }, i * 70L)
+                    main.postDelayed({ step() }, presses * 70L + 350)
+                    return
+                }
+                // It should be on screen but isn't (a guess was off): search outwards from here.
+                if (!learned && !directedFailed) { directedFailed = true; goingDown = num >= (range.first + range.last) / 2 }
             }
             val seen = texts(list).joinToString("|")
             if (seen == lastSeen) {
