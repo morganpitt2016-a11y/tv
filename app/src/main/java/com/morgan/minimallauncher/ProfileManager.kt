@@ -9,14 +9,13 @@ import android.content.Context
  * sign-in, all stored on the TV.
  */
 object ProfileManager {
-    private const val PREFS = "launcher_profiles"
     private const val KEY_PROFILES = "profiles"
     private const val KEY_ACTIVE = "active_profile"
     private const val KEY_PINNED_PREFIX = "pinned_"
     private val DEFAULT_PROFILES = listOf("Person 1", "Person 2")
 
     fun getProfiles(context: Context): List<String> {
-        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val prefs = context.getSharedPreferences(Accounts.profilesPrefs(context), Context.MODE_PRIVATE)
         val raw = prefs.getString(KEY_PROFILES, null) ?: return DEFAULT_PROFILES
         val list = raw.split(",").filter { it.isNotBlank() }
         return list.ifEmpty { DEFAULT_PROFILES }
@@ -26,7 +25,7 @@ object ProfileManager {
         val profiles = getProfiles(context).toMutableList()
         if (!profiles.contains(name)) {
             profiles.add(name)
-            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            context.getSharedPreferences(Accounts.profilesPrefs(context), Context.MODE_PRIVATE).edit()
                 .putString(KEY_PROFILES, profiles.joinToString(","))
                 .apply()
         }
@@ -36,7 +35,7 @@ object ProfileManager {
         val profiles = getProfiles(context).toMutableList()
         profiles.remove(name)
         if (profiles.isEmpty()) profiles.add(DEFAULT_PROFILES.first())
-        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val prefs = context.getSharedPreferences(Accounts.profilesPrefs(context), Context.MODE_PRIVATE)
         prefs.edit()
             .putString(KEY_PROFILES, profiles.joinToString(","))
             .remove(KEY_PINNED_PREFIX + name)
@@ -45,20 +44,33 @@ object ProfileManager {
     }
 
     fun getActiveProfile(context: Context): String {
-        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val prefs = context.getSharedPreferences(Accounts.profilesPrefs(context), Context.MODE_PRIVATE)
         val active = prefs.getString(KEY_ACTIVE, null)
         val profiles = getProfiles(context)
         return if (active != null && profiles.contains(active)) active else profiles.first()
     }
 
+    /** The active person, as a key that's unique across accounts (for history, My List…). */
+    fun activeKey(context: Context) = Accounts.scoped(context, getActiveProfile(context))
+
+    fun renameProfile(context: Context, old: String, new: String) {
+        val name = new.trim().replace(",", "")
+        if (name.isEmpty() || name == old || getProfiles(context).contains(name)) return
+        val prefs = context.getSharedPreferences(Accounts.profilesPrefs(context), Context.MODE_PRIVATE)
+        val e = prefs.edit().putString(KEY_PROFILES, getProfiles(context).map { if (it == old) name else it }.joinToString(","))
+        for (prefix in listOf(KEY_PINNED_PREFIX, "fav_", "wall_")) prefs.getString(prefix + old, null)?.let { e.putString(prefix + name, it).remove(prefix + old) }
+        if (prefs.getString(KEY_ACTIVE, null) == old) e.putString(KEY_ACTIVE, name)
+        e.apply()
+    }
+
     fun setActiveProfile(context: Context, name: String) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+        context.getSharedPreferences(Accounts.profilesPrefs(context), Context.MODE_PRIVATE).edit()
             .putString(KEY_ACTIVE, name)
             .apply()
     }
 
     fun getPinnedApps(context: Context, profile: String = getActiveProfile(context)): Set<String> {
-        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val prefs = context.getSharedPreferences(Accounts.profilesPrefs(context), Context.MODE_PRIVATE)
         val raw = prefs.getString(KEY_PINNED_PREFIX + profile, "") ?: ""
         return raw.split(",").filter { it.isNotBlank() }.toSet()
     }
@@ -71,12 +83,12 @@ object ProfileManager {
 
     /** The dock apps in the order this profile arranged them. */
     fun getDockOrder(context: Context, profile: String = getActiveProfile(context)): List<String> {
-        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val prefs = context.getSharedPreferences(Accounts.profilesPrefs(context), Context.MODE_PRIVATE)
         return (prefs.getString(KEY_PINNED_PREFIX + profile, "") ?: "").split(",").filter { it.isNotBlank() }.distinct()
     }
 
     fun setDockOrder(context: Context, profile: String, packages: List<String>) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+        context.getSharedPreferences(Accounts.profilesPrefs(context), Context.MODE_PRIVATE).edit()
             .putString(KEY_PINNED_PREFIX + profile, packages.distinct().joinToString(","))
             .apply()
     }
@@ -107,7 +119,7 @@ object ProfileManager {
     // ---------- Favourites ----------
 
     fun getFavourites(context: Context, profile: String = getActiveProfile(context)): List<String> =
-        (context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("fav_$profile", "") ?: "")
+        (context.getSharedPreferences(Accounts.profilesPrefs(context), Context.MODE_PRIVATE).getString("fav_$profile", "") ?: "")
             .split(",").filter { it.isNotBlank() }
 
     fun isFavourite(context: Context, pkg: String) = pkg in getFavourites(context)
@@ -116,7 +128,7 @@ object ProfileManager {
         val profile = getActiveProfile(context)
         val favs = getFavourites(context, profile).toMutableList()
         val nowFav = if (favs.remove(pkg)) false else { favs.add(0, pkg); true }
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("fav_$profile", favs.joinToString(",")).apply()
+        context.getSharedPreferences(Accounts.profilesPrefs(context), Context.MODE_PRIVATE).edit().putString("fav_$profile", favs.joinToString(",")).apply()
         return nowFav
     }
 
@@ -124,10 +136,10 @@ object ProfileManager {
 
     /** "all", "cat:<id>", "photo:<n>" or "album" - see WallpaperLibrary. */
     fun getWallpaper(context: Context, profile: String = getActiveProfile(context)): String =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("wall_$profile", null)
+        context.getSharedPreferences(Accounts.profilesPrefs(context), Context.MODE_PRIVATE).getString("wall_$profile", null)
             ?: if (getProfiles(context).indexOf(profile) == 1) "cat:lakes" else "all"
 
     fun setWallpaper(context: Context, value: String) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("wall_${getActiveProfile(context)}", value).apply()
+        context.getSharedPreferences(Accounts.profilesPrefs(context), Context.MODE_PRIVATE).edit().putString("wall_${getActiveProfile(context)}", value).apply()
     }
 }

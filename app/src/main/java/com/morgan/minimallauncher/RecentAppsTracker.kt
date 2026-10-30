@@ -19,8 +19,8 @@ object RecentAppsTracker {
 
     data class Recent(val app: AppEntry, val openedAt: Long)
 
-    private fun orderKey(c: Context) = "order_" + ProfileManager.getActiveProfile(c)
-    private fun usageKey(c: Context) = "usage_" + ProfileManager.getActiveProfile(c)
+    private fun orderKey(c: Context) = "order_" + ProfileManager.activeKey(c)
+    private fun usageKey(c: Context) = "usage_" + ProfileManager.activeKey(c)
 
     fun recordOpened(context: Context, packageName: String) {
         val entries = load(context).filter { it.first != packageName }.toMutableList()

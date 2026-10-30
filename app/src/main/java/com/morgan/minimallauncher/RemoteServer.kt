@@ -317,6 +317,10 @@ class LauncherApp : Application() {
         }, filter, androidx.core.content.ContextCompat.RECEIVER_EXPORTED)
         // Warm the list off the main thread so the home screen opens fast.
         Thread { try { AppListHelper.loadLaunchableTvApps(this) } catch (e: Exception) {} }.start()
+        // Waking the TV from standby asks "Who's watching?" again.
+        androidx.core.content.ContextCompat.registerReceiver(this, object : android.content.BroadcastReceiver() {
+            override fun onReceive(c: Context, i: Intent) { Accounts.askWho = true }
+        }, android.content.IntentFilter(Intent.ACTION_SCREEN_ON), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
         // Scheduled TiviMate recordings survive a restart.
         try { TiviRecorder.rearm(this) } catch (e: Exception) {}
     }

@@ -85,6 +85,12 @@
             android:theme="@style/Theme.MinimalLauncher" />
 
         <activity
+            android:name=".WhoActivity"
+            android:exported="false"
+            android:screenOrientation="landscape"
+            android:theme="@style/Theme.MinimalLauncher" />
+
+        <activity
             android:name=".SettingsActivity"
             android:exported="false"
             android:screenOrientation="landscape"

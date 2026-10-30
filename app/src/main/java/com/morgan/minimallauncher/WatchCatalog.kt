@@ -293,7 +293,7 @@ object WatchCatalog {
 
     // ---------- Continue watching (titles opened from here, per profile) ----------
 
-    private fun historyKey(c: Context) = "watch_history_" + ProfileManager.getActiveProfile(c)
+    private fun historyKey(c: Context) = "watch_history_" + ProfileManager.activeKey(c)
 
     fun remember(c: Context, t: Title) {
         val arr = try { JSONArray(Prefs.string(c, historyKey(c)) ?: "[]") } catch (e: Exception) { JSONArray() }
@@ -309,13 +309,13 @@ object WatchCatalog {
 
     /** Remember which title was opened in which app (for the home screen's Continue Watching). */
     private fun rememberForApp(c: Context, pkg: String, t: Title) {
-        Prefs.setString(c, "last_title_${ProfileManager.getActiveProfile(c)}_$pkg",
+        Prefs.setString(c, "last_title_${ProfileManager.activeKey(c)}_$pkg",
             toJson(t).put("at", System.currentTimeMillis()).toString())
     }
 
     /** The last title opened in [pkg] from Watch, and when. No network needed. */
     fun lastForApp(c: Context, pkg: String): Pair<Title, Long>? = try {
-        Prefs.string(c, "last_title_${ProfileManager.getActiveProfile(c)}_$pkg")?.let { s ->
+        Prefs.string(c, "last_title_${ProfileManager.activeKey(c)}_$pkg")?.let { s ->
             val o = JSONObject(s)
             fromJson(o, emptyMap()) to o.optLong("at")
         }
@@ -383,7 +383,7 @@ object WatchCatalog {
 
     // ---------- My List (per profile) ----------
 
-    private fun listKey(c: Context) = "watch_list_" + ProfileManager.getActiveProfile(c)
+    private fun listKey(c: Context) = "watch_list_" + ProfileManager.activeKey(c)
 
     fun myList(c: Context): List<Title> = readTitles(c, listKey(c))
 

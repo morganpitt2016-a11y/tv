@@ -151,6 +151,13 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        // First launch: set up the account. Start-up / waking the TV: "Who's watching?"
+        if (Accounts.needsSetup(this) || (Accounts.askWho && Prefs.bool(this, "who_at_start", true))) {
+            Accounts.askWho = false
+            startActivity(Intent(this, WhoActivity::class.java))
+            @Suppress("DEPRECATION") overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
+        }
+        Accounts.askWho = false
         RedirectDiag.launcherShown(this)
         AppWatchService.startIfNeeded(this)
         RemoteService.startIfEnabled(this)

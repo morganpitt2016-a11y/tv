@@ -50,6 +50,12 @@ class SettingsActivity : AppCompatActivity() {
 
         section("Home Screen")
         group {
+            vrow("Account", { Accounts.active(this)?.name ?: "Not Set Up" }) {
+                startActivity(Intent(this, WhoActivity::class.java).putExtra(WhoActivity.EXTRA_MODE, WhoActivity.ACCOUNTS))
+            }
+            vrow("Who’s Watching at Start", { if (Prefs.bool(this, "who_at_start", true)) "On" else "Off" }) {
+                Prefs.setBool(this, "who_at_start", !Prefs.bool(this, "who_at_start", true)); refreshValues()
+            }
             profileRow = row("Profile") { showProfilePicker() }
             dockRow = row("Dock Apps") { showDockAppsPicker() }
             vrow("Arrange Dock", { "" }, chevron = true) { arrangeDock() }
