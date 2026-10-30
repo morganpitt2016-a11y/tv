@@ -48,10 +48,13 @@ object GlassUi {
             scaleType = ImageView.ScaleType.CENTER_CROP
             // Decoding small and scaling up already softens it; RenderEffect
             // (Android 12+) adds a proper blur on top.
-            val bmp = BitmapFactory.decodeResource(
-                c.resources, WallpaperRotator.currentRes,
-                BitmapFactory.Options().apply { inSampleSize = 8 }
-            )
+            val small = BitmapFactory.Options().apply { inSampleSize = 8 }
+            val bmp = try {
+                when (val p = WallpaperRotator.current) {
+                    is WallpaperLibrary.Photo.Bundled -> BitmapFactory.decodeResource(c.resources, p.res, small)
+                    is WallpaperLibrary.Photo.Local -> WallpaperLibrary.decodeFile(p.file, 240)
+                }
+            } catch (e: Exception) { null }
             setImageBitmap(bmp)
             if (Build.VERSION.SDK_INT >= 31) {
                 setRenderEffect(RenderEffect.createBlurEffect(dp(c, 18f).toFloat(), dp(c, 18f).toFloat(), Shader.TileMode.CLAMP))
@@ -157,5 +160,47 @@ object GlassUi {
                 content.removeView(banner)
             }.start()
         }.start()
+    }
+
+    /**
+     * Glass transition: the screen behind a panel or dialog softly blurs
+     * and dims as it opens, and clears again when it closes (Android 12+;
+     * just dims on older versions).
+     */
+    fun blurBehind(activity: Activity, on: Boolean) {
+        val content = activity.findViewById<ViewGroup>(android.R.id.content)?.getChildAt(0) ?: return
+        val from = (content.getTag(R.id.blur_radius) as? Float) ?: 0f
+        val to = if (on) dp(activity, 14f).toFloat() else 0f
+        (content.getTag(R.id.blur_anim) as? android.animation.Animator)?.cancel()
+        android.animation.ValueAnimator.ofFloat(from, to).apply {
+            content.setTag(R.id.blur_anim, this)
+            duration = if (on) 320 else 260
+            interpolator = android.view.animation.DecelerateInterpolator(2f)
+            addUpdateListener {
+                val r = it.animatedValue as Float
+                content.setTag(R.id.blur_radius, r)
+                if (Build.VERSION.SDK_INT >= 31) {
+                    content.setRenderEffect(if (r < 0.5f) null else RenderEffect.createBlurEffect(r, r, Shader.TileMode.CLAMP))
+                }
+            }
+            start()
+        }
+    }
+
+    /**
+     * Spotlight: a soft white glow under the focused item (its shadow is
+     * tinted white), as if it caught the light.
+     */
+    fun spotlight(view: View, on: Boolean) {
+        if (Build.VERSION.SDK_INT >= 28) {
+            view.outlineSpotShadowColor = if (on) 0xFFFFFFFF.toInt() else 0xFF000000.toInt()
+            view.outlineAmbientShadowColor = if (on) 0x66FFFFFF else 0xFF000000.toInt()
+        }
+    }
+
+    /** Roboto Flex with custom weight/width - SF-like display numerals. */
+    fun flex(view: TextView, weight: Int, width: Int = 90) {
+        view.typeface = font(view.context, R.font.roboto_flex)
+        view.setFontVariationSettings("'wght' $weight, 'wdth' $width, 'opsz' 72")
     }
 }

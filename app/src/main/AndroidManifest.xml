@@ -29,8 +29,14 @@
         xmlns:tools="http://schemas.android.com/tools" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- Cinema mode: Do Not Disturb -->
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+    <!-- Ambient music visualiser (optional; asked for in Settings) -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
     <application
+        android:name=".LauncherApp"
         android:allowBackup="true"
         android:banner="@drawable/app_banner"
         android:icon="@drawable/ic_launcher"
@@ -86,6 +92,46 @@
             android:parentActivityName=".MainActivity"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.MinimalLauncher" />
+
+        <activity
+            android:name=".AmbientActivity"
+            android:exported="false"
+            android:screenOrientation="landscape"
+            android:launchMode="singleTop"
+            android:theme="@style/Theme.MinimalLauncher" />
+
+        <!-- Aerial as the system screensaver -->
+        <service
+            android:name=".AerialDream"
+            android:exported="true"
+            android:label="Minimal Launcher Aerial"
+            android:permission="android.permission.BIND_DREAM_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.dreams.DreamService" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </service>
+
+        <!-- "Now playing": Android shares media sessions with notification listeners only -->
+        <service
+            android:name=".MediaListener"
+            android:exported="false"
+            android:label="Minimal Launcher now playing"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <!-- iPhone remote web server -->
+        <service
+            android:name=".RemoteService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Local web server for the companion phone remote" />
+        </service>
 
         <receiver
             android:name=".BootReceiver"

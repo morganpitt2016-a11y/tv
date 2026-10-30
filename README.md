@@ -108,6 +108,34 @@ stage (the 1920x1080 reference at 2x) that scales to fit any screen:
   "Open accessibility settings". If Android says "Restricted setting", allow
   restricted settings for the app first (App info, ⋮ menu).
 
+### Profiles, widgets and modes
+
+- **Profiles**: each person has their own wallpaper, dock apps and order,
+  favourites, watch history (Continue Watching) and recommendations (apps
+  they tend to open at this time of day). Hold OK on any app to favourite
+  it or move it in the dock.
+- **Rails**: below the dock, Favourites / Recommended / Recently Watched /
+  All Apps rails; the screen glides up and the wallpaper blurs behind them.
+- **Widgets** (plain text on the wallpaper): weather (Open-Meteo), next
+  calendar event (private iCal link), now playing (needs Notification
+  Access) and Govee lights.
+- **Feel**: eased focus scaling with a soft "spotlight" glow, glass blur
+  behind dialogs, subtle navigation sounds, app-launch zoom, ambient
+  lighting (wallpaper dims in the evening), idle dimming.
+- **Ambient / Aerial / Sleep**: picture-frame mode (landscapes, public-domain
+  artwork from the Art Institute of Chicago, or your own photos) with a
+  large clock, weather and a music visualiser; Aerial drifting landscapes by
+  category (Wikimedia Commons featured pictures) with location; a dark
+  drifting sleep clock. Starts after a set idle time; also a system
+  screensaver (`AerialDream`).
+- **Cinema mode** (film button): dims, Do Not Disturb, dims Govee lights,
+  cinema clock, opens your streaming app; press again to undo.
+- **iPhone remote**: Settings › iPhone Remote shows a QR code. The TV serves
+  a web remote (`assets/remote.html`) on the home Wi-Fi: touchpad, buttons,
+  volume, typing, apps, modes, photo upload, weather/calendar settings.
+  Every request needs the pairing key in the QR code. Controlling other
+  apps uses the accessibility service (Android 13+ for the arrows).
+
 Fonts: Roboto Flex, Oswald and Inter (SIL Open Font License). Icons: Lucide (ISC).
 
 ## Photo credits

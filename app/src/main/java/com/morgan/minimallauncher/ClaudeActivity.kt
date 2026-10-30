@@ -118,6 +118,7 @@ class ClaudeActivity : AppCompatActivity() {
         column.addView(bar, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(c, 12f) })
 
         setContentView(root)
+        UiSounds.attach(this)
         showWelcome()
         mic.requestFocus()
         if (ClaudeChat.getApiKey(this) == null) root.post { askForKey() }

@@ -79,6 +79,9 @@ class QuickSettings(private val activity: AppCompatActivity, private val host: H
         dialog.setContentView(root)
         dialog.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         dialog.show()
+        UiSounds.attach(dialog)
+        GlassUi.blurBehind(activity, true)
+        dialog.setOnDismissListener { GlassUi.blurBehind(activity, false) }
 
         scroll.translationX = dp(c, 120f).toFloat()
         val ease = DecelerateInterpolator(2.2f)
@@ -114,7 +117,20 @@ class QuickSettings(private val activity: AppCompatActivity, private val host: H
             openSettings(Settings.ACTION_WIFI_SETTINGS)
         }
         tiles += tile(R.drawable.ic_lucide_volume, "Sound", soundSummary()) { openSettings(Settings.ACTION_SOUND_SETTINGS) }
-        tiles += tile(R.drawable.ic_lucide_clock, "Screensaver", "Start now") { startScreensaver() }
+        tiles += tile(R.drawable.ic_lucide_mountain, "Aerial", "Start now") {
+            dialog.dismiss(); AmbientActivity.start(activity, AmbientActivity.AERIAL)
+        }
+        tiles += tile(R.drawable.ic_lucide_frame, "Ambient", "Picture frame") {
+            dialog.dismiss(); AmbientActivity.start(activity, AmbientActivity.AMBIENT)
+        }
+        val cinema = Prefs.cinemaOn(c)
+        tiles += tile(R.drawable.ic_lucide_film, "Cinema", if (cinema) "On" else "Off", active = cinema) {
+            dialog.dismiss()
+            (activity as? MainActivity)?.let { CinemaMode.toggle(it) }
+        }
+        tiles += tile(R.drawable.ic_lucide_clock, "Sleep Clock", "Dark display") {
+            dialog.dismiss(); AmbientActivity.start(activity, AmbientActivity.SLEEP)
+        }
         tiles += tile(R.drawable.ic_lucide_image, "Wallpaper", "Next photo") {
             host.nextWallpaper()
             dialog.dismiss()
@@ -250,9 +266,8 @@ class QuickSettings(private val activity: AppCompatActivity, private val host: H
             isClickable = true
             contentDescription = "Open ${app.label}"
             setOnClickListener {
-                val intent = app.launchIntent ?: return@setOnClickListener
-                RecentAppsTracker.recordOpened(c, app.packageName)
-                open(intent, inApp = false)
+                dialog.dismiss()
+                AppActions.launch(activity, app, it)
             }
         }
         val thumb = ImageView(c).apply {

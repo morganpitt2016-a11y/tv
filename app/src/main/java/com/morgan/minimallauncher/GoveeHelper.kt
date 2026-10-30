@@ -182,4 +182,42 @@ object GoveeHelper {
             mainHandler.post { onResult(error == null, error) }
         }.start()
     }
+
+    /** Current brightness (1-100) of a light, or null if unknown. Blocking. */
+    fun readBrightness(context: Context, d: Device): Int? {
+        val key = getApiKey(context) ?: return null
+        if (d.api != 2) return null
+        return try {
+            val r = request("POST", "$NEW_API/device/state", key, JSONObject()
+                .put("requestId", UUID.randomUUID().toString())
+                .put("payload", JSONObject().put("sku", d.model).put("device", d.deviceId)))
+            val caps = JSONObject(r.body).optJSONObject("payload")?.optJSONArray("capabilities") ?: JSONArray()
+            (0 until caps.length()).map { caps.getJSONObject(it) }
+                .firstOrNull { it.optString("instance") == "brightness" }
+                ?.optJSONObject("state")?.optInt("value")?.takeIf { it in 1..100 }
+        } catch (e: Exception) { null }
+    }
+
+    /** Sets brightness (1-100). Blocking; returns true on success. */
+    fun setBrightness(context: Context, d: Device, percent: Int): Boolean {
+        val key = getApiKey(context) ?: return false
+        return try {
+            val r = if (d.api == 2) {
+                request("POST", "$NEW_API/device/control", key, JSONObject()
+                    .put("requestId", UUID.randomUUID().toString())
+                    .put("payload", JSONObject()
+                        .put("sku", d.model)
+                        .put("device", d.deviceId)
+                        .put("capability", JSONObject()
+                            .put("type", "devices.capabilities.range")
+                            .put("instance", "brightness")
+                            .put("value", percent.coerceIn(1, 100)))))
+            } else {
+                request("PUT", "$OLD_API/devices/control", key, JSONObject()
+                    .put("device", d.deviceId).put("model", d.model)
+                    .put("cmd", JSONObject().put("name", "brightness").put("value", percent.coerceIn(1, 100))))
+            }
+            r.code in 200..299
+        } catch (e: Exception) { false }
+    }
 }

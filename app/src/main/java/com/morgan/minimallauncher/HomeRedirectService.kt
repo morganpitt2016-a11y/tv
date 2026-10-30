@@ -45,6 +45,7 @@ class HomeRedirectService : AccessibilityService() {
     private var wakeReceiverRegistered = false
 
     override fun onServiceConnected() {
+        instance = this
         detector = HomeDetector(this).also { RedirectDiag.watching(this, it.describe()) }
         addKeepAliveWindow()
         RedirectDiag.connected(this, keepAliveWindow != null)
@@ -76,6 +77,7 @@ class HomeRedirectService : AccessibilityService() {
     override fun onInterrupt() = Unit
 
     override fun onDestroy() {
+        if (instance === this) instance = null
         if (wakeReceiverRegistered) {
             try { unregisterReceiver(wakeReceiver) } catch (_: Exception) {}
             wakeReceiverRegistered = false
@@ -124,8 +126,40 @@ class HomeRedirectService : AccessibilityService() {
         }
     }
 
+    // ---------- iPhone remote ----------
+
+    /** Presses a remote button anywhere on the TV (Android 13+ for the arrows). */
+    fun press(key: String): Boolean {
+        val action = when (key) {
+            "back" -> GLOBAL_ACTION_BACK
+            "home" -> GLOBAL_ACTION_HOME
+            "recents" -> GLOBAL_ACTION_RECENTS
+            else -> if (android.os.Build.VERSION.SDK_INT >= 33) when (key) {
+                "up" -> GLOBAL_ACTION_DPAD_UP
+                "down" -> GLOBAL_ACTION_DPAD_DOWN
+                "left" -> GLOBAL_ACTION_DPAD_LEFT
+                "right" -> GLOBAL_ACTION_DPAD_RIGHT
+                "select" -> GLOBAL_ACTION_DPAD_CENTER
+                else -> return false
+            } else return false
+        }
+        return performGlobalAction(action)
+    }
+
+    /** Types into the text box that has focus, in any app. */
+    fun type(text: String, replace: Boolean): Boolean {
+        val node = rootInActiveWindow?.findFocus(android.view.accessibility.AccessibilityNodeInfo.FOCUS_INPUT) ?: return false
+        val current = if (replace) "" else node.text?.toString().orEmpty().takeUnless { node.isShowingHintText }.orEmpty()
+        val args = android.os.Bundle().apply {
+            putCharSequence(android.view.accessibility.AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, current + text)
+        }
+        return node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+    }
+
     /** Every other installed home app, minus setup wizards and fallbacks. */
     companion object {
+        @Volatile var instance: HomeRedirectService? = null
+
         fun isServiceEnabled(context: Context): Boolean {
             val enabled = Settings.Secure.getString(
                 context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES

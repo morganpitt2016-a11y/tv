@@ -2,7 +2,6 @@ package com.morgan.minimallauncher
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.os.Handler
 import android.os.Looper
 import android.view.View
@@ -33,17 +32,11 @@ class WallpaperRotator(
         private const val ZOOM_TO = 1.06f
 
         /** The photo currently on the home screen; Settings/Apps blur it as their backdrop. */
-        @JvmStatic var currentRes: Int = R.drawable.wp_03
+        @JvmStatic var current: WallpaperLibrary.Photo = WallpaperLibrary.bundled[2]
     }
 
     private val handler = Handler(Looper.getMainLooper())
-    private val photos: List<Pair<Int, Int>> = run {
-        val p = context.resources.obtainTypedArray(R.array.wallpapers)
-        val f = context.resources.obtainTypedArray(R.array.wallpaper_fronts)
-        val list = List(p.length()) { i -> p.getResourceId(i, 0) to (if (i < f.length()) f.getResourceId(i, 0) else 0) }
-        p.recycle(); f.recycle()
-        list.filter { it.first != 0 }
-    }
+    private var photos: List<WallpaperLibrary.Photo> = WallpaperLibrary.forProfile(context)
     // The first photo in the list always shows first, then the rest shuffled.
     private var order = photos.take(1) + photos.drop(1).shuffled()
     private var index = 0
@@ -54,7 +47,14 @@ class WallpaperRotator(
     private val tick = Runnable { showNext() }
 
     fun start() {
-        if (running || photos.isEmpty()) return
+        if (running) return
+        // The profile (or its wallpaper choice) may have changed while away.
+        val latest = WallpaperLibrary.forProfile(context)
+        if (latest != photos) {
+            photos = latest
+            order = photos.take(1) + photos.drop(1).shuffled()
+            index = 0
+        }
         running = true
         showNext()
     }
@@ -72,18 +72,29 @@ class WallpaperRotator(
         showNext()
     }
 
+    /** Switch to the active profile's wallpaper right away. */
+    fun reload() {
+        photos = WallpaperLibrary.forProfile(context)
+        order = photos.take(1) + photos.drop(1).shuffled()
+        index = 0
+        if (running && !loading) {
+            handler.removeCallbacks(tick)
+            showNext()
+        }
+    }
+
     private fun showNext() {
-        if (!running) return
+        if (!running || photos.isEmpty()) return
         if (index >= order.size) {
             order = photos.shuffled()
             index = 0
         }
-        val (res, frontRes) = order[index++]
-        currentRes = res
+        val photo = order[index++]
+        current = photo
         loading = true
         Thread {
-            val bitmap = decode(res)
-            val front = if (frontRes != 0 && bitmap != null) decode(frontRes) else null
+            val bitmap = WallpaperLibrary.decode(context, photo)
+            val front = if (bitmap != null) WallpaperLibrary.decodeFront(context, photo) else null
             handler.post {
                 loading = false
                 if (!running) return@post
@@ -91,14 +102,6 @@ class WallpaperRotator(
                 handler.postDelayed(tick, ROTATE_EVERY_MS)
             }
         }.start()
-    }
-
-    private fun decode(res: Int): Bitmap? = try {
-        BitmapFactory.decodeResource(context.resources, res)
-    } catch (e: OutOfMemoryError) {
-        null
-    } catch (e: Exception) {
-        null
     }
 
     private fun crossfadeTo(bitmap: Bitmap, front: Bitmap?) {

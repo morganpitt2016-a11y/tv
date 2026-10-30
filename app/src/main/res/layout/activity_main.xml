@@ -2,11 +2,14 @@
 <!--
     Home screen. Everything lives on a fixed 960x540dp "stage" (Android
     TV's standard canvas = the 1920x1080 reference at 2x), which
-    MainActivity scales to fit the actual screen. Positions below are the
-    reference measurements divided by two.
+    MainActivity scales to fit the actual screen.
 
-    Layer order matters: the clock sits BETWEEN the two wallpaper layers,
-    so the mountain peak overlaps the bottom of the digits.
+    Layer order matters: the clock sits BETWEEN the photo and its land
+    cut-out, so mountain tops pass in front of the digits.
+
+    "ui" holds the controls and is 1100dp tall: the content rails sit
+    below the visible area and the whole layer glides up when the remote
+    moves down past the dock.
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/root"
@@ -23,87 +26,97 @@
         android:clipChildren="false"
         android:clipToPadding="false">
 
-        <!-- Wallpaper: sky + clouds -->
-        <ImageView
-            android:id="@+id/wallpaperBack"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:scaleType="centerCrop"
-            android:src="@drawable/wallpaper_back"
-            android:contentDescription="@null" />
-
-        <!-- Rotating real photos (WallpaperRotator). Own container so the
-             crossfade reorders only these two views, never the clock. -->
         <FrameLayout
-            android:id="@+id/photoLayer"
+            android:id="@+id/scenery"
             android:layout_width="match_parent"
             android:layout_height="match_parent">
 
+            <!-- Painted fallback scene (until the first photo has loaded) -->
             <ImageView
-                android:id="@+id/photoA"
+                android:id="@+id/wallpaperBack"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:alpha="0"
                 android:scaleType="centerCrop"
+                android:src="@drawable/wallpaper_back"
                 android:contentDescription="@null" />
 
+            <!-- Rotating photos (WallpaperRotator) -->
+            <FrameLayout
+                android:id="@+id/photoLayer"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent">
+
+                <ImageView
+                    android:id="@+id/photoA"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:alpha="0"
+                    android:scaleType="centerCrop"
+                    android:contentDescription="@null" />
+
+                <ImageView
+                    android:id="@+id/photoB"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:alpha="0"
+                    android:scaleType="centerCrop"
+                    android:contentDescription="@null" />
+            </FrameLayout>
+
+            <!-- Clock: Roboto Flex tuned to SF Pro Condensed's tall numerals -->
+            <TextView
+                android:id="@+id/clockText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top|center_horizontal"
+                android:layout_marginTop="54dp"
+                android:includeFontPadding="false"
+                android:letterSpacing="0.03"
+                android:textColor="#EDFFFFFF"
+                android:textSize="191dp"
+                android:shadowColor="#26000000"
+                android:shadowRadius="12"
+                android:text="8:47" />
+
+            <!-- Land cut-outs (sky transparent): in front of the clock -->
+            <FrameLayout
+                android:id="@+id/frontLayer"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent">
+
+                <ImageView
+                    android:id="@+id/frontA"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:alpha="0"
+                    android:scaleType="centerCrop"
+                    android:contentDescription="@null" />
+
+                <ImageView
+                    android:id="@+id/frontB"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:alpha="0"
+                    android:scaleType="centerCrop"
+                    android:contentDescription="@null" />
+            </FrameLayout>
+
             <ImageView
-                android:id="@+id/photoB"
+                android:id="@+id/wallpaperFront"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:alpha="0"
                 android:scaleType="centerCrop"
+                android:src="@drawable/wallpaper_front"
                 android:contentDescription="@null" />
         </FrameLayout>
 
-        <!-- Clock: tall condensed numerals (Roboto Flex, axes set in code;
-             closest open match to Apple's SF Pro Condensed). -->
-        <TextView
-            android:id="@+id/clockText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="top|center_horizontal"
-            android:layout_marginTop="54dp"
-            android:includeFontPadding="false"
-            android:letterSpacing="0.03"
-            android:textColor="#EDFFFFFF"
-            android:textSize="191dp"
-            android:shadowColor="#26000000"
-            android:shadowRadius="12"
-            android:text="8:47" />
-
-        <!-- Land cut-outs of the current photo (sky transparent) so peaks and
-             trees pass in front of the clock. Zoomed in step with the photo. -->
-        <FrameLayout
-            android:id="@+id/frontLayer"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent">
-
-            <ImageView
-                android:id="@+id/frontA"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:alpha="0"
-                android:scaleType="centerCrop"
-                android:contentDescription="@null" />
-
-            <ImageView
-                android:id="@+id/frontB"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:alpha="0"
-                android:scaleType="centerCrop"
-                android:contentDescription="@null" />
-        </FrameLayout>
-
-        <!-- Painted scene foreground (hidden once a real photo is showing) -->
-        <ImageView
-            android:id="@+id/wallpaperFront"
+        <!-- Ambient lighting: follows the time of day, breathing very slowly -->
+        <View
+            android:id="@+id/ambientShade"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:scaleType="centerCrop"
-            android:src="@drawable/wallpaper_front"
-            android:contentDescription="@null" />
+            android:alpha="0"
+            android:background="#000000" />
 
         <View
             android:layout_width="match_parent"
@@ -111,135 +124,215 @@
             android:layout_gravity="bottom"
             android:background="@drawable/bottom_scrim" />
 
-        <!-- Night mode dims the scene, not the controls -->
+        <!-- Night mode / cinema mode dimming -->
         <View
             android:id="@+id/nightOverlay"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:alpha="0"
-            android:background="#8C000000"
+            android:background="#000000"
             android:visibility="gone" />
 
-        <!-- Profile selector: top-left capsule -->
-        <LinearLayout
-            android:id="@+id/profileSwitch"
-            android:layout_width="wrap_content"
-            android:layout_height="25dp"
-            android:layout_marginStart="39dp"
-            android:layout_marginTop="30dp"
-            android:background="@drawable/glass_capsule_bg"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:padding="2dp" />
+        <!-- Darkens the scene while the content rails are showing -->
+        <View
+            android:id="@+id/railScrim"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:alpha="0"
+            android:background="#99000000" />
 
-        <!-- Date -->
-        <TextView
-            android:id="@+id/dateText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="top|center_horizontal"
-            android:layout_marginTop="47dp"
-            android:fontFamily="@font/inter_medium"
-            android:includeFontPadding="false"
-            android:shadowColor="#40000000"
-            android:shadowRadius="6"
-            android:textColor="#FFFFFFFF"
-            android:textSize="16dp"
-            android:text="Tuesday 27 October" />
-
-        <!-- Top-right: Govee device pills (if set up) + night-mode button -->
-        <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="43dp"
-            android:layout_gravity="top|end"
-            android:layout_marginTop="30dp"
-            android:layout_marginEnd="42dp"
+        <FrameLayout
+            android:id="@+id/ui"
+            android:layout_width="match_parent"
+            android:layout_height="1100dp"
             android:clipChildren="false"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
+            android:clipToPadding="false">
 
+            <!-- Profile selector: top-left capsule -->
             <LinearLayout
-                android:id="@+id/deviceRow"
+                android:id="@+id/profileSwitch"
+                android:layout_width="wrap_content"
+                android:layout_height="25dp"
+                android:layout_marginStart="39dp"
+                android:layout_marginTop="30dp"
+                android:background="@drawable/glass_capsule_bg"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:padding="2dp" />
+
+            <!-- Weather + next calendar event: plain text, no cards -->
+            <LinearLayout
+                android:id="@+id/widgetLeft"
+                android:layout_width="220dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="42dp"
+                android:layout_marginTop="78dp"
+                android:clipChildren="false"
+                android:orientation="vertical" />
+
+            <!-- Date -->
+            <TextView
+                android:id="@+id/dateText"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_gravity="top|center_horizontal"
+                android:layout_marginTop="47dp"
+                android:fontFamily="@font/inter_medium"
+                android:includeFontPadding="false"
+                android:shadowColor="#40000000"
+                android:shadowRadius="6"
+                android:textColor="#FFFFFFFF"
+                android:textSize="16dp"
+                android:text="Tuesday 27 October" />
+
+            <!-- Top-right: Govee pills, quick settings, cinema, night -->
+            <LinearLayout
+                android:id="@+id/topRight"
+                android:layout_width="wrap_content"
+                android:layout_height="43dp"
+                android:layout_gravity="top|end"
+                android:layout_marginTop="30dp"
+                android:layout_marginEnd="42dp"
+                android:clipChildren="false"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <LinearLayout
+                    android:id="@+id/deviceRow"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:clipChildren="false"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal" />
+
+                <FrameLayout
+                    android:id="@+id/quickSettingsButton"
+                    android:layout_width="43dp"
+                    android:layout_height="43dp"
+                    android:layout_marginEnd="10dp"
+                    android:background="@drawable/glass_circle_bg"
+                    android:contentDescription="Quick settings"
+                    android:focusable="true"
+                    android:focusableInTouchMode="false">
+
+                    <ImageView
+                        android:layout_width="19dp"
+                        android:layout_height="19dp"
+                        android:layout_gravity="center"
+                        android:duplicateParentState="true"
+                        android:src="@drawable/ic_lucide_toggle"
+                        android:tint="@color/icon_on_glass"
+                        android:contentDescription="@null" />
+                </FrameLayout>
+
+                <FrameLayout
+                    android:id="@+id/cinemaButton"
+                    android:layout_width="43dp"
+                    android:layout_height="43dp"
+                    android:layout_marginEnd="10dp"
+                    android:background="@drawable/glass_circle_bg"
+                    android:contentDescription="Cinema mode"
+                    android:focusable="true"
+                    android:focusableInTouchMode="false">
+
+                    <ImageView
+                        android:layout_width="18dp"
+                        android:layout_height="18dp"
+                        android:layout_gravity="center"
+                        android:duplicateParentState="true"
+                        android:src="@drawable/ic_lucide_film"
+                        android:tint="@color/icon_on_glass"
+                        android:contentDescription="@null" />
+                </FrameLayout>
+
+                <FrameLayout
+                    android:id="@+id/nightModeButton"
+                    android:layout_width="43dp"
+                    android:layout_height="43dp"
+                    android:background="@drawable/glass_circle_bg"
+                    android:contentDescription="@string/night_mode"
+                    android:focusable="true"
+                    android:focusableInTouchMode="false">
+
+                    <ImageView
+                        android:layout_width="18dp"
+                        android:layout_height="18dp"
+                        android:layout_gravity="center"
+                        android:duplicateParentState="true"
+                        android:src="@drawable/ic_lucide_moon"
+                        android:tint="@color/icon_on_glass"
+                        android:contentDescription="@null" />
+                </FrameLayout>
+            </LinearLayout>
+
+            <!-- Now playing + smart home -->
+            <LinearLayout
+                android:id="@+id/widgetRight"
+                android:layout_width="240dp"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top|end"
+                android:layout_marginTop="92dp"
+                android:layout_marginEnd="42dp"
+                android:clipChildren="false"
+                android:gravity="end"
+                android:orientation="vertical" />
+
+            <!-- Continue watching -->
+            <TextView
+                android:id="@+id/keepWatchingLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="42dp"
+                android:layout_marginTop="322dp"
+                android:fontFamily="@font/inter_semibold"
+                android:includeFontPadding="false"
+                android:shadowColor="#40000000"
+                android:shadowRadius="6"
+                android:textColor="#FFFFFFFF"
+                android:textSize="12dp"
+                android:text="@string/keep_watching" />
+
+            <LinearLayout
+                android:id="@+id/keepWatchingRow"
+                android:layout_width="wrap_content"
+                android:layout_height="70dp"
+                android:layout_marginStart="42dp"
+                android:layout_marginTop="345dp"
                 android:clipChildren="false"
                 android:gravity="center_vertical"
                 android:orientation="horizontal" />
 
-            <FrameLayout
-                android:id="@+id/quickSettingsButton"
-                android:layout_width="43dp"
-                android:layout_height="43dp"
-                android:layout_marginEnd="10dp"
-                android:background="@drawable/glass_circle_bg"
-                android:contentDescription="Quick settings"
-                android:focusable="true"
-                android:focusableInTouchMode="false">
+            <!-- App dock -->
+            <LinearLayout
+                android:id="@+id/dock"
+                android:layout_width="837dp"
+                android:layout_height="75dp"
+                android:layout_gravity="top|center_horizontal"
+                android:layout_marginTop="440dp"
+                android:background="@drawable/glass_dock_bg"
+                android:clipChildren="false"
+                android:clipToPadding="false"
+                android:gravity="center"
+                android:orientation="horizontal" />
 
-                <ImageView
-                    android:layout_width="19dp"
-                    android:layout_height="19dp"
-                    android:layout_gravity="center"
-                    android:duplicateParentState="true"
-                    android:src="@drawable/ic_lucide_toggle"
-                    android:tint="@color/icon_on_glass"
-                    android:contentDescription="@null" />
-            </FrameLayout>
+            <!-- Content rails, below the fold -->
+            <LinearLayout
+                android:id="@+id/rails"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="560dp"
+                android:clipChildren="false"
+                android:clipToPadding="false"
+                android:orientation="vertical" />
+        </FrameLayout>
 
-            <FrameLayout
-                android:id="@+id/nightModeButton"
-                android:layout_width="43dp"
-                android:layout_height="43dp"
-                android:background="@drawable/glass_circle_bg"
-                android:contentDescription="@string/night_mode"
-                android:focusable="true"
-                android:focusableInTouchMode="false">
-
-                <ImageView
-                    android:layout_width="18dp"
-                    android:layout_height="18dp"
-                    android:layout_gravity="center"
-                    android:duplicateParentState="true"
-                    android:src="@drawable/ic_lucide_moon"
-                    android:tint="@color/icon_on_glass"
-                    android:contentDescription="@null" />
-            </FrameLayout>
-        </LinearLayout>
-
-        <!-- Keep watching -->
-        <TextView
-            android:id="@+id/keepWatchingLabel"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="40dp"
-            android:layout_marginTop="320dp"
-            android:fontFamily="@font/inter_semibold"
-            android:includeFontPadding="false"
-            android:textColor="#FFFFFFFF"
-            android:textSize="12dp"
-            android:text="@string/keep_watching" />
-
-        <LinearLayout
-            android:id="@+id/keepWatchingRow"
-            android:layout_width="wrap_content"
-            android:layout_height="70dp"
-            android:layout_marginStart="41dp"
-            android:layout_marginTop="345dp"
-            android:clipChildren="false"
-            android:orientation="horizontal" />
-
-        <!-- App dock -->
-        <LinearLayout
-            android:id="@+id/dock"
-            android:layout_width="837dp"
-            android:layout_height="75dp"
-            android:layout_gravity="top|center_horizontal"
-            android:layout_marginTop="440dp"
-            android:background="@drawable/glass_dock_bg"
-            android:clipChildren="false"
-            android:clipToPadding="false"
-            android:gravity="center"
-            android:orientation="horizontal" />
-
+        <!-- Idle dimming: fades in slowly when nothing is pressed -->
+        <View
+            android:id="@+id/idleDim"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:alpha="0"
+            android:background="#000000"
+            android:visibility="gone" />
     </FrameLayout>
 </FrameLayout>

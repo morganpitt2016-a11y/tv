@@ -19,7 +19,8 @@ import com.morgan.minimallauncher.GlassUi.dp
  */
 class AppAdapter(
     private val apps: List<AppEntry>,
-    private val onLaunch: (AppEntry) -> Unit
+    private val onLaunch: (AppEntry, android.view.View) -> Unit,
+    private val onMenu: ((AppEntry, android.view.View) -> Unit)? = null,
 ) : RecyclerView.Adapter<AppAdapter.Holder>() {
 
     class Holder(val root: LinearLayout, val tile: FrameLayout, val image: ImageView, val label: TextView) :
@@ -67,6 +68,7 @@ class AppAdapter(
         root.addView(label, LinearLayout.LayoutParams(dp(c, 150f), -2).apply { topMargin = dp(c, 8f) })
         root.setOnFocusChangeListener { _, has ->
             val ease = android.view.animation.DecelerateInterpolator(2f)
+            GlassUi.spotlight(tile, has)
             tile.animate().scaleX(if (has) 1.07f else 1f).scaleY(if (has) 1.07f else 1f)
                 .translationZ(if (has) dp(c, 12f).toFloat() else 0f).setInterpolator(ease).setDuration(220).start()
             label.animate().translationY(if (has) dp(c, 4f).toFloat() else 0f).setInterpolator(ease).setDuration(220).start()
@@ -94,7 +96,8 @@ class AppAdapter(
         }
         holder.label.text = app.label
         holder.root.contentDescription = "Open ${app.label}"
-        holder.root.setOnClickListener { onLaunch(app) }
+        holder.root.setOnClickListener { onLaunch(app, holder.tile) }
+        holder.root.setOnLongClickListener { onMenu?.invoke(app, holder.tile); onMenu != null }
     }
 
     override fun getItemCount() = apps.size

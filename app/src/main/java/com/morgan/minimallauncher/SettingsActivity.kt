@@ -21,6 +21,8 @@ class SettingsActivity : AppCompatActivity() {
 
     private class Row(val view: View, val value: TextView)
 
+    private val refreshers = mutableListOf<() -> Unit>()
+
     private lateinit var list: LinearLayout
 
     private lateinit var profileRow: Row
@@ -44,12 +46,121 @@ class SettingsActivity : AppCompatActivity() {
         GlassUi.installBackdrop(findViewById<FrameLayout>(R.id.settingsRoot))
         findViewById<View>(R.id.settingsIconTile).background = GlassUi.panel(this, 34f, 0x30)
         list = findViewById(R.id.settingsList)
+        UiSounds.attach(this)
 
         section("Home Screen")
         group {
             profileRow = row("Profile") { showProfilePicker() }
             dockRow = row("Dock Apps") { showDockAppsPicker() }
+            vrow("Arrange Dock", { "" }, chevron = true) { arrangeDock() }
+            vrow("Favourites", { ProfileManager.getFavourites(this).size.let { if (it == 0) "None" else "$it" } }) { pickFavourites() }
+            vrow("Wallpaper", { WallpaperLibrary.describe(this) }) { pickWallpaper() }
         }
+        footnote("Each person has their own dock, favourites, wallpaper, watch history and recommendations. Tip: hold OK on any app to favourite it or move it in the dock.")
+
+        section("Widgets")
+        group {
+            toggleRow("Weather", Prefs.W_WEATHER)
+            toggleRow("Calendar", Prefs.W_CALENDAR)
+            toggleRow("Now Playing", Prefs.W_MUSIC)
+            toggleRow("Smart Home", Prefs.W_HOME)
+            toggleRow("Continue Watching", Prefs.W_RECENT)
+        }
+        group {
+            vrow("Weather Location", { Weather.getCity(this) ?: "Automatic" }) { editCity() }
+            vrow("Temperature", { if (Weather.isFahrenheit(this)) "°F" else "°C" }) { Weather.setFahrenheit(this, !Weather.isFahrenheit(this)); refreshValues() }
+            vrow("Calendar Link", { if (CalendarFeed.getUrl(this) != null) "Connected" else "Not Set" }) { editCalendar() }
+            vrow("Now Playing Access", { if (NowPlaying.hasAccess(this)) "Allowed" else "Not Allowed" }) {
+                open(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS), "Notification access settings")
+            }
+        }
+        footnote("Calendar: paste your calendar’s private iCal link (easiest from the iPhone remote’s More tab). Now Playing needs Notification Access for Minimal Launcher.")
+
+        section("Ambient & Screen Saver")
+        group {
+            vrow("Start Ambient", { "" }, chevron = true) { AmbientActivity.start(this, AmbientActivity.AMBIENT) }
+            vrow("Start Aerial", { "" }, chevron = true) { AmbientActivity.start(this, AmbientActivity.AERIAL) }
+            vrow("Sleep Clock", { "" }, chevron = true) { AmbientActivity.start(this, AmbientActivity.SLEEP) }
+        }
+        group {
+            vrow("When Idle, Show", { if (Prefs.idleAfter(this) == 0) "Nothing" else AmbientActivity.title(Prefs.idleMode(this)) }) {
+                choose("When Idle, Show", listOf(AmbientActivity.AMBIENT to "Ambient", AmbientActivity.AERIAL to "Aerial", AmbientActivity.SLEEP to "Sleep Clock", "none" to "Nothing"),
+                    if (Prefs.idleAfter(this) == 0) "none" else Prefs.idleMode(this)) { v ->
+                    if (v == "none") Prefs.setInt(this, "idle_after", 0) else {
+                        Prefs.setString(this, "idle_mode", v)
+                        if (Prefs.idleAfter(this) == 0) Prefs.setInt(this, "idle_after", 10)
+                    }
+                }
+            }
+            vrow("Start After", { mins(Prefs.idleAfter(this)) }) {
+                choose("Start After", listOf(5, 10, 15, 30, 60, 0).map { "$it" to mins(it) }, "${Prefs.idleAfter(this)}") { Prefs.setInt(this, "idle_after", it.toInt()) }
+            }
+            vrow("Dim Home Screen After", { mins(Prefs.dimAfter(this)) }) {
+                choose("Dim Home Screen After", listOf(1, 2, 5, 10, 0).map { "$it" to mins(it) }, "${Prefs.dimAfter(this)}") { Prefs.setInt(this, "dim_after", it.toInt()) }
+            }
+            vrow("Stay On For", { Prefs.ambientHours(this).let { if (it == 0) "No Limit" else if (it == 1) "1 Hour" else "$it Hours" } }) {
+                choose("Stay On For", listOf("1" to "1 Hour", "2" to "2 Hours", "4" to "4 Hours", "8" to "8 Hours", "0" to "No Limit"), "${Prefs.ambientHours(this)}") {
+                    Prefs.setInt(this, "ambient_hours", it.toInt())
+                }
+            }
+        }
+        footnote("After “Stay On For”, Ambient and Aerial fade to the dark sleep clock and the TV can turn itself off as usual.")
+        group {
+            vrow("Ambient Pictures", { sourceName(Prefs.ambientSource(this)) }) {
+                choose("Ambient Pictures", listOf("aerial", "art", "album", "builtin").map { it to sourceName(it) }, Prefs.ambientSource(this)) {
+                    Prefs.setString(this, "ambient_source", it)
+                }
+            }
+            vrow("Landscape Category", { PhotoSources.aerialCategories.firstOrNull { it.id == Prefs.aerialCategory(this) }?.title ?: "Mountains" }) {
+                choose("Landscape Category", PhotoSources.aerialCategories.map { it.id to it.title }, Prefs.aerialCategory(this)) {
+                    Prefs.setString(this, "aerial_category", it)
+                }
+            }
+            vrow("Show Location", { onOff(Prefs.showLocation(this)) }) { Prefs.setBool(this, "show_location", !Prefs.showLocation(this)); refreshValues() }
+            vrow("Music Visualiser", { onOff(Prefs.visualiser(this)) }) { toggleVisualiser() }
+            vrow("System Screen Saver", { "" }, chevron = true) { open(Intent(Settings.ACTION_DREAM_SETTINGS), "Screen saver settings") }
+        }
+        footnote("Landscapes and artwork download once over Wi-Fi (Wikimedia Commons featured pictures; public-domain paintings from the Art Institute of Chicago). The visualiser follows the music when Android allows the microphone permission; otherwise it sways gently.")
+
+        section("Cinema Mode")
+        group {
+            vrow("Cinema App", { CinemaMode.appLabel(this) }) { CinemaMode.chooseApp(this) { refreshValues() } }
+            vrow("Do Not Disturb", {
+                when {
+                    !Prefs.cinemaDnd(this) -> "Off"
+                    CinemaMode.hasDndAccess(this) -> "On"
+                    else -> "Needs Access"
+                }
+            }) {
+                if (Prefs.cinemaDnd(this) && !CinemaMode.hasDndAccess(this)) {
+                    open(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS), "Do Not Disturb access settings")
+                } else {
+                    Prefs.setBool(this, "cinema_dnd", !Prefs.cinemaDnd(this)); refreshValues()
+                }
+            }
+            vrow("Dim Govee Lights", { onOff(Prefs.cinemaLights(this)) }) { Prefs.setBool(this, "cinema_lights", !Prefs.cinemaLights(this)); refreshValues() }
+        }
+        footnote("The film button on the home screen dims everything, silences notifications, dims your lights to 12%, shows a cinema clock and opens your app. Press it again to undo.")
+
+        section("iPhone Remote")
+        group {
+            vrow("iPhone Remote", { onOff(RemoteService.isEnabled(this)) }) {
+                RemoteService.setEnabled(this, !RemoteService.isEnabled(this)); refreshValues()
+                if (RemoteService.isEnabled(this)) showRemoteQr()
+            }
+            vrow("Connect iPhone", { "" }, chevron = true) {
+                if (!RemoteService.isEnabled(this)) RemoteService.setEnabled(this, true)
+                refreshValues(); showRemoteQr()
+            }
+        }
+        footnote("Works over your home Wi-Fi: touchpad, buttons, volume, typing, apps, modes and uploading your own photos. For full control of other apps, also turn on the Accessibility Service above.")
+
+        section("Feel")
+        group {
+            vrow("Sounds", { onOff(Prefs.sounds(this)) }) { Prefs.setBool(this, "sounds", !Prefs.sounds(this)); refreshValues() }
+            vrow("Ambient Lighting", { onOff(Prefs.ambientLight(this)) }) { Prefs.setBool(this, "ambient_light", !Prefs.ambientLight(this)); refreshValues() }
+        }
+        footnote("Ambient lighting makes the wallpaper a little darker in the evening and at night. Haptic feedback isn’t possible: the Chromecast remote has no vibration motor.")
 
         section("Open Automatically")
         group {
@@ -134,6 +245,7 @@ class SettingsActivity : AppCompatActivity() {
         autoDiag.text = RedirectDiag.summary(this)
         keyRow.value.text = if (GoveeHelper.getApiKey(this) != null) "Set" else "Not Set"
         claudeKeyRow.value.text = if (ClaudeChat.getApiKey(this) != null) "Set" else "Not Set"
+        refreshers.forEach { it() }
     }
 
     // ---------- Dialogs ----------
@@ -339,5 +451,111 @@ class SettingsActivity : AppCompatActivity() {
             topMargin = dp(this@SettingsActivity, 10f)
         })
         return t
+    }
+
+    // ---------- Helpers for the newer sections ----------
+
+    /** A row whose value is read again whenever the screen refreshes. */
+    private fun vrow(title: String, value: () -> String, chevron: Boolean = false, onClick: () -> Unit): Row {
+        val r = row(title, chevron, onClick)
+        refreshers += { r.value.text = value() }
+        return r
+    }
+
+    private fun toggleRow(title: String, key: String) =
+        vrow(title, { onOff(Prefs.widget(this, key)) }) { Prefs.setBool(this, key, !Prefs.widget(this, key)); refreshValues() }
+
+    private fun onOff(b: Boolean) = if (b) "On" else "Off"
+
+    private fun mins(m: Int) = when (m) { 0 -> "Never"; 60 -> "1 Hour"; 1 -> "1 Minute"; else -> "$m Minutes" }
+
+    private fun sourceName(s: String) = when (s) {
+        "aerial" -> "Landscapes"
+        "art" -> "Artwork"
+        "album" -> "My Photos"
+        else -> "Built-in Photos"
+    }
+
+    /** A list of choices with a tick on the current one. */
+    private fun choose(title: String, options: List<Pair<String, String>>, current: String, onPick: (String) -> Unit) {
+        val d = GlassDialog(this).title(title)
+        if (options.size > 6) d.scrolling()
+        for ((value, label) in options) {
+            d.button(if (value == current) "$label  ✓" else label, if (value == current) GlassDialog.Style.BOLD else GlassDialog.Style.NORMAL) {
+                onPick(value); refreshValues()
+            }
+        }
+        d.focusButton(options.indexOfFirst { it.first == current }.coerceAtLeast(0))
+        d.show()
+    }
+
+    private fun pickWallpaper() {
+        val albumCount = WallpaperLibrary.album(this).size
+        val options = listOf("all" to "All Photos") +
+            WallpaperLibrary.categories.map { "cat:${it.id}" to it.title } +
+            ("album" to if (albumCount == 0) "My Photos (add from iPhone)" else "My Photos ($albumCount)") +
+            WallpaperLibrary.bundled.map { "photo:${it.number}" to it.place }
+        choose("Wallpaper for ${ProfileManager.getActiveProfile(this)}", options, ProfileManager.getWallpaper(this)) {
+            if (it == "album" && albumCount == 0) GlassUi.toast(this, "Add photos from the iPhone remote’s Photos tab")
+            ProfileManager.setWallpaper(this, it)
+        }
+    }
+
+    private fun pickFavourites() {
+        val favs = ProfileManager.getFavourites(this)
+        val d = GlassDialog(this).title("Favourites").message("Shown in the Favourites row below the dock.").scrolling()
+        for (app in AppListHelper.loadLaunchableTvApps(this)) {
+            d.toggle(app.label, app.packageName in favs) { ProfileManager.toggleFavourite(this, app.packageName); refreshValues() }
+        }
+        d.button("Done", GlassDialog.Style.BOLD).show()
+    }
+
+    private fun arrangeDock() {
+        val all = AppListHelper.loadLaunchableTvApps(this)
+        val byPkg = all.associateBy { it.packageName }
+        val dock = ProfileManager.getDockOrder(this).ifEmpty { all.take(10).map { it.packageName } }
+        val d = GlassDialog(this).title("Arrange Dock").message("Choose an app to move or remove.").scrolling()
+        dock.mapNotNull { byPkg[it] }.forEachIndexed { i, app ->
+            d.button("${i + 1}.  ${app.label}") { AppActions.menu(this, app, null, dock) { refreshValues(); arrangeDock() } }
+        }
+        d.button("Done", GlassDialog.Style.BOLD).show()
+    }
+
+    private fun editCity() {
+        val d = GlassDialog(this).title("Weather Location").message("Enter a town or city, or leave empty to work it out from your internet connection.")
+            .input("Town or city", Weather.getCity(this).orEmpty())
+        d.button("Save", GlassDialog.Style.BOLD) { Weather.setCity(this, d.inputText.ifBlank { null }); refreshValues() }
+        d.button("Cancel").show()
+    }
+
+    private fun editCalendar() {
+        val d = GlassDialog(this).title("Calendar Link")
+            .message("Paste your calendar’s private iCal (.ics) link. Google Calendar: Settings › your calendar › “Secret address in iCal format”. Typing is easier from the iPhone remote’s More tab.")
+            .input("https://…", CalendarFeed.getUrl(this).orEmpty())
+        d.button("Save", GlassDialog.Style.BOLD) { CalendarFeed.setUrl(this, d.inputText.ifBlank { null }); refreshValues() }
+        if (CalendarFeed.getUrl(this) != null) d.button("Remove", GlassDialog.Style.DESTRUCTIVE) { CalendarFeed.setUrl(this, null); refreshValues() }
+        d.button("Cancel").show()
+    }
+
+    private fun toggleVisualiser() {
+        val on = !Prefs.visualiser(this)
+        Prefs.setBool(this, "visualiser", on)
+        if (on && checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), 7)
+        }
+        refreshValues()
+    }
+
+    private fun showRemoteQr() {
+        val url = RemoteServer.url(this)
+        if (url == null) {
+            GlassDialog(this).title("Not Connected").message("Connect the TV to Wi-Fi first.").button("OK", GlassDialog.Style.BOLD).show()
+            return
+        }
+        GlassDialog(this).title("Connect Your iPhone")
+            .message("Join the same Wi-Fi, then point the iPhone camera at this code. Or open:\n$url")
+            .image(RemoteService.qr(url, 480))
+            .button("Done", GlassDialog.Style.BOLD)
+            .show()
     }
 }

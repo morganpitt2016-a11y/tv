@@ -56,4 +56,6 @@ dependencies {
     implementation 'androidx.leanback:leanback:1.0.0'
     // Claude (official Anthropic SDK)
     implementation 'com.anthropic:anthropic-java:3.2.0'
+    // QR code for pairing the iPhone remote
+    implementation 'com.google.zxing:core:3.5.3'
 }

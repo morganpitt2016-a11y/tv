@@ -19,15 +19,13 @@ class AllAppsActivity : AppCompatActivity() {
 
         val grid = findViewById<RecyclerView>(R.id.allAppsGrid)
         grid.layoutManager = GridLayoutManager(this, 5)
-        grid.adapter = AppAdapter(apps) { app ->
-            val intent = app.launchIntent ?: return@AppAdapter
-            RecentAppsTracker.recordOpened(this, app.packageName)
-            try {
-                startActivity(intent)
-            } catch (e: Exception) {
-                GlassUi.toast(this, "${app.label} couldn't be opened")
-            }
-        }
+        grid.adapter = AppAdapter(apps,
+            onLaunch = { app, v -> AppActions.launch(this, app, v) },
+            onMenu = { app, v ->
+                val dock = ProfileManager.getDockOrder(this).ifEmpty { apps.take(10).map { it.packageName } }
+                AppActions.menu(this, app, v, dock) {}
+            })
         grid.post { grid.getChildAt(0)?.requestFocus() }
+        UiSounds.attach(this)
     }
 }

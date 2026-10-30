@@ -40,7 +40,12 @@ class GlassDialog(private val context: Context) {
     private var scrollChoices = false
     private var focusIndex = 0
 
+    private var image: android.graphics.Bitmap? = null
+
     fun title(t: String) = apply { title = t }
+
+    /** A picture under the message (e.g. a QR code). */
+    fun image(b: android.graphics.Bitmap) = apply { image = b }
     fun message(m: String) = apply { message = m }
 
     /** Adds a text field; read it in a button action with [inputText]. */
@@ -104,6 +109,19 @@ class GlassDialog(private val context: Context) {
             }
         }
 
+        image?.let { bmp ->
+            val iv = android.widget.ImageView(c).apply {
+                setImageBitmap(bmp)
+                background = GradientDrawable().apply { cornerRadius = dp(c, 14f).toFloat(); setColor(Color.WHITE) }
+                clipToOutline = true
+                outlineProvider = android.view.ViewOutlineProvider.BACKGROUND
+                setPadding(dp(c, 8f), dp(c, 8f), dp(c, 8f), dp(c, 8f))
+            }
+            card.addView(iv, LinearLayout.LayoutParams(dp(c, 170f), dp(c, 170f)).apply {
+                gravity = Gravity.CENTER_HORIZONTAL; topMargin = dp(c, 16f)
+            })
+        }
+
         inputHint?.let { hint ->
             val field = EditText(c).apply {
                 this.hint = hint
@@ -163,6 +181,17 @@ class GlassDialog(private val context: Context) {
             } else false
         }
         dialog.show()
+        UiSounds.attach(dialog)
+        (context as? android.app.Activity)?.let { a ->
+            GlassUi.blurBehind(a, true)
+            dialog.setOnDismissListener { GlassUi.blurBehind(a, false) }
+        }
+        // Glass transition: the card fades and settles into place.
+        card.alpha = 0f
+        card.scaleX = 0.94f
+        card.scaleY = 0.94f
+        card.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(260)
+            .setInterpolator(android.view.animation.DecelerateInterpolator(2f)).start()
         (input ?: buttonViews.getOrNull(focusIndex) ?: buttonViews.firstOrNull())?.requestFocus()
         return dialog
     }
