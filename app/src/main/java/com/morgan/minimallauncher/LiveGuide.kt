@@ -1,0 +1,249 @@
+package com.morgan.minimallauncher
+
+import android.app.Activity
+import android.content.Context
+import android.content.Intent
+import android.os.Handler
+import android.os.Looper
+import android.util.Xml
+import org.json.JSONArray
+import org.json.JSONObject
+import org.xmlpull.v1.XmlPullParser
+import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
+import java.text.SimpleDateFormat
+import java.util.Locale
+
+/**
+ * Live TV guide for UK free-to-air channels, from the public Freeview
+ * EPG (github.com/dp247/Freeview-EPG, rebuilt every 8 hours). The 20 MB
+ * XML file is streamed and boiled down to the next ~12 hours of TV
+ * channels, kept on the TV and refreshed every few hours.
+ *
+ * Programmes play in TiviMate (it can't be told which channel to open,
+ * so it opens on your last channel) or, for BBC / ITV / Channel 4 / 5,
+ * in their own apps.
+ */
+object LiveGuide {
+    private const val EPG_URL = "https://raw.githubusercontent.com/dp247/Freeview-EPG/master/epg.xml"
+    private const val MAX_AGE = 4 * 3600_000L
+    const val TIVIMATE = "ar.tvplayer.tv"
+    private val main = Handler(Looper.getMainLooper())
+
+    data class Programme(val title: String, val desc: String, val start: Long, val stop: Long, val image: String?, val episode: String) {
+        fun isOn(now: Long = System.currentTimeMillis()) = now in start until stop
+        fun progress(now: Long = System.currentTimeMillis()) = ((now - start).toFloat() / (stop - start).coerceAtLeast(1)).coerceIn(0f, 1f)
+    }
+
+    data class Channel(val id: String, val name: String, val logo: String?, val programmes: List<Programme>) {
+        fun now(t: Long = System.currentTimeMillis()) = programmes.firstOrNull { it.isOn(t) }
+        fun upcoming(t: Long = System.currentTimeMillis()) = programmes.filter { it.stop > t }
+    }
+
+    @Volatile private var memory: List<Channel>? = null
+    @Volatile private var loading = false
+
+    private fun cacheFile(c: Context) = File(c.filesDir, "guide.json")
+
+    /** The guide, from memory/disk straight away if fresh enough, else downloaded. Main-thread callback. */
+    fun load(c: Context, done: (List<Channel>?) -> Unit) {
+        val app = c.applicationContext
+        val f = cacheFile(app)
+        memory?.let { if (System.currentTimeMillis() - f.lastModified() < MAX_AGE) { done(it); return } }
+        Thread {
+            var result: List<Channel>? = null
+            if (f.exists() && System.currentTimeMillis() - f.lastModified() < MAX_AGE) result = readCache(f)
+            if (result == null && !loading) {
+                loading = true
+                try {
+                    result = download()
+                    writeCache(f, result)
+                } catch (e: Exception) {
+                    result = if (f.exists()) readCache(f) else null
+                } finally { loading = false }
+            }
+            if (result != null) memory = result
+            main.post { done(result?.let { trimmed(it) }) }
+        }.start()
+    }
+
+    /** Drop finished programmes and channels with nothing left. */
+    private fun trimmed(list: List<Channel>): List<Channel> {
+        val now = System.currentTimeMillis()
+        return list.map { it.copy(programmes = it.programmes.filter { p -> p.stop > now }) }.filter { it.programmes.isNotEmpty() }
+    }
+
+    // ---------- Download + parse ----------
+
+    private fun download(): List<Channel> {
+        val conn = URL(EPG_URL).openConnection() as HttpURLConnection
+        conn.connectTimeout = 20_000
+        conn.readTimeout = 60_000
+        conn.setRequestProperty("User-Agent", Net.USER_AGENT)
+        try {
+            if (conn.responseCode !in 200..299) throw java.io.IOException("HTTP ${conn.responseCode}")
+            return parse(conn.inputStream)
+        } finally { conn.disconnect() }
+    }
+
+    private fun parse(input: java.io.InputStream): List<Channel> {
+        val now = System.currentTimeMillis()
+        val from = now - 30 * 60_000L
+        val to = now + 14 * 3600_000L
+        val fmt = SimpleDateFormat("yyyyMMddHHmmss Z", Locale.US)
+        val names = LinkedHashMap<String, Pair<String, String?>>()
+        val progs = HashMap<String, MutableList<Programme>>()
+
+        val xp = Xml.newPullParser()
+        xp.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false)
+        xp.setInput(input.buffered(), null)
+        var ev = xp.eventType
+        while (ev != XmlPullParser.END_DOCUMENT) {
+            if (ev == XmlPullParser.START_TAG) {
+                when (xp.name) {
+                    "channel" -> {
+                        val id = xp.getAttributeValue(null, "id")
+                        var name = id; var logo: String? = null
+                        while (true) {
+                            val e = xp.next()
+                            if (e == XmlPullParser.END_DOCUMENT || (e == XmlPullParser.END_TAG && xp.name == "channel")) break
+                            if (e != XmlPullParser.START_TAG) continue
+                            when (xp.name) {
+                                "display-name" -> name = xp.nextText().trim()
+                                "icon" -> logo = xp.getAttributeValue(null, "src")
+                            }
+                        }
+                        names[id] = name to logo
+                    }
+                    "programme" -> {
+                        val ch = xp.getAttributeValue(null, "channel")
+                        val start = try { fmt.parse(xp.getAttributeValue(null, "start"))!!.time } catch (e: Exception) { 0L }
+                        val stop = try { fmt.parse(xp.getAttributeValue(null, "stop"))!!.time } catch (e: Exception) { 0L }
+                        val keep = stop > from && start < to && !isRadio(ch, names[ch]?.first)
+                        var title = ""; var desc = ""; var image: String? = null; var ep = ""
+                        while (true) {
+                            val e = xp.next()
+                            if (e == XmlPullParser.END_DOCUMENT || (e == XmlPullParser.END_TAG && xp.name == "programme")) break
+                            if (!keep || e != XmlPullParser.START_TAG) continue
+                            when (xp.name) {
+                                "title" -> title = xp.nextText().trim()
+                                "desc" -> desc = xp.nextText().trim()
+                                "icon" -> image = xp.getAttributeValue(null, "src")
+                                "episode-num" -> if (xp.getAttributeValue(null, "system") == "onscreen") ep = xp.nextText().trim()
+                            }
+                        }
+                        if (keep && title.isNotBlank()) progs.getOrPut(ch) { mutableListOf() } += Programme(title, desc, start, stop, image, ep)
+                    }
+                }
+            }
+            ev = xp.next()
+        }
+        val channels = names.mapNotNull { (id, nl) ->
+            val p = progs[id]?.sortedBy { it.start } ?: return@mapNotNull null
+            if (isRadio(id, nl.first)) null else Channel(id, cleanName(nl.first), nl.second, p)
+        }
+        return order(dedupeRegions(channels))
+    }
+
+    private fun isRadio(id: String?, name: String?) =
+        id?.startsWith("BBCR") == true || name?.contains("Radio", true) == true ||
+            name?.contains("Asian Network", true) == true || name?.contains(" FM", false) == true
+
+    private fun cleanName(n: String) = n.replace("&amp;", "&").removeSuffix(" HD").trim()
+
+    /** BBC One, ITV1 etc. come in many regional versions: keep one of each (London if there). */
+    private fun dedupeRegions(list: List<Channel>): List<Channel> {
+        val families = listOf("BBC One", "BBC Two", "ITV1", "ITV 1", "STV", "UTV")
+        val seen = HashMap<String, Channel>()
+        val out = mutableListOf<Channel>()
+        for (ch in list) {
+            val fam = families.firstOrNull { ch.name.startsWith(it) && !ch.name.contains("+1") }
+            if (fam == null) { out += ch; continue }
+            val existing = seen[fam]
+            if (existing == null) { seen[fam] = ch; out += ch }
+            else if (ch.name.contains("London") && !existing.name.contains("London")) {
+                out[out.indexOf(existing)] = ch.copy(name = fam); seen[fam] = ch
+            }
+        }
+        return out.map { ch -> families.firstOrNull { ch.name.startsWith(it) && !ch.name.contains("+1") }?.let { ch.copy(name = it) } ?: ch }
+    }
+
+    /** Main channels first, in Freeview order. */
+    private fun order(list: List<Channel>): List<Channel> {
+        val top = listOf("BBC One", "BBC Two", "ITV1", "ITV 1", "Channel 4", "5", "ITV2", "BBC Three", "BBC Four", "E4", "More4", "Film4",
+            "ITV3", "ITV4", "Dave", "Drama", "5USA", "5 USA", "Yesterday", "Quest", "Really", "BBC News", "Sky News", "GB News", "CBBC", "CBeebies")
+        fun rank(c: Channel): Int {
+            val i = top.indexOfFirst { c.name.equals(it, true) }
+            return if (i >= 0) i else 1000 + (if (c.name.contains("+1")) 500 else 0)
+        }
+        return list.sortedWith(compareBy({ rank(it) }, { it.name }))
+    }
+
+    // ---------- Cache ----------
+
+    private fun writeCache(f: File, list: List<Channel>) {
+        val arr = JSONArray()
+        for (c in list) {
+            val ps = JSONArray()
+            c.programmes.forEach { p ->
+                ps.put(JSONObject().put("t", p.title).put("d", p.desc.take(400)).put("s", p.start).put("e", p.stop).put("i", p.image).put("n", p.episode))
+            }
+            arr.put(JSONObject().put("id", c.id).put("name", c.name).put("logo", c.logo).put("p", ps))
+        }
+        f.writeText(arr.toString())
+    }
+
+    private fun readCache(f: File): List<Channel>? = try {
+        val arr = JSONArray(f.readText())
+        (0 until arr.length()).map { i ->
+            val o = arr.getJSONObject(i)
+            val ps = o.getJSONArray("p")
+            Channel(o.getString("id"), o.getString("name"), o.optString("logo").takeIf { it.isNotBlank() },
+                (0 until ps.length()).map { j ->
+                    val p = ps.getJSONObject(j)
+                    Programme(p.getString("t"), p.optString("d"), p.getLong("s"), p.getLong("e"), p.optString("i").takeIf { it.isNotBlank() }, p.optString("n"))
+                })
+        }
+    } catch (e: Exception) { null }
+
+    // ---------- Watching ----------
+
+    /** The broadcaster's own app for a channel, if it has one installed. */
+    fun broadcasterApp(c: Context, channel: Channel): Pair<String, String>? {
+        val n = channel.name.lowercase()
+        val options = when {
+            n.startsWith("bbc") || n.startsWith("cbbc") || n.startsWith("cbeebies") -> listOf("uk.co.bbc.iplayer" to "BBC iPlayer")
+            n.startsWith("itv") || n.startsWith("stv") || n.startsWith("utv") -> listOf("air.ITVMobilePlayer" to "ITVX", "com.itv.loki" to "ITVX", "com.stv.android.player" to "STV Player")
+            n.startsWith("channel 4") || n in listOf("e4", "more4", "film4", "4seven") || n.startsWith("e4") || n.startsWith("more4") || n.startsWith("film4") ->
+                listOf("com.channel4.ondemand" to "Channel 4")
+            n == "5" || n.startsWith("5") -> listOf("com.channel5.my5" to "My5", "com.channel5.androidtv" to "My5")
+            n.startsWith("dave") || n.startsWith("drama") || n.startsWith("yesterday") -> listOf("uk.co.uktv.dave" to "U")
+            else -> emptyList()
+        }
+        return options.firstOrNull { (pkg, _) -> launchIntent(c, pkg) != null }
+    }
+
+    fun hasTiviMate(c: Context) = launchIntent(c, TIVIMATE) != null
+
+    /** Opens TiviMate (it resumes on the last channel you watched). */
+    fun openTiviMate(activity: Activity, channel: Channel?) {
+        val intent = launchIntent(activity, TIVIMATE)
+        if (intent == null) {
+            GlassUi.toast(activity, "TiviMate isn’t installed")
+            return
+        }
+        try {
+            activity.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            if (channel != null) GlassUi.toast(activity, "Choose ${channel.name} in TiviMate")
+        } catch (e: Exception) { GlassUi.toast(activity, "TiviMate couldn’t be opened") }
+    }
+
+    fun openApp(activity: Activity, pkg: String) {
+        val intent = launchIntent(activity, pkg) ?: return
+        try { activity.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {}
+    }
+
+    private fun launchIntent(c: Context, pkg: String): Intent? =
+        c.packageManager.getLeanbackLaunchIntentForPackage(pkg) ?: c.packageManager.getLaunchIntentForPackage(pkg)
+}

@@ -138,15 +138,21 @@ stage (the 1920x1080 reference at 2x) that scales to fit any screen:
 
 ### Watch (all your apps in one place)
 
-`WatchActivity` (play tile in the dock; also listed as its own app,
-"Watch"): big artwork for the selected title, then rails for Live TV apps
-(TiviMate first), Continue Watching (titles opened from here, per
-profile), Trending on Your Apps, Popular on each installed service, Films
-and Shows, plus search by typing or voice. Data comes from JustWatch's
-public catalogue (`WatchCatalog`), which says which service has each title
-and gives a link that opens it straight in that app (falling back to the
-app itself, then Google TV search). Netflix, TiviMate etc. don't let other
-apps read their own history or channel lists.
+`WatchActivity` (play tile in the dock; also its own app, "Watch"), tvOS-style:
+
+- **Home**: Continue Watching and My List (per profile), Top 10 on your
+  apps, "Because You Watched…", and a row per service - Netflix, Disney+,
+  Prime Video, Paramount+, Apple TV+, NOW, iPlayer, ITVX, Channel 4, 5 -
+  including ones not installed (offers the Play Store).
+- **Films / Shows**: popular, trending and genre rows.
+- **Live TV**: free Freeview guide (github.com/dp247/Freeview-EPG):
+  On Now cards and a now/next/later grid; plays in TiviMate (which can't be
+  told the channel, so it opens on the last one) or the broadcaster's app.
+- **My List**, **Search** (typed or voice; films, shows and TV listings).
+- **Detail page**: cast, seasons, age rating, runtime, trailer, where to
+  watch (service logos, included/free/rent/buy), My List, More Like This.
+
+Catalogue data: JustWatch's public catalogue (`WatchCatalog`).
 
 Fonts: Roboto Flex, Oswald and Inter (SIL Open Font License). Icons: Lucide (ISC).
 

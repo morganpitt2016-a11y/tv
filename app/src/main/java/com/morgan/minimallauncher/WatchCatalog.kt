@@ -39,7 +39,23 @@ object WatchCatalog {
     }
 
     /** A streaming service, and the TV app that plays it (if installed). */
-    data class Provider(val short: String, val technical: String, val name: String, val installed: String?)
+    data class Provider(val short: String, val technical: String, val name: String, val installed: String?, val icon: String? = null) {
+        /** The TV app to install from the Play Store, if we know it. */
+        val appPackage: String? get() = APPS[technical]?.firstOrNull()
+        val displayName: String get() = when (technical) {
+            "disneyplus" -> "Disney+"; "paramountplus" -> "Paramount+"; "amazonprime" -> "Prime Video"
+            "appletvplus" -> "Apple TV+"; "nowtv" -> "NOW"; "all4" -> "Channel 4"; "my5" -> "5"; else -> name
+        }
+    }
+
+    /** The big services, shown even when their app isn't installed yet. */
+    val MAJOR = listOf("netflix", "disneyplus", "amazonprime", "paramountplus", "appletvplus", "nowtv", "bbc", "itv", "all4", "my5", "skygo")
+
+    data class Detail(
+        val runtime: Int, val age: String, val seasons: Int,
+        val cast: List<String>, val directors: List<String>,
+        val trailer: String?, val similar: List<Title>,
+    )
 
     private const val API = "https://apis.justwatch.com/graphql"
     private const val IMG = "https://images.justwatch.com"
@@ -105,15 +121,16 @@ object WatchCatalog {
     /** Services available in this country, with the installed TV app for each (blocking). */
     fun providers(c: Context): List<Provider> {
         providers?.let { return it }
-        val json = cached(c, "packages_${country()}", 7 * 24 * 3600_000L) {
-            post("""query { packages(country: ${country()}, platform: WEB) { clearName technicalName shortName } }""", JSONObject())
+        val json = cached(c, "packages2_${country()}", 7 * 24 * 3600_000L) {
+            post("""query { packages(country: ${country()}, platform: WEB) { clearName technicalName shortName icon(profile: S100, format: PNG) } }""", JSONObject())
         }
         val arr = json.optJSONObject("data")?.optJSONArray("packages") ?: JSONArray()
         val launchable = AppListHelper.loadLaunchableTvApps(c).associate { it.packageName to it.label }
         val list = (0 until arr.length()).map { arr.getJSONObject(it) }.map {
             val technical = it.optString("technicalName")
             Provider(it.optString("shortName"), technical, it.optString("clearName"),
-                installedPackage(c, technical, it.optString("clearName"), launchable))
+                installedPackage(c, technical, it.optString("clearName"), launchable),
+                it.optString("icon").takeIf { i -> i.isNotBlank() && i != "null" }?.let { i -> IMG + i })
         }
         providers = list
         return list
@@ -121,6 +138,14 @@ object WatchCatalog {
 
     /** One provider per installed app (e.g. Netflix, not also "Netflix with Ads"). */
     fun installedProviders(c: Context): List<Provider> = providers(c).filter { it.installed != null }.distinctBy { it.installed }
+
+    /** Installed services first, then the big ones you don't have yet. */
+    fun featuredProviders(c: Context): List<Provider> {
+        val all = providers(c)
+        val mine = installedProviders(c)
+        val more = MAJOR.mapNotNull { t -> all.firstOrNull { it.technical == t } }.filter { p -> mine.none { it.technical == p.technical || it.installed == p.installed && p.installed != null } }
+        return mine + more
+    }
 
     // ---------- Titles ----------
 
@@ -143,7 +168,7 @@ object WatchCatalog {
      */
     fun titles(
         c: Context, sort: String = "POPULAR", packages: List<String> = emptyList(), types: List<String> = emptyList(),
-        search: String? = null, first: Int = 30, done: (List<Title>?) -> Unit,
+        search: String? = null, first: Int = 30, genres: List<String> = emptyList(), done: (List<Title>?) -> Unit,
     ) {
         val app = c.applicationContext
         Thread {
@@ -152,6 +177,7 @@ object WatchCatalog {
                 if (packages.isNotEmpty()) filter.put("packages", JSONArray(packages))
                 if (types.isNotEmpty()) filter.put("objectTypes", JSONArray(types))
                 if (!search.isNullOrBlank()) filter.put("searchQuery", search)
+                if (genres.isNotEmpty()) filter.put("genres", JSONArray(genres))
                 val vars = JSONObject().put("country", country()).put("language", "en").put("first", first)
                     .put("filter", filter).put("sortBy", sort)
                 val key = "t_" + (vars.toString().hashCode().toLong() and 0xffffffffL)
@@ -166,10 +192,15 @@ object WatchCatalog {
         val byShort = providers(c).associateBy { it.short }
         val edges = json.optJSONObject("data")?.optJSONObject("popularTitles")?.optJSONArray("edges") ?: return emptyList()
         return (0 until edges.length()).mapNotNull { i ->
-            val node = edges.getJSONObject(i).optJSONObject("node") ?: return@mapNotNull null
-            val content = node.optJSONObject("content") ?: return@mapNotNull null
+            edges.getJSONObject(i).optJSONObject("node")?.let { parseNode(it, byShort) }
+        }
+    }
+
+    private fun parseNode(node: JSONObject, byShort: Map<String, Provider>): Title? {
+        return run {
+            val content = node.optJSONObject("content") ?: return null
             val offersJson = node.optJSONArray("offers") ?: JSONArray()
-            val offers = (0 until offersJson.length()).mapNotNull { j ->
+            val offers = (0 until offersJson.length()).mapNotNull { j: Int ->
                 val o = offersJson.getJSONObject(j)
                 val pkg = o.optJSONObject("package") ?: return@mapNotNull null
                 val provider = byShort[pkg.optString("shortName")]
@@ -254,7 +285,7 @@ object WatchCatalog {
 
     private fun historyKey(c: Context) = "watch_history_" + ProfileManager.getActiveProfile(c)
 
-    private fun remember(c: Context, t: Title) {
+    fun remember(c: Context, t: Title) {
         val arr = try { JSONArray(Prefs.string(c, historyKey(c)) ?: "[]") } catch (e: Exception) { JSONArray() }
         val out = JSONArray().put(toJson(t))
         for (i in 0 until arr.length()) {
@@ -264,11 +295,7 @@ object WatchCatalog {
         Prefs.setString(c, historyKey(c), out.toString())
     }
 
-    fun history(c: Context): List<Title> = try {
-        val byShort = providers(c).associateBy { it.short }
-        val arr = JSONArray(Prefs.string(c, historyKey(c)) ?: "[]")
-        (0 until arr.length()).map { fromJson(arr.getJSONObject(it), byShort) }
-    } catch (e: Exception) { emptyList() }
+    fun history(c: Context): List<Title> = readTitles(c, historyKey(c))
 
     private fun toJson(t: Title) = JSONObject().put("id", t.id).put("type", t.type).put("name", t.name).put("year", t.year)
         .put("poster", t.poster).put("backdrop", t.backdrop).put("description", t.description).put("imdb", t.imdb ?: 0.0)
@@ -285,6 +312,100 @@ object WatchCatalog {
                 val x = offers.getJSONObject(i)
                 byShort[x.optString("p")]?.let { Offer(it, x.optString("u"), x.optString("k")) }
             })
+    }
+
+    // ---------- Title details ----------
+
+    private const val TITLE_FIELDS = """id objectType
+        content(country: %C, language: "en") { title originalReleaseYear posterUrl shortDescription backdrops { backdropUrl } scoring { imdbScore } genres { shortName } }
+        offers(country: %C, platform: WEB) { monetizationType standardWebURL package { shortName technicalName clearName } }"""
+
+    /** Cast, seasons, trailer and "More Like This" for one title. Main-thread callback; null on failure. */
+    fun detail(c: Context, t: Title, done: (Detail?) -> Unit) {
+        val app = c.applicationContext
+        Thread {
+            val result = try {
+                val cc = country()
+                val fields = TITLE_FIELDS.replace("%C", cc)
+                val extra = """content(country: $cc, language: "en") { runtime ageCertification credits { name role } clips { externalId provider } }
+                    similarTitlesV2(country: $cc, first: 16) { edges { node { ... on Movie { $fields } ... on Show { $fields } } } }"""
+                val q = """query { node(id: ${JSONObject.quote(t.id)}) {
+                    ... on Movie { $extra }
+                    ... on Show { totalSeasonCount $extra }
+                } }"""
+                val json = cached(app, "d_" + t.id, 24 * 3600_000L) { post(q, JSONObject()) }
+                val node = json.optJSONObject("data")?.optJSONObject("node") ?: throw java.io.IOException("no node")
+                val content = node.optJSONObject("content") ?: JSONObject()
+                val credits = content.optJSONArray("credits") ?: JSONArray()
+                val people = (0 until credits.length()).map { credits.getJSONObject(it) }
+                val clips = content.optJSONArray("clips") ?: JSONArray()
+                val trailer = (0 until clips.length()).map { clips.getJSONObject(it) }
+                    .firstOrNull { it.optString("provider").equals("YOUTUBE", true) }?.optString("externalId")
+                val byShort = providers(app).associateBy { it.short }
+                val sim = node.optJSONObject("similarTitlesV2")?.optJSONArray("edges") ?: JSONArray()
+                Detail(
+                    runtime = content.optInt("runtime"),
+                    age = content.optString("ageCertification").takeIf { it != "null" }.orEmpty(),
+                    seasons = node.optInt("totalSeasonCount"),
+                    cast = people.filter { it.optString("role") == "ACTOR" }.map { it.optString("name") }.distinct().take(5),
+                    directors = people.filter { it.optString("role") == "DIRECTOR" }.map { it.optString("name") }.distinct().take(2),
+                    trailer = trailer?.takeIf { it.isNotBlank() },
+                    similar = (0 until sim.length()).mapNotNull { sim.getJSONObject(it).optJSONObject("node")?.let { n -> parseNode(n, byShort) } },
+                )
+            } catch (e: Exception) { null }
+            main.post { done(result) }
+        }.start()
+    }
+
+    // ---------- My List (per profile) ----------
+
+    private fun listKey(c: Context) = "watch_list_" + ProfileManager.getActiveProfile(c)
+
+    fun myList(c: Context): List<Title> = readTitles(c, listKey(c))
+
+    fun inMyList(c: Context, t: Title) = myList(c).any { it.id == t.id }
+
+    /** Adds or removes; returns true if it's now in the list. */
+    fun toggleMyList(c: Context, t: Title): Boolean {
+        val list = myList(c).toMutableList()
+        val added = list.removeAll { it.id == t.id }.not()
+        if (added) list.add(0, t)
+        Prefs.setString(c, listKey(c), JSONArray().apply { list.take(60).forEach { put(toJson(it)) } }.toString())
+        return added
+    }
+
+    private fun readTitles(c: Context, key: String): List<Title> = try {
+        val byShort = providers(c).associateBy { it.short }
+        val arr = JSONArray(Prefs.string(c, key) ?: "[]")
+        (0 until arr.length()).map { fromJson(arr.getJSONObject(it), byShort) }
+    } catch (e: Exception) { emptyList() }
+
+    // ---------- Apps ----------
+
+    /** Opens the Play Store page for a service's TV app. */
+    fun getApp(activity: android.app.Activity, p: Provider) {
+        val pkg = p.appPackage
+        val tries = listOfNotNull(
+            pkg?.let { Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$it")) },
+            Intent(Intent.ACTION_VIEW, Uri.parse("market://search?q=" + Uri.encode(p.displayName))),
+        )
+        for (i in tries) {
+            try { activity.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); return } catch (e: Exception) {}
+        }
+        GlassUi.toast(activity, "Install ${p.displayName} from the Google Play Store")
+    }
+
+    /** Plays a YouTube trailer in the YouTube app. */
+    fun playTrailer(activity: android.app.Activity, youtubeId: String) {
+        val uri = Uri.parse("https://www.youtube.com/watch?v=$youtubeId")
+        val tries = listOf(
+            Intent(Intent.ACTION_VIEW, uri).setPackage("com.google.android.youtube.tv"),
+            Intent(Intent.ACTION_VIEW, uri),
+        )
+        for (i in tries) {
+            try { activity.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); return } catch (e: Exception) {}
+        }
+        GlassUi.toast(activity, "YouTube isn’t installed")
     }
 
     // ---------- HTTP + cache ----------

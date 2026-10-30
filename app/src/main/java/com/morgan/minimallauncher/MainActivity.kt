@@ -66,8 +66,6 @@ class MainActivity : AppCompatActivity() {
     private var govDevices: List<GoveeHelper.Device> = emptyList()
     private var lastFetchedApiKey: String? = null
     private var dockPackages: List<String> = emptyList()
-    private var railsShown = false
-    private var railOffset = 0f
 
     private val clockTick = object : Runnable {
         override fun run() {
@@ -116,13 +114,7 @@ class MainActivity : AppCompatActivity() {
         root.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> fitStage() }
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() {
-                // Back from the rails returns to the top; otherwise home has nowhere to go.
-                if (railsShown) {
-                    showRails(null)
-                    dock.getChildAt(0)?.requestFocus()
-                }
-            }
+            override fun handleOnBackPressed() = Unit
         })
 
         for ((button, scale) in listOf(nightModeButton to 1.08f, quickSettingsButton to 1.08f, cinemaButton to 1.08f)) {
@@ -133,11 +125,6 @@ class MainActivity : AppCompatActivity() {
         cinemaButton.setOnClickListener { CinemaMode.toggle(this) }
         applyDimming(animate = false)
 
-        // Moving into the rails glides the whole screen up; leaving them glides back.
-        window.decorView.viewTreeObserver.addOnGlobalFocusChangeListener { _, new ->
-            if (new == null) return@addOnGlobalFocusChangeListener
-            showRails(if (isInside(new, rails)) new else null)
-        }
         UiSounds.attach(this)
     }
 
@@ -194,7 +181,6 @@ class MainActivity : AppCompatActivity() {
         buildProfileSwitch()
         buildDock(allApps)
         buildKeepWatching(allApps)
-        buildRails(allApps)
         buildDeviceRow()
         fetchDevicesIfNeeded()
         if (focusActiveProfile) {
@@ -506,68 +492,6 @@ class MainActivity : AppCompatActivity() {
     private fun relativeTime(millis: Long): String =
         if (millis <= 0L) "Recently"
         else DateUtils.getRelativeTimeSpanString(millis, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS).toString()
-
-    // ---------- Rails below the dock ----------
-
-    private fun buildRails(allApps: List<AppEntry>) {
-        val byPkg = allApps.associateBy { it.packageName }
-        val profile = ProfileManager.getActiveProfile(this)
-        val favourites = ProfileManager.getFavourites(this).mapNotNull { byPkg[it] }
-        val recent = RecentAppsTracker.getRecent(this, allApps, limit = 12).map { it.app }
-        val recommended = RecentAppsTracker.recommended(this, allApps, exclude = favourites.map { it.packageName }.toSet(), limit = 12)
-        val list = mutableListOf<Pair<String, List<AppEntry>>>()
-        list += "Favourites" to favourites
-        list += "Recommended for $profile" to recommended
-        list += "Recently Watched" to recent
-        list += "All Apps" to allApps
-        Rails.build(this, rails, list,
-            onOpen = { app, v -> AppActions.launch(this, app, v) },
-            onMenu = { app, v -> AppActions.menu(this, app, v, dockPackages) { refreshAll() } })
-    }
-
-    private fun isInside(v: View, parent: View): Boolean {
-        var p: Any? = v.parent
-        while (p is View) {
-            if (p === parent) return true
-            p = p.parent
-        }
-        return false
-    }
-
-    /**
-     * Cinematic scroll: with focus in a rail ([focused]), the controls,
-     * clock and rails glide up so that rail sits near the top, and the
-     * wallpaper blurs and darkens behind them. Null glides back.
-     */
-    private fun showRails(focused: View?) {
-        val target = if (focused == null) 0f else {
-            var rv: View = focused
-            while (rv !is RecyclerView && rv.parent is View) rv = rv.parent as View
-            -((rails.top + rv.top) - dp(150)).toFloat()
-        }
-        val shown = focused != null
-        if (target == railOffset && shown == railsShown) return
-        railOffset = target
-        val ease = DecelerateInterpolator(2.2f)
-        ui.animate().translationY(target).setDuration(480).setInterpolator(ease).start()
-        clockText.animate().translationY(target * 0.6f).alpha(if (shown) 0f else 1f).setDuration(480).setInterpolator(ease).start()
-        if (shown != railsShown) {
-            railsShown = shown
-            railScrim.animate().alpha(if (shown) 1f else 0f).setDuration(480).start()
-            if (Build.VERSION.SDK_INT >= 31) {
-                val from = if (shown) 0.1f else 22f
-                val to = if (shown) 22f else 0.1f
-                android.animation.ValueAnimator.ofFloat(from, to).apply {
-                    duration = 480
-                    addUpdateListener {
-                        val r = it.animatedValue as Float
-                        scenery.setRenderEffect(if (r < 0.5f) null else RenderEffect.createBlurEffect(r, r, Shader.TileMode.CLAMP))
-                    }
-                    start()
-                }
-            }
-        }
-    }
 
     // ---------- Govee device pills (top-right, only when set up) ----------
 
