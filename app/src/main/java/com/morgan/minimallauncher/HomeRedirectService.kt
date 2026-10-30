@@ -84,12 +84,20 @@ class HomeRedirectService : AccessibilityService() {
     override fun onKeyEvent(event: android.view.KeyEvent): Boolean {
         // The tuner's own presses (sent by Android for this service) always go through.
         if (event.deviceId == android.view.KeyCharacterMap.VIRTUAL_KEYBOARD) return false
-        // While a channel is being tuned behind the cover, the remote is held back
-        // (Back cancels) so a stray press can't send TiviMate somewhere else.
-        if (TiviTuner.covering) {
+        // While a channel is being found, the remote is held back so a stray press can't
+        // send TiviMate somewhere else. Back stops the search and returns to the guide.
+        if (TiviTuner.busy || TiviTuner.covering) {
             if (event.keyCode == android.view.KeyEvent.KEYCODE_BACK && event.action == android.view.KeyEvent.ACTION_UP) {
-                TiviTuner.cancelled = true
+                TiviTuner.cancel()
                 TiviTuner.hideCover()
+                if (TiviTuner.returnToGuide) {
+                    TiviTuner.returnToGuide = false
+                    try {
+                        startActivity(Intent(this, WatchActivity::class.java)
+                            .putExtra(WatchActivity.EXTRA_TAB, "live")
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP))
+                    } catch (e: Exception) {}
+                }
             }
             return true
         }

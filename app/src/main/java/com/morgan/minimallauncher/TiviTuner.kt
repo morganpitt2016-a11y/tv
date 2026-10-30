@@ -183,12 +183,24 @@ object TiviTuner {
     /** Call right after launching TiviMate. [done] gets true once the channel was selected. */
     fun tune(channel: String, relaunch: (() -> Unit)? = null, doneOuter: (Boolean) -> Unit) {
         // On failure, keep a picture of what TiviMate was showing, for the log.
-        val done: (Boolean) -> Unit = { ok ->
+        var finished = false
+        val done: (Boolean) -> Unit = done@{ ok ->
+            if (finished) return@done
+            finished = true
+            busy = false
+            if (cancelled) {
+                cancelled = false
+                note("Cancelled - stopped searching")
+                hideCover()
+                return@done  // no "couldn't find it" message: you chose to stop
+            }
             if (!ok) note("What TiviMate showed:\n" + compactScreen())
             // Lift the cover once the picture is up (or straight away if it failed).
             main.postDelayed({ hideCover() }, if (ok) 700 else 0)
             doneOuter(ok)
         }
+        cancelled = false
+        busy = true
         showCover(channel)
         val service = HomeRedirectService.instance ?: run { note("Accessibility service not running"); return done(false) }
         val wanted = normalise(channel)
@@ -207,7 +219,7 @@ object TiviTuner {
         var sameCount = 0
 
         fun step() {
-            if (cancelled) { cancelled = false; note("Cancelled"); done(false); return }
+            if (cancelled) { done(false); return }
             attempts++
             if (attempts > 120) { note("Gave up after $attempts checks"); done(false); return }
             val roots = tiviRoots(service)
@@ -349,6 +361,7 @@ object TiviTuner {
         var lastKey = 0
         var lost = 0
         fun check() {
+            if (cancelled) { done(false); return }
             // Read the screen afresh each time: TiviMate rebuilds its rows as the guide scrolls.
             val list = tiviRoots(service).flatMap { scrollables(it) }.maxByOrNull { descendants(it) } ?: firstList
             val target = bestMatch(list, wanted)?.let { rowIn(list, it) }
@@ -370,6 +383,7 @@ object TiviTuner {
             if (focused == target) {
                 main.postDelayed({
                     val again = tiviRoots(service).flatMap { scrollables(it) }.maxByOrNull { descendants(it) } ?: list
+                    if (cancelled) { done(false); return@postDelayed }
                     if (focusRowIn(service, again) == bestMatch(again, wanted)?.let { rowIn(again, it) }) {
                         note("Highlight is on ${rowNames(target)} - pressing OK")
                         service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_DPAD_CENTER)
@@ -432,6 +446,7 @@ object TiviTuner {
         note("---- Record")
         var stage = 0
         fun attempt() {
+            if (cancelled) { cancelled = false; note("Cancelled"); return done(false) }
             val button = findIn(service, ::isRecordLabel)
             if (button != null) {
                 note("Found \"${button.text ?: button.contentDescription}\" - pressing it")
@@ -488,6 +503,16 @@ object TiviTuner {
     private var cover: android.view.View? = null
     @Volatile var cancelled = false
     val covering get() = cover != null
+    /** True from the start of a search until it finishes (found, failed or cancelled). */
+    @Volatile var busy = false
+        private set
+
+    /** Back pressed mid-search: stop everything now. */
+    fun cancel() {
+        if (!busy) return
+        cancelled = true
+        hideCover()
+    }
 
     fun showCover(channel: String) {
         val service = HomeRedirectService.instance ?: return
