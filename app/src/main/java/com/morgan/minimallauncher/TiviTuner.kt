@@ -25,6 +25,15 @@ object TiviTuner {
 
     fun canTune() = HomeRedirectService.instance != null && Build.VERSION.SDK_INT >= 33
 
+    /** Set when Live TV sent you to TiviMate: Back while watching then returns to the guide. */
+    @Volatile var returnToGuide = false
+
+    /** True while TiviMate is in front showing only the picture (no channel list, guide or menu). */
+    fun isWatchingFullScreen(service: AccessibilityService): Boolean {
+        val roots = tiviRoots(service)
+        return roots.isNotEmpty() && roots.none { scrollables(it).isNotEmpty() }
+    }
+
     // ---------- Log ----------
 
     private val log = ArrayDeque<String>()
@@ -57,11 +66,11 @@ object TiviTuner {
 
         fun step() {
             attempts++
-            if (attempts > 50) { note("Gave up after $attempts checks"); done(false); return }
+            if (attempts > 90) { note("Gave up after $attempts checks"); done(false); return }
             val roots = tiviRoots(service)
             if (roots.isEmpty()) {
                 if (attempts % 4 == 1) note("Waiting for TiviMate (front: ${frontPackages(service)})")
-                main.postDelayed({ step() }, 500); return
+                main.postDelayed({ step() }, 200); return
             }
             val lists = roots.flatMap { scrollables(it) }
             val match = roots.firstNotNullOfOrNull { findInList(it, wanted) }
@@ -74,13 +83,13 @@ object TiviTuner {
             val texts = roots.flatMap { texts(it) }
             if (lists.isEmpty()) {
                 // Playing full screen: let playback settle, then press OK to bring up the channel list.
-                if (settle++ < 2) { main.postDelayed({ step() }, 700); return }
+                if (settle++ < 1) { main.postDelayed({ step() }, 300); return }
                 if (okPresses >= 2) { note("No channel list appeared. On screen: ${texts.take(15)}"); done(false); return }
                 okPresses++
                 note("No list showing - pressing OK (#$okPresses). On screen: ${texts.take(10)}")
                 service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_DPAD_CENTER)
                 settle = 0
-                main.postDelayed({ step() }, 1100); return
+                main.postDelayed({ step() }, 550); return
             }
             val seen = texts.joinToString("|")
             if (seen == lastSeen) {
@@ -90,9 +99,9 @@ object TiviTuner {
             if (attempts % 3 == 1) note("${lists.size} list(s), names: ${texts.take(12)} - scrolling")
             val scrolled = lists.any { it.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD) }
             if (!scrolled) repeat(6) { service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_DPAD_DOWN) }
-            main.postDelayed({ step() }, 500)
+            main.postDelayed({ step() }, 260)
         }
-        main.postDelayed({ step() }, 1200)
+        main.postDelayed({ step() }, 400)
     }
 
     /** After selecting: if the list is still open over the picture, close it so it's full screen. */
@@ -106,7 +115,7 @@ object TiviTuner {
             }
             note("Done")
             done(true)
-        }, 1500)
+        }, 700)
     }
 
     /** Focus it and press OK (what TV apps respond to best); fall back to a click. */
@@ -124,7 +133,7 @@ object TiviTuner {
             main.postDelayed({
                 service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_DPAD_CENTER)
                 done(true)
-            }, 350)
+            }, 150)
             return
         }
         if (clickable != null && clickable.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {

@@ -44,13 +44,13 @@ object UiSounds {
 
     fun move(c: Context) {
         val now = System.currentTimeMillis()
-        if (now - lastMove < 40) return // holding a direction: don't machine-gun
+        if (now - lastMove < 70) return // holding a direction: don't machine-gun
         lastMove = now
-        play(c, { move }, 0.35f)
+        play(c, { move }, 0.22f)
     }
 
-    fun select(c: Context) = play(c, { select }, 0.45f)
-    fun back(c: Context) = play(c, { back }, 0.4f)
+    fun select(c: Context) = play(c, { select }, 0.32f)
+    fun back(c: Context) = play(c, { back }, 0.3f)
 
     /** Adds the sounds to an activity's window (call after setContentView). */
     fun attach(activity: Activity) {

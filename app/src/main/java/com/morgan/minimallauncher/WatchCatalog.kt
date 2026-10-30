@@ -256,6 +256,9 @@ object WatchCatalog {
             try {
                 activity.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                 remember(activity, title)
+                val app = pkg ?: continue
+                RecentAppsTracker.recordOpened(activity, app)
+                rememberForApp(activity, app, title)
                 return
             } catch (e: Exception) {}
         }
@@ -267,6 +270,8 @@ object WatchCatalog {
                     activity.startActivity(launch)
                     GlassUi.toast(activity, "Search for “${title.name}” in ${offer.provider.name}")
                     remember(activity, title)
+                    RecentAppsTracker.recordOpened(activity, pkg)
+                    rememberForApp(activity, pkg, title)
                     return
                 } catch (e: Exception) {}
             }
@@ -301,6 +306,20 @@ object WatchCatalog {
     }
 
     fun history(c: Context): List<Title> = readTitles(c, historyKey(c))
+
+    /** Remember which title was opened in which app (for the home screen's Continue Watching). */
+    private fun rememberForApp(c: Context, pkg: String, t: Title) {
+        Prefs.setString(c, "last_title_${ProfileManager.getActiveProfile(c)}_$pkg",
+            toJson(t).put("at", System.currentTimeMillis()).toString())
+    }
+
+    /** The last title opened in [pkg] from Watch, and when. No network needed. */
+    fun lastForApp(c: Context, pkg: String): Pair<Title, Long>? = try {
+        Prefs.string(c, "last_title_${ProfileManager.getActiveProfile(c)}_$pkg")?.let { s ->
+            val o = JSONObject(s)
+            fromJson(o, emptyMap()) to o.optLong("at")
+        }
+    } catch (e: Exception) { null }
 
     private fun toJson(t: Title) = JSONObject().put("id", t.id).put("type", t.type).put("name", t.name).put("year", t.year)
         .put("poster", t.poster).put("backdrop", t.backdrop).put("description", t.description).put("imdb", t.imdb ?: 0.0)

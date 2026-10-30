@@ -211,7 +211,7 @@
                     android:layout_height="43dp"
                     android:layout_marginEnd="10dp"
                     android:background="@drawable/glass_circle_bg"
-                    android:contentDescription="Quick settings"
+                    android:contentDescription="Control Centre"
                     android:focusable="true"
                     android:focusableInTouchMode="false">
 
@@ -314,6 +314,21 @@
                 android:clipToPadding="false"
                 android:gravity="center"
                 android:orientation="horizontal" />
+
+            <!-- Name of the focused dock app, under its icon (tvOS) -->
+            <TextView
+                android:id="@+id/dockLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="520dp"
+                android:alpha="0"
+                android:fontFamily="@font/inter_medium"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:shadowColor="#80000000"
+                android:shadowRadius="6"
+                android:textColor="#F2FFFFFF"
+                android:textSize="11dp" />
 
             <!-- Content rails, below the fold -->
             <LinearLayout

@@ -85,7 +85,7 @@ class AppAdapter(
             holder.image.scaleType = ImageView.ScaleType.FIT_CENTER
             val pad = dp(c, 18f)
             holder.image.setPadding(pad, pad, pad, pad)
-            holder.image.setImageBitmap(TileRenderer.render(app.icon, dp(c, 48f)))
+            holder.image.setImageBitmap(TileRenderer.forApp(app, dp(c, 48f)))
         }
         holder.label.text = app.label
         holder.root.contentDescription = "Open ${app.label}"

@@ -23,7 +23,27 @@ object AppListHelper {
         ri.loadIcon(pm)
     }
 
+    @Volatile private var cache: List<AppEntry>? = null
+
+    /** Forget the list (an app was installed, removed or updated). */
+    fun invalidate() {
+        cache = null
+        TileRenderer.clear()
+    }
+
+    /**
+     * Every launchable TV app, sorted by name. Built once and reused - reading
+     * every app and its high-resolution icon is slow - until apps change.
+     */
     fun loadLaunchableTvApps(context: Context): List<AppEntry> {
+        cache?.let { return it }
+        synchronized(this) {
+            cache?.let { return it }
+            return scan(context).also { cache = it }
+        }
+    }
+
+    private fun scan(context: Context): List<AppEntry> {
         val pm = context.packageManager
         val results = mutableListOf<ResolveInfo>()
 

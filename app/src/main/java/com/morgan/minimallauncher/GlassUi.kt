@@ -134,9 +134,9 @@ object GlassUi {
      */
     fun focusLift(view: View, scale: Float = 1.03f) {
         view.setOnFocusChangeListener { v, has ->
+            // Rows on glass: grow only (a shadow under a white row reads as a dark band).
             v.animate().scaleX(if (has) scale else 1f).scaleY(if (has) scale else 1f)
-                .setInterpolator(android.view.animation.DecelerateInterpolator(2f))
-                .setDuration(200).start()
+                .setInterpolator(Motion.focusEase).setDuration(Motion.FOCUS).start()
         }
     }
 
@@ -169,21 +169,11 @@ object GlassUi {
      */
     fun blurBehind(activity: Activity, on: Boolean) {
         val content = activity.findViewById<ViewGroup>(android.R.id.content)?.getChildAt(0) ?: return
-        val from = (content.getTag(R.id.blur_radius) as? Float) ?: 0f
-        val to = if (on) dp(activity, 14f).toFloat() else 0f
-        (content.getTag(R.id.blur_anim) as? android.animation.Animator)?.cancel()
-        android.animation.ValueAnimator.ofFloat(from, to).apply {
-            content.setTag(R.id.blur_anim, this)
-            duration = if (on) 320 else 260
-            interpolator = android.view.animation.DecelerateInterpolator(2f)
-            addUpdateListener {
-                val r = it.animatedValue as Float
-                content.setTag(R.id.blur_radius, r)
-                if (Build.VERSION.SDK_INT >= 31) {
-                    content.setRenderEffect(if (r < 0.5f) null else RenderEffect.createBlurEffect(r, r, Shader.TileMode.CLAMP))
-                }
-            }
-            start()
+        // Applied once (re-blurring the whole screen every animation frame drops frames
+        // on TV hardware); the dialog's own fade in/out provides the transition.
+        if (Build.VERSION.SDK_INT >= 31) {
+            val r = dp(activity, 14f).toFloat()
+            content.setRenderEffect(if (on) RenderEffect.createBlurEffect(r, r, Shader.TileMode.CLAMP) else null)
         }
     }
 

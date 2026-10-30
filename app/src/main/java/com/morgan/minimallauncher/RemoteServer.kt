@@ -306,5 +306,16 @@ class LauncherApp : Application() {
     override fun onCreate() {
         super.onCreate()
         registerActivityLifecycleCallbacks(Foreground)
+        // Keep the cached app list in step with installs, removals and updates.
+        val filter = android.content.IntentFilter().apply {
+            addAction(Intent.ACTION_PACKAGE_ADDED); addAction(Intent.ACTION_PACKAGE_REMOVED)
+            addAction(Intent.ACTION_PACKAGE_CHANGED); addAction(Intent.ACTION_PACKAGE_REPLACED)
+            addDataScheme("package")
+        }
+        androidx.core.content.ContextCompat.registerReceiver(this, object : android.content.BroadcastReceiver() {
+            override fun onReceive(c: Context, i: Intent) = AppListHelper.invalidate()
+        }, filter, androidx.core.content.ContextCompat.RECEIVER_EXPORTED)
+        // Warm the list off the main thread so the home screen opens fast.
+        Thread { try { AppListHelper.loadLaunchableTvApps(this) } catch (e: Exception) {} }.start()
     }
 }

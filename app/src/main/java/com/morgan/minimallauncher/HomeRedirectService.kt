@@ -76,6 +76,30 @@ class HomeRedirectService : AccessibilityService() {
 
     override fun onInterrupt() = Unit
 
+    /**
+     * Back while watching a channel that Live TV opened in TiviMate: go back to
+     * the Watch guide instead of TiviMate's own menus. Every other key, and Back
+     * anywhere else (including TiviMate's lists), passes straight through.
+     */
+    override fun onKeyEvent(event: android.view.KeyEvent): Boolean {
+        if (event.keyCode != android.view.KeyEvent.KEYCODE_BACK || !TiviTuner.returnToGuide) return false
+        val front = rootInActiveWindow?.packageName?.toString()
+        if (front != LiveGuide.TIVIMATE) {
+            if (front != null && front != packageName) TiviTuner.returnToGuide = false
+            return false
+        }
+        if (!TiviTuner.isWatchingFullScreen(this)) return false
+        if (event.action == android.view.KeyEvent.ACTION_UP) {
+            TiviTuner.returnToGuide = false
+            try {
+                startActivity(Intent(this, WatchActivity::class.java)
+                    .putExtra(WatchActivity.EXTRA_TAB, "live")
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP))
+            } catch (e: Exception) {}
+        }
+        return true
+    }
+
     override fun onDestroy() {
         if (instance === this) instance = null
         if (wakeReceiverRegistered) {

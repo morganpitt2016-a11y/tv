@@ -171,11 +171,18 @@ class WatchActivity : AppCompatActivity() {
             handler.post {
                 if (!isDestroyed) {
                     heroWhere.text = ""
-                    showTab("home", focusContent = true)
+                    showTab(intent.getStringExtra(EXTRA_TAB) ?: "home", focusContent = true)
                     handler.postDelayed({ if (!isDestroyed) prefetch() }, 2500)
                 }
             }
         }.start()
+    }
+
+    /** Back from TiviMate brings this screen back: keep where you were, or open the asked-for tab. */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        val wanted = intent.getStringExtra(EXTRA_TAB) ?: return
+        if (wanted != tab && providers.isNotEmpty()) showTab(wanted, focusContent = true)
     }
 
     override fun onResume() {
@@ -936,18 +943,12 @@ class WatchActivity : AppCompatActivity() {
             h.image.scaleType = ImageView.ScaleType.FIT_CENTER
             val pad = dp(this, 22f)
             h.image.setPadding(pad, pad, pad, pad)
-            h.image.setImageBitmap(TileRenderer.render(app.icon, dp(this, 48f)))
+            h.image.setImageBitmap(TileRenderer.forApp(app, dp(this, 48f)))
         }
     }
 
     private fun focusEffect(v: View, onFocus: () -> Unit) {
-        v.setOnFocusChangeListener { view, has ->
-            view.animate().scaleX(if (has) 1.1f else 1f).scaleY(if (has) 1.1f else 1f)
-                .translationZ(if (has) dp(this, 14f).toFloat() else 0f)
-                .setInterpolator(DecelerateInterpolator(2f)).setDuration(240).start()
-            GlassUi.spotlight(view, has)
-            if (has) onFocus()
-        }
+        Motion.focusable(v, 1.1f, 14f, onFocus)
     }
 
     // ---------- Bits ----------
@@ -963,5 +964,6 @@ class WatchActivity : AppCompatActivity() {
 
     companion object {
         private const val FEATURE_MS = 8000L
+        const val EXTRA_TAB = "tab"
     }
 }

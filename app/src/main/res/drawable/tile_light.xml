@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Restrained light across the focused dock icon (a soft top highlight); nothing at rest. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_focused="true">
+        <shape android:shape="rectangle">
+            <corners android:radius="12dp" />
+            <gradient android:angle="270" android:startColor="#24FFFFFF" android:centerColor="#08FFFFFF" android:endColor="#00FFFFFF" />
+        </shape>
+    </item>
+    <item android:drawable="@android:color/transparent" />
+</selector>

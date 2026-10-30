@@ -58,6 +58,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var keepWatchingRow: LinearLayout
     private lateinit var dock: LinearLayout
     private lateinit var rails: LinearLayout
+    private lateinit var dockLabel: TextView
     private lateinit var wallpaperFront: View
     private lateinit var rotator: WallpaperRotator
     private lateinit var widgets: HomeWidgets
@@ -99,6 +100,7 @@ class MainActivity : AppCompatActivity() {
         keepWatchingRow = findViewById(R.id.keepWatchingRow)
         dock = findViewById(R.id.dock)
         rails = findViewById(R.id.rails)
+        dockLabel = findViewById(R.id.dockLabel)
         wallpaperFront = findViewById(R.id.wallpaperFront)
 
         setupClockFont()
@@ -375,7 +377,7 @@ class MainActivity : AppCompatActivity() {
         for (app in apps) {
             val image = ImageView(this).apply {
                 scaleType = ImageView.ScaleType.FIT_XY
-                setImageBitmap(TileRenderer.render(app.icon, tileSize))
+                setImageBitmap(TileRenderer.forApp(app, tileSize))
             }
             val tile = addDockTile(image, 0, "Open ${app.label}") { v -> AppActions.launch(this, app, v) }
             tile.isLongClickable = true
@@ -410,18 +412,36 @@ class MainActivity : AppCompatActivity() {
             }
             clipToOutline = true
             outlineProvider = ViewOutlineProvider.BACKGROUND
-            foreground = ContextCompat.getDrawable(this@MainActivity, R.drawable.tile_bezel)
+            foreground = ContextCompat.getDrawable(this@MainActivity, R.drawable.tile_light)
             isFocusable = true
             isClickable = true
             contentDescription = label
             setOnClickListener { onClick(it) }
             addView(content, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         }
-        addFocusScale(tile, 1.09f, spotlight = true)
+        val name = label.removePrefix("Open ").substringBefore(":")
+        tile.setOnFocusChangeListener { v, has ->
+            Motion.focus(v, has, 1.12f, 12f)
+            showDockLabel(if (has) v else null, name)
+        }
         val lp = LinearLayout.LayoutParams(dp(56), dp(56))
         if (dock.childCount > 0) lp.marginStart = dp(13)
         dock.addView(tile, lp)
         return tile
+    }
+
+    /** The focused app's name, centred under its icon; fades out when focus leaves the dock. */
+    private fun showDockLabel(tile: View?, name: String) {
+        if (tile == null) {
+            dockLabel.animate().alpha(0f).setDuration(Motion.FADE).start()
+            return
+        }
+        dockLabel.text = name
+        dockLabel.post {
+            val centre = dock.left + tile.left + tile.width / 2f
+            dockLabel.translationX = centre - dockLabel.width / 2f
+            dockLabel.animate().alpha(1f).setInterpolator(Motion.standard).setDuration(Motion.FADE).start()
+        }
     }
 
     // ---------- Continue watching (artwork + text, no cards) ----------
@@ -436,6 +456,17 @@ class MainActivity : AppCompatActivity() {
 
         for ((index, recent) in recents.withIndex()) {
             val app = recent.app
+            // What we legitimately know: the title you opened from Watch in this app, and
+            // what the app itself reports playing (title + real progress), if it shares that.
+            val opened = WatchCatalog.lastForApp(this, app.packageName)?.takeIf { (_, at) -> at >= recent.openedAt - 120_000L }?.first
+            val playing = NowPlaying.forPackage(this, app.packageName)
+            val title = playing?.title ?: opened?.name ?: app.label
+            val subtitle = listOfNotNull(
+                if (title != app.label) app.label else null,
+                playing?.artist?.takeIf { it.isNotBlank() && it != title },
+                relativeTime(recent.openedAt).takeIf { playing == null },
+            ).joinToString(" · ")
+
             val item = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
@@ -443,40 +474,55 @@ class MainActivity : AppCompatActivity() {
                 isClickable = true
                 isLongClickable = true
                 clipChildren = false
-                contentDescription = "Open ${app.label}"
+                contentDescription = "$title, ${app.label}"
             }
-            val thumb = ImageView(this).apply {
-                scaleType = ImageView.ScaleType.CENTER_CROP
+            val frame = FrameLayout(this).apply {
                 background = GradientDrawable().apply { cornerRadius = dp(8).toFloat(); setColor(0xFF2C2B30.toInt()) }
                 clipToOutline = true
                 outlineProvider = ViewOutlineProvider.BACKGROUND
-                foreground = ContextCompat.getDrawable(this@MainActivity, R.drawable.tile_bezel)
-                isDuplicateParentStateEnabled = true
-                val banner = bannerFor(app)
-                if (banner != null) setImageDrawable(banner) else {
-                    val pad = dp(12)
-                    setPadding(pad, pad, pad, pad)
-                    scaleType = ImageView.ScaleType.FIT_CENTER
-                    setImageBitmap(TileRenderer.render(app.icon, dp(40)))
+            }
+            val thumb = ImageView(this).apply { scaleType = ImageView.ScaleType.CENTER_CROP }
+            frame.addView(thumb, FrameLayout.LayoutParams(-1, -1))
+            when {
+                opened?.backdrop != null -> ImageLoader.load(thumb, opened.backdrop, ImageLoader.CARD)
+                playing?.art != null -> thumb.setImageBitmap(playing.art)
+                else -> {
+                    val banner = bannerFor(app)
+                    if (banner != null) thumb.setImageDrawable(banner) else {
+                        val pad = dp(12)
+                        thumb.setPadding(pad, pad, pad, pad)
+                        thumb.scaleType = ImageView.ScaleType.FIT_CENTER
+                        thumb.setImageBitmap(TileRenderer.forApp(app, dp(40)))
+                    }
                 }
             }
-            item.addView(thumb, LinearLayout.LayoutParams(dp(100), dp(56)))
-            item.setOnClickListener { AppActions.launch(this, app, thumb) }
-            item.setOnLongClickListener { AppActions.menu(this, app, thumb, dockPackages) { refreshAll() }; true }
+            // Which service it's on: the app's icon in the corner of the artwork.
+            if (opened != null || playing != null) {
+                frame.addView(ImageView(this).apply {
+                    setImageBitmap(TileRenderer.forApp(app, dp(16)))
+                    background = GradientDrawable().apply { cornerRadius = dp(4).toFloat(); setColor(0) }
+                    clipToOutline = true
+                    outlineProvider = ViewOutlineProvider.BACKGROUND
+                }, FrameLayout.LayoutParams(dp(16), dp(16), Gravity.BOTTOM or Gravity.START).apply { setMargins(dp(5), 0, 0, dp(6)) })
+            }
+            // Real progress only, when the app reports position and length.
+            if (playing != null && playing.duration > 0) {
+                frame.addView(View(this).apply { setBackgroundColor(0x40FFFFFF) }, FrameLayout.LayoutParams(-1, dp(3), Gravity.BOTTOM))
+                frame.addView(View(this).apply { setBackgroundColor(0xF2FFFFFF.toInt()) },
+                    FrameLayout.LayoutParams((dp(100) * playing.progress).toInt(), dp(3), Gravity.BOTTOM))
+            }
+            item.addView(frame, LinearLayout.LayoutParams(dp(100), dp(56)))
+            item.setOnClickListener { AppActions.launch(this, app, frame) }
+            item.setOnLongClickListener { AppActions.menu(this, app, frame, dockPackages) { refreshAll() }; true }
 
             val text = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-            text.addView(label(app.label, R.font.inter_semibold, 14f, 0xFFFFFFFF.toInt()))
-            text.addView(label(relativeTime(recent.openedAt), R.font.inter_medium, 11f, 0xB3FFFFFF.toInt()), marginTop(3))
-            item.addView(text, LinearLayout.LayoutParams(dp(120), LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(12) })
+            text.addView(label(title, R.font.inter_semibold, 14f, 0xFFFFFFFF.toInt()))
+            text.addView(label(subtitle, R.font.inter_medium, 11f, 0xB3FFFFFF.toInt()), marginTop(3))
+            item.addView(text, LinearLayout.LayoutParams(dp(130), LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(12) })
 
-            item.setOnFocusChangeListener { _, has ->
-                val ease = DecelerateInterpolator(2f)
-                thumb.animate().scaleX(if (has) 1.1f else 1f).scaleY(if (has) 1.1f else 1f)
-                    .translationZ(if (has) dp(10).toFloat() else 0f).setInterpolator(ease).setDuration(220).start()
-                GlassUi.spotlight(thumb, has)
-            }
+            item.setOnFocusChangeListener { _, has -> Motion.focus(frame, has, 1.1f, 10f) }
             val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(64))
-            if (index > 0) lp.marginStart = dp(22)
+            if (index > 0) lp.marginStart = dp(18)
             keepWatchingRow.addView(item, lp)
         }
     }
@@ -572,14 +618,7 @@ class MainActivity : AppCompatActivity() {
 
     /** Calm tvOS-style lift on D-pad focus: small grow, soft shadow (or glow), eased. */
     private fun addFocusScale(view: View, scale: Float, spotlight: Boolean = false) {
-        view.setOnFocusChangeListener { v, hasFocus ->
-            val s = if (hasFocus) scale else 1f
-            if (spotlight) GlassUi.spotlight(v, hasFocus)
-            v.animate().scaleX(s).scaleY(s)
-                .translationZ(if (hasFocus) dp(10).toFloat() else 0f)
-                .setInterpolator(DecelerateInterpolator(2f))
-                .setDuration(220).start()
-        }
+        view.setOnFocusChangeListener { v, hasFocus -> Motion.focus(v, hasFocus, scale, if (spotlight) 12f else 8f) }
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density + 0.5f).toInt()

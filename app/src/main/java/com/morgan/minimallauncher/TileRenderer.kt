@@ -16,6 +16,19 @@ object TileRenderer {
 
     private const val FALLBACK_TILE = 0xFFF3F3F3.toInt()
 
+    /** Rendered tiles are reused (drawing an adaptive icon each time the home screen shows is slow). */
+    private val cache = object : android.util.LruCache<String, Bitmap>(8 * 1024 * 1024) {
+        override fun sizeOf(key: String, value: Bitmap) = value.byteCount
+    }
+
+    fun forApp(app: AppEntry, size: Int): Bitmap {
+        val key = "${app.packageName}|$size"
+        cache.get(key)?.let { return it }
+        return render(app.icon, size).also { cache.put(key, it) }
+    }
+
+    fun clear() = cache.evictAll()
+
     fun render(source: Drawable, size: Int): Bitmap {
         val icon = source.mutate()
         val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)

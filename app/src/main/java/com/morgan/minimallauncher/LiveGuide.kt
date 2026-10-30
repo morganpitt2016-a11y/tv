@@ -282,6 +282,7 @@ object LiveGuide {
             activity.startActivity(intent.addFlags(flags))
         } catch (e: Exception) { GlassUi.toast(activity, "TiviMate couldn’t be opened"); return }
         if (channel == null) return
+        TiviTuner.returnToGuide = true
         val app = activity.applicationContext
         // A system toast, so it shows on top of TiviMate.
         fun say(t: String) = android.widget.Toast.makeText(app, t, android.widget.Toast.LENGTH_LONG).show()

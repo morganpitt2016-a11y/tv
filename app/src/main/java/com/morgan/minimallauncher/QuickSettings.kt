@@ -95,6 +95,8 @@ class QuickSettings(private val activity: AppCompatActivity, private val host: H
     private fun build() {
         panel.removeAllViews()
 
+        panel.addView(GlassUi.text(c, "Control Centre", 17f, R.font.inter_semibold), LinearLayout.LayoutParams(-2, -2).apply { bottomMargin = dp(c, 12f) })
+
         // ---- Top: status pills + settings ----
         val top = LinearLayout(c).apply { gravity = Gravity.CENTER_VERTICAL }
         top.addView(pill(R.drawable.ic_lucide_sparkle, ProfileManager.getActiveProfile(c)) { open(Intent(c, SettingsActivity::class.java), inApp = true) },
@@ -278,7 +280,7 @@ class QuickSettings(private val activity: AppCompatActivity, private val host: H
             val banner = try {
                 c.packageManager.getApplicationBanner(app.packageName)
             } catch (e: PackageManager.NameNotFoundException) { null }
-            if (banner != null) setImageDrawable(banner) else setImageBitmap(TileRenderer.render(app.icon, dp(c, 58f)))
+            if (banner != null) setImageDrawable(banner) else setImageBitmap(TileRenderer.forApp(app, dp(c, 58f)))
         }
         card.addView(thumb, LinearLayout.LayoutParams(dp(c, 103f), dp(c, 58f)))
         val text = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL; isDuplicateParentStateEnabled = true }

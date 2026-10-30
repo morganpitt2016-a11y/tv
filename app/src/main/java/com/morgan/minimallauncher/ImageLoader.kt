@@ -22,20 +22,26 @@ object ImageLoader {
     const val HERO = 1280
     const val ICON = 128
 
-    private val pool = Executors.newFixedThreadPool(4)
+    /** Newest requests first (what's on screen now), and obsolete ones are cancelled. */
+    private val pool = java.util.concurrent.ThreadPoolExecutor(4, 4, 30, java.util.concurrent.TimeUnit.SECONDS,
+        object : java.util.concurrent.LinkedBlockingDeque<Runnable>() {
+            override fun offer(e: Runnable) = offerFirst(e)
+        })
+    private val pending = java.util.WeakHashMap<ImageView, java.util.concurrent.Future<*>>()
     private val main = Handler(Looper.getMainLooper())
     private val memory = object : LruCache<String, Bitmap>((Runtime.getRuntime().maxMemory() / 8).toInt()) {
         override fun sizeOf(key: String, value: Bitmap) = value.byteCount
     }
 
     fun load(view: ImageView, url: String?, maxWidth: Int = POSTER, fade: Boolean = true, done: ((Bitmap?) -> Unit)? = null) {
+        synchronized(pending) { pending.remove(view)?.cancel(false) }
         view.tag = url
         if (url == null) { view.setImageDrawable(null); done?.invoke(null); return }
         val key = "$maxWidth|$url"
         memory.get(key)?.let { view.setImageBitmap(it); view.alpha = 1f; done?.invoke(it); return }
         view.setImageDrawable(null)
         val c = view.context.applicationContext
-        pool.execute {
+        val job = pool.submit(Runnable {
             val bmp = try { fetch(c, url, maxWidth) } catch (e: Throwable) { null }
             main.post {
                 if (view.tag != url) return@post
@@ -43,13 +49,14 @@ object ImageLoader {
                 if (fade && bmp != null) { view.alpha = 0f; view.animate().alpha(1f).setDuration(220).start() }
                 done?.invoke(bmp)
             }
-        }
+        })
+        synchronized(pending) { pending[view] = job }
     }
 
     /** Downloads and caches in the background, for images about to be shown. */
     fun prefetch(c: Context, url: String, maxWidth: Int = POSTER) {
         val app = c.applicationContext
-        pool.execute { try { fetch(app, url, maxWidth) } catch (e: Throwable) {} }
+        pool.execute(Runnable { try { fetch(app, url, maxWidth) } catch (e: Throwable) {} })
     }
 
     /** Fetches (blocking), scaled down to at most [maxWidth] pixels wide. */
