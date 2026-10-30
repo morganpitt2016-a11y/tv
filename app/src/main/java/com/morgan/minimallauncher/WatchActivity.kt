@@ -156,6 +156,7 @@ class WatchActivity : AppCompatActivity() {
             override fun handleOnBackPressed() {
                 when {
                     detail != null -> closeDetail()
+                    collectionFrom != null -> closeCollection()
                     rowOf(currentFocus ?: nav) != null -> { scroll.smoothScrollTo(0, 0); (nav.getChildAt(tabIndex()) ?: nav).requestFocus() }
                     else -> finish()
                 }
@@ -244,6 +245,8 @@ class WatchActivity : AppCompatActivity() {
 
     private fun showTab(id: String, focusContent: Boolean) {
         tab = id
+        collectionFrom = null
+        focusFirstLoaded = false
         for (i in 0 until nav.childCount) nav.getChildAt(i).isSelected = nav.getChildAt(i).tag == id
         rows.removeAllViews()
         scroll.scrollTo(0, 0)
@@ -265,7 +268,8 @@ class WatchActivity : AppCompatActivity() {
 
     private fun buildHome(token: Int) {
         refreshPersonalRows()
-        titleRow(token, "top10", "Top 10 on Your Apps", ranked = true) { done ->
+        titleRow(token, "top10", "Top 10 on Your Apps", ranked = true,
+            more = { openCollection("Trending on Your Apps", catalogue(shorts(), sort = "TRENDING")) }) { done ->
             WatchCatalog.titles(this, sort = "TRENDING", packages = shorts(), first = 10) { list ->
                 if (list != null && featured.isEmpty()) { featured = list.take(6); if (rowOf(currentFocus ?: nav) == null) showTitleHero(featured[0], now = true) }
                 done(list)
@@ -279,7 +283,8 @@ class WatchActivity : AppCompatActivity() {
         }
         for (p in providers) {
             val title = if (p.installed != null) "Popular on ${p.displayName}" else "${p.displayName} · Get the App"
-            titleRow(token, "p_${p.short}", title, icon = p.icon) { done ->
+            titleRow(token, "p_${p.short}", title, icon = p.icon,
+                more = { openCollection(p.displayName, catalogue(listOf(p.short))) }) { done ->
                 WatchCatalog.titles(this, packages = listOf(p.short), done = done)
             }
         }
@@ -313,8 +318,63 @@ class WatchActivity : AppCompatActivity() {
         return list
     }
 
+    // ---------- See More: a whole section, sorted into categories ----------
+
+    private val allGenres = genreList + listOf("hrr" to "Horror", "rma" to "Romance", "ani" to "Animation", "fnt" to "Fantasy",
+        "rly" to "Reality TV", "hst" to "History", "spt" to "Sport", "war" to "War")
+
+    private var collectionFrom: String? = null
+    private var focusFirstLoaded = false
+
+    /**
+     * Rows for a See More page: all the films, all the series, then each category
+     * (or, for one category, the services that have it).
+     */
+    private fun catalogue(packages: List<String>, types: List<String> = emptyList(), sort: String = "POPULAR", genre: String? = null):
+        List<Triple<String, String, TitleLoader>> {
+        val g = listOfNotNull(genre)
+        val list = mutableListOf<Triple<String, String, TitleLoader>>()
+        if (types.isEmpty() || "MOVIE" in types) list += Triple<String, String, TitleLoader>("c_films", if (genre == null) "Films" else "Popular") { d ->
+            WatchCatalog.titles(this, sort = sort, packages = packages, types = listOf("MOVIE"), genres = g, first = 80, done = d) }
+        if (types.isEmpty() || "SHOW" in types) list += Triple<String, String, TitleLoader>("c_shows", if (genre == null) "Series" else "Popular Series") { d ->
+            WatchCatalog.titles(this, sort = sort, packages = packages, types = listOf("SHOW"), genres = g, first = 80, done = d) }
+        if (genre == null) {
+            for ((code, name) in allGenres) list += Triple<String, String, TitleLoader>("c_g_$code", name) { d ->
+                WatchCatalog.titles(this, sort = sort, packages = packages, types = types, genres = listOf(code), first = 60, done = d) }
+        } else {
+            for (p in installed.ifEmpty { providers }.filter { it.short in packages }) list += Triple<String, String, TitleLoader>("c_p_${p.short}", "On ${p.displayName}") { d ->
+                WatchCatalog.titles(this, packages = listOf(p.short), types = types, genres = g, first = 40, done = d) }
+        }
+        return list
+    }
+
+    private fun openCollection(title: String, sections: List<Triple<String, String, TitleLoader>>) {
+        if (collectionFrom == null) collectionFrom = tab
+        tab = "collection"
+        rows.removeAllViews()
+        scroll.scrollTo(0, 0)
+        val token = ++buildToken
+        showPlainHero("SEE ALL", title, "Everything, by category.")
+        focusFirstLoaded = true
+        for ((key, name, load) in sections) titleRow(token, key, name, quietFail = true, load = load)
+    }
+
+    private fun closeCollection() {
+        val back = collectionFrom ?: return
+        collectionFrom = null
+        showTab(back, focusContent = true)
+    }
+
     private fun buildCategory(token: Int, type: String) {
-        for ((key, title, load) in categoryLoads(type)) titleRow(token, key, title, quietFail = key.startsWith("g_"), load = load)
+        val what = if (type == "MOVIE") "Films" else "Series"
+        for ((key, title, load) in categoryLoads(type)) {
+            val more: () -> Unit = if (key.startsWith("g_")) {
+                { openCollection("$title $what", catalogue(shorts(), types = listOf(type), genre = key.removePrefix("g_"))) }
+            } else {
+                { openCollection("All $what", catalogue(shorts(), types = listOf(type), sort = if (key == "trend") "TRENDING" else "POPULAR")) }
+            }
+            titleRow(token, key, title, quietFail = key.startsWith("g_"), more = more, load = load)
+        }
     }
 
     /** Quietly load the other tabs (and their first posters) so switching is instant. */
@@ -823,10 +883,12 @@ class WatchActivity : AppCompatActivity() {
     /** A row of titles that loads itself; disappears if empty. */
     private fun titleRow(
         token: Int, key: String, title: String, icon: String? = null, ranked: Boolean = false, quietFail: Boolean = false,
+        more: (() -> Unit)? = null,
         load: ((List<WatchCatalog.Title>?) -> Unit) -> Unit,
     ): Row {
         val r = row(key, title, icon = icon, height = 196f)
-        val adapter = CardAdapter(emptyList<WatchCatalog.Title>(), { p -> posterCard(p, ranked) }) { h, t -> bindTitle(h, t) }
+        val adapter = CardAdapter(emptyList<WatchCatalog.Title>(), { p -> posterCard(p, ranked) }, { h, t -> bindTitle(h, t) },
+            more, if (more != null) { p -> seeMoreCard(p) } else null)
         r.list.adapter = adapter
         rows.addView(r.view)
         load { titles ->
@@ -835,7 +897,11 @@ class WatchActivity : AppCompatActivity() {
                 titles.isNullOrEmpty() && (quietFail || titles != null) -> rows.removeView(r.view)
                 titles == null -> r.view.addView(GlassUi.text(this, "Couldn’t load - check the internet connection", 12f, R.font.inter_regular, 0x99FFFFFF.toInt()),
                     LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(this@WatchActivity, 56f) })
-                else -> adapter.update(titles)
+                else -> {
+                    adapter.update(titles)
+                    // A collection page puts the highlight on its first title as soon as it arrives.
+                    if (focusFirstLoaded) { focusFirstLoaded = false; r.list.post { r.list.getChildAt(0)?.requestFocus() } }
+                }
             }
         }
         return r
@@ -884,14 +950,35 @@ class WatchActivity : AppCompatActivity() {
         private var items: List<T>,
         private val create: (ViewGroup) -> Holder,
         private val bind: (Holder, T) -> Unit,
+        /** "See More" at the end of the row (opens everything in that section). */
+        private val more: (() -> Unit)? = null,
+        private val moreCard: ((ViewGroup) -> Holder)? = null,
     ) : RecyclerView.Adapter<Holder>() {
         fun update(list: List<T>) { items = list; notifyDataSetChanged() }
-        override fun getItemCount() = items.size
-        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) = create(parent)
+        private fun hasMore() = more != null && moreCard != null && items.isNotEmpty()
+        override fun getItemCount() = items.size + if (hasMore()) 1 else 0
+        override fun getItemViewType(position: Int) = if (position >= items.size) 1 else 0
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) = if (viewType == 1) moreCard!!(parent) else create(parent)
         override fun onBindViewHolder(holder: Holder, position: Int) {
+            if (position >= items.size) { holder.root.setOnClickListener { more?.invoke() }; return }
             holder.root.getTag(R.id.blur_anim)?.let { (it as? TextView)?.text = "${position + 1}" }
             bind(holder, items[position])
         }
+    }
+
+    /** The last card of a row: "See More". */
+    private fun seeMoreCard(parent: ViewGroup): Holder {
+        val c = parent.context
+        val h = card(parent, 104f, 156f)
+        (h.root.background as? GradientDrawable)?.setColor(0x26FFFFFF)
+        h.label.text = "See More\n›"
+        h.label.textSize = 13f
+        h.label.typeface = GlassUi.font(c, R.font.inter_semibold)
+        h.label.setTextColor(0xFFFFFFFF.toInt())
+        h.label.setLineSpacing(dp(c, 4f).toFloat(), 1f)
+        h.root.contentDescription = "See More"
+        focusEffect(h.root) { }
+        return h
     }
 
     private fun card(parent: ViewGroup, w: Float, h: Float, gap: Float = 14f): Holder {
