@@ -887,8 +887,8 @@ class WatchActivity : AppCompatActivity() {
         load: ((List<WatchCatalog.Title>?) -> Unit) -> Unit,
     ): Row {
         val r = row(key, title, icon = icon, height = 196f)
-        val adapter = CardAdapter(emptyList<WatchCatalog.Title>(), { p -> posterCard(p, ranked) }, { h, t -> bindTitle(h, t) },
-            more, if (more != null) { p -> seeMoreCard(p) } else null)
+        val moreCard: ((ViewGroup) -> Holder)? = if (more != null) { p -> seeMoreCard(p) } else null
+        val adapter = CardAdapter(emptyList<WatchCatalog.Title>(), { p -> posterCard(p, ranked) }, more, moreCard) { h, t -> bindTitle(h, t) }
         r.list.adapter = adapter
         rows.addView(r.view)
         load { titles ->
@@ -949,10 +949,10 @@ class WatchActivity : AppCompatActivity() {
     private class CardAdapter<T>(
         private var items: List<T>,
         private val create: (ViewGroup) -> Holder,
-        private val bind: (Holder, T) -> Unit,
         /** "See More" at the end of the row (opens everything in that section). */
         private val more: (() -> Unit)? = null,
         private val moreCard: ((ViewGroup) -> Holder)? = null,
+        private val bind: (Holder, T) -> Unit,
     ) : RecyclerView.Adapter<Holder>() {
         fun update(list: List<T>) { items = list; notifyDataSetChanged() }
         private fun hasMore() = more != null && moreCard != null && items.isNotEmpty()
