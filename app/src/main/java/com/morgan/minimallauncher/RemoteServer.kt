@@ -317,5 +317,7 @@ class LauncherApp : Application() {
         }, filter, androidx.core.content.ContextCompat.RECEIVER_EXPORTED)
         // Warm the list off the main thread so the home screen opens fast.
         Thread { try { AppListHelper.loadLaunchableTvApps(this) } catch (e: Exception) {} }.start()
+        // Scheduled TiviMate recordings survive a restart.
+        try { TiviRecorder.rearm(this) } catch (e: Exception) {}
     }
 }

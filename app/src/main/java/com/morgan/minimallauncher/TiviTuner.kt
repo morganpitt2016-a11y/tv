@@ -242,6 +242,89 @@ object TiviTuner {
         main.postDelayed({ confirm() }, 80)
     }
 
+    // ---------- Recording ----------
+
+    private fun isRecordLabel(t: String): Boolean {
+        val s = t.lowercase().trim()
+        if (s.length > 40 || listOf("recordings", "stop", "cancel", "delete", "remove", "recorded").any { it in s }) return false
+        return s == "record" || s == "rec" || s.startsWith("record ") || s.startsWith("start record") || s.endsWith(" record")
+    }
+
+    private fun isConfirmLabel(t: String): Boolean =
+        t.lowercase().trim() in setOf("ok", "yes", "start", "confirm", "record", "record program", "record programme", "save")
+
+    private fun findIn(service: AccessibilityService, test: (String) -> Boolean): AccessibilityNodeInfo? =
+        tiviRoots(service).firstNotNullOfOrNull { root -> find(root) { test(it) } }
+
+    /** Press a button the way the remote would: click it, or highlight it and press OK. */
+    private fun pressNode(service: AccessibilityService, node: AccessibilityNodeInfo) {
+        var n: AccessibilityNodeInfo? = node
+        while (n != null && !n.isClickable && !n.isFocusable) n = n.parent
+        val target = n ?: node
+        if (target.isClickable && target.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return
+        target.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+        main.postDelayed({ service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_DPAD_CENTER) }, 150)
+    }
+
+    /**
+     * With TiviMate showing the channel, find its Record button and press it:
+     * first on screen as it is, then after OK (TiviMate's controls), then by
+     * holding OK on the highlighted channel (its options menu).
+     */
+    fun record(done: (Boolean) -> Unit) {
+        val service = HomeRedirectService.instance ?: run { note("Accessibility service not running"); return done(false) }
+        note("---- Record")
+        var stage = 0
+        fun attempt() {
+            val button = findIn(service, ::isRecordLabel)
+            if (button != null) {
+                note("Found \"${button.text ?: button.contentDescription}\" - pressing it")
+                val pressed = android.graphics.Rect().also { button.getBoundsInScreen(it) }
+                pressNode(service, button)
+                main.postDelayed({ confirmRecording(service, 0, pressed, done) }, 900)
+                return
+            }
+            when (stage++) {
+                0 -> { note("No Record button showing - pressing OK for TiviMate's controls"); service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_DPAD_CENTER) }
+                1 -> {
+                    val f = service.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+                    note("Holding OK on \"${f?.text ?: f?.contentDescription ?: "the highlighted item"}\" for its options")
+                    f?.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK)
+                }
+                else -> {
+                    note("Couldn't find TiviMate's Record button. What TiviMate showed:\n" + compactScreen())
+                    backToPicture(service)
+                    return done(false)
+                }
+            }
+            main.postDelayed({ attempt() }, 900)
+        }
+        attempt()
+    }
+
+    /** TiviMate may ask how to record (this programme, or for a time): accept its first choice. */
+    private fun confirmRecording(service: AccessibilityService, round: Int, pressed: android.graphics.Rect, done: (Boolean) -> Unit) {
+        // Never the button already pressed: pressing Record twice would stop the recording.
+        fun notPressed(n: AccessibilityNodeInfo?) = n?.takeIf { android.graphics.Rect().also { r -> it.getBoundsInScreen(r) } != pressed }
+        val next = if (round < 2) notPressed(findIn(service, ::isConfirmLabel)) ?: notPressed(findIn(service, ::isRecordLabel)) else null
+        if (next != null) {
+            note("TiviMate asked - choosing \"${next.text ?: next.contentDescription}\"")
+            pressNode(service, next)
+            main.postDelayed({ confirmRecording(service, round + 1, pressed, done) }, 900)
+            return
+        }
+        note("Recording started")
+        backToPicture(service)
+        done(true)
+    }
+
+    /** Close any list or menu left open, back to the full-screen picture. */
+    private fun backToPicture(service: AccessibilityService) {
+        if (tiviRoots(service).any { scrollables(it).isNotEmpty() }) {
+            service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
+        }
+    }
+
     // ---------- Windows and nodes ----------
 
     /** Roots of every TiviMate window on screen (its channel list can be a separate pop-up window). */

@@ -21,6 +21,7 @@
 
     <!-- Open the launcher when the TV finishes starting up -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <!-- Optional backup: lets Android open the launcher from the background -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <!-- Backup auto-open method (for TVs whose accessibility settings don't work) -->
@@ -151,6 +152,10 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Local web server for the companion phone remote" />
         </service>
+
+        <receiver
+            android:name=".RecordReceiver"
+            android:exported="false" />
 
         <receiver
             android:name=".BootReceiver"

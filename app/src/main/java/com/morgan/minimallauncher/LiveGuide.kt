@@ -270,7 +270,7 @@ object LiveGuide {
     fun hasTiviMate(c: Context) = launchIntent(c, TIVIMATE) != null
 
     /** Opens TiviMate (it resumes on the last channel you watched). */
-    fun openTiviMate(activity: Activity, channel: Channel?) {
+    fun openTiviMate(activity: Activity, channel: Channel?, then: ((Boolean) -> Unit)? = null) {
         val intent = launchIntent(activity, TIVIMATE)
         if (intent == null) {
             GlassUi.toast(activity, "TiviMate isn’t installed")
@@ -292,7 +292,10 @@ object LiveGuide {
             val restart = {
                 try { app.startActivity(Intent(intent).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)) } catch (e: Exception) {}
             }
-            TiviTuner.tune(channel.name, restart) { ok -> if (!ok) say("Couldn’t find ${channel.name} in TiviMate - choose it from the list") }
+            TiviTuner.tune(channel.name, restart) { ok ->
+                if (!ok) say("Couldn’t find ${channel.name} in TiviMate - choose it from the list")
+                then?.invoke(ok)
+            }
         } else {
             say("Choose ${channel.name} in TiviMate")
         }
@@ -303,6 +306,6 @@ object LiveGuide {
         try { activity.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {}
     }
 
-    private fun launchIntent(c: Context, pkg: String): Intent? =
+    fun launchIntent(c: Context, pkg: String): Intent? =
         c.packageManager.getLeanbackLaunchIntentForPackage(pkg) ?: c.packageManager.getLaunchIntentForPackage(pkg)
 }

@@ -430,7 +430,20 @@ class WatchActivity : AppCompatActivity() {
         val d = GlassDialog(this).title(p.title)
         d.message(listOf("${ch.name}  ·  ${timeRange(p)}" + (if (p.episode.isNotBlank()) "  ·  ${p.episode}" else ""), p.desc.take(300))
             .filter { it.isNotBlank() }.joinToString("\n\n"))
-        if (LiveGuide.hasTiviMate(this)) d.button("Watch in TiviMate", GlassDialog.Style.BOLD) { LiveGuide.openTiviMate(this, ch) }
+        if (LiveGuide.hasTiviMate(this)) {
+            d.button("Watch in TiviMate", GlassDialog.Style.BOLD) { LiveGuide.openTiviMate(this, ch) }
+            when {
+                p.isOn() -> d.button("Record in TiviMate") { TiviRecorder.recordNow(this, ch) }
+                TiviRecorder.isScheduled(this, ch, p) -> d.button("Cancel Recording", GlassDialog.Style.DESTRUCTIVE) {
+                    TiviRecorder.list(this).filter { it.channel == ch.name && it.start == p.start }.forEach { TiviRecorder.cancel(this, it.id) }
+                    GlassUi.toast(this, "Recording cancelled")
+                }
+                p.start > System.currentTimeMillis() -> d.button("Record When It Starts") {
+                    TiviRecorder.schedule(this, ch, p)
+                    GlassUi.toast(this, "TiviMate will record ${p.title} - keep the TV on")
+                }
+            }
+        }
         LiveGuide.broadcasterApp(this, ch)?.let { (pkg, name) ->
             d.button("Watch in $name") { LiveGuide.openApp(this, pkg) }
         }
