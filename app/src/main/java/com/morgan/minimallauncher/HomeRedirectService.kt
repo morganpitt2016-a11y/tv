@@ -82,6 +82,17 @@ class HomeRedirectService : AccessibilityService() {
      * anywhere else (including TiviMate's lists), passes straight through.
      */
     override fun onKeyEvent(event: android.view.KeyEvent): Boolean {
+        // The tuner's own presses (sent by Android for this service) always go through.
+        if (event.deviceId == android.view.KeyCharacterMap.VIRTUAL_KEYBOARD) return false
+        // While a channel is being tuned behind the cover, the remote is held back
+        // (Back cancels) so a stray press can't send TiviMate somewhere else.
+        if (TiviTuner.covering) {
+            if (event.keyCode == android.view.KeyEvent.KEYCODE_BACK && event.action == android.view.KeyEvent.ACTION_UP) {
+                TiviTuner.cancelled = true
+                TiviTuner.hideCover()
+            }
+            return true
+        }
         if (event.keyCode != android.view.KeyEvent.KEYCODE_BACK || !TiviTuner.returnToGuide) return false
         val front = rootInActiveWindow?.packageName?.toString()
         if (front != LiveGuide.TIVIMATE) {

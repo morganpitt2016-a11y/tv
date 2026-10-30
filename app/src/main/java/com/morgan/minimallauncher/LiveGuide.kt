@@ -279,6 +279,8 @@ object LiveGuide {
         try {
             // Once the picker knows the channel list, resume TiviMate (fast) - it restarts it only
             // if TiviMate comes back on another screen. The first time, start it fresh on live TV.
+            // Cover the screen first, so TiviMate's guide is never seen.
+            if (channel != null && TiviTuner.canTune()) TiviTuner.showCover(channel.name)
             val fresh = channel != null && !TiviTuner.hasLearned(activity)
             val flags = if (fresh) Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK else Intent.FLAG_ACTIVITY_NEW_TASK
             activity.startActivity(Intent(intent).addFlags(flags))

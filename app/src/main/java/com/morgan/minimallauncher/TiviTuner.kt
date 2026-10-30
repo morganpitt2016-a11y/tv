@@ -185,8 +185,11 @@ object TiviTuner {
         // On failure, keep a picture of what TiviMate was showing, for the log.
         val done: (Boolean) -> Unit = { ok ->
             if (!ok) note("What TiviMate showed:\n" + compactScreen())
+            // Lift the cover once the picture is up (or straight away if it failed).
+            main.postDelayed({ hideCover() }, if (ok) 700 else 0)
             doneOuter(ok)
         }
+        showCover(channel)
         val service = HomeRedirectService.instance ?: run { note("Accessibility service not running"); return done(false) }
         val wanted = normalise(channel)
         loadRows(service)
@@ -204,24 +207,25 @@ object TiviTuner {
         var sameCount = 0
 
         fun step() {
+            if (cancelled) { cancelled = false; note("Cancelled"); done(false); return }
             attempts++
             if (attempts > 120) { note("Gave up after $attempts checks"); done(false); return }
             val roots = tiviRoots(service)
             if (roots.isEmpty()) {
                 if (attempts % 4 == 1) note("Waiting for TiviMate (front: ${frontPackages(service)})")
-                main.postDelayed({ step() }, 200); return
+                main.postDelayed({ step() }, 120); return
             }
             val lists = roots.flatMap { scrollables(it) }
             val texts = roots.flatMap { texts(it) }
             if (lists.isEmpty()) {
                 // Playing full screen: let playback settle, then press OK to bring up the channel list.
-                if (settle++ < 1) { main.postDelayed({ step() }, 300); return }
+                if (settle++ < 1) { main.postDelayed({ step() }, 200); return }
                 if (okPresses >= 2) { note("No channel list appeared. On screen: ${texts.take(15)}"); done(false); return }
                 okPresses++
                 note("No list showing - pressing OK (#$okPresses). On screen: ${texts.take(10)}")
                 service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_DPAD_CENTER)
                 settle = 0
-                main.postDelayed({ step() }, 550); return
+                main.postDelayed({ step() }, 400); return
             }
             // The channel list (or TV guide grid) is the biggest list on screen - not the group list beside it.
             val list = lists.maxByOrNull { descendants(it) }!!
@@ -252,11 +256,11 @@ object TiviTuner {
                     lastRange = sig
                     val up = num < range.first
                     val dist = if (up) range.first - num else num - range.last
-                    val presses = dist.coerceIn(1, 20)
+                    val presses = dist.coerceIn(1, 40)
                     note("Channel ${if (learned) "is" else "is probably around"} $num, guide shows ${range.first}-${range.last} - ${if (up) "up" else "down"} $presses")
                     val key = if (up) AccessibilityService.GLOBAL_ACTION_DPAD_UP else AccessibilityService.GLOBAL_ACTION_DPAD_DOWN
-                    for (i in 0 until presses) main.postDelayed({ service.performGlobalAction(key) }, i * 70L)
-                    main.postDelayed({ step() }, presses * 70L + 350)
+                    for (i in 0 until presses) main.postDelayed({ service.performGlobalAction(key) }, i * 45L)
+                    main.postDelayed({ step() }, presses * 45L + 220)
                     return
                 }
                 // It should be on screen but isn't (a guess was off): search outwards from here.
@@ -272,10 +276,10 @@ object TiviTuner {
             lastSeen = seen
             if (attempts % 3 == 1) note("Searching ${if (goingDown) "down" else "up"} (highlight on ${rowNames(focusRowIn(service, list))}): ${texts(list).take(6)}")
             val key = if (goingDown) AccessibilityService.GLOBAL_ACTION_DPAD_DOWN else AccessibilityService.GLOBAL_ACTION_DPAD_UP
-            for (i in 0 until 6) main.postDelayed({ service.performGlobalAction(key) }, i * 90L)
-            main.postDelayed({ step() }, 6 * 90L + 350)
+            for (i in 0 until 8) main.postDelayed({ service.performGlobalAction(key) }, i * 60L)
+            main.postDelayed({ step() }, 8 * 60L + 250)
         }
-        main.postDelayed({ step() }, 400)
+        main.postDelayed({ step() }, 250)
     }
 
     /** After selecting: if the list is still open over the picture, close it so it's full screen. */
@@ -289,7 +293,7 @@ object TiviTuner {
             }
             note("Done")
             done(true)
-        }, 900)
+        }, 450)
     }
 
     private fun descendants(n: AccessibilityNodeInfo): Int {
@@ -388,8 +392,8 @@ object TiviTuner {
             val key = if (dy > 0) AccessibilityService.GLOBAL_ACTION_DPAD_DOWN else AccessibilityService.GLOBAL_ACTION_DPAD_UP
             lastKey = key
             if (rounds == 1) note("Highlight is on ${rowNames(focused)} - moving ${if (dy > 0) "down" else "up"} to it")
-            for (i in 0 until steps) main.postDelayed({ service.performGlobalAction(key) }, i * 60L)
-            main.postDelayed({ check() }, steps * 60L + 240)
+            for (i in 0 until steps) main.postDelayed({ service.performGlobalAction(key) }, i * 45L)
+            main.postDelayed({ check() }, steps * 45L + 170)
         }
         main.postDelayed({ check() }, 100)
     }
@@ -474,6 +478,61 @@ object TiviTuner {
     private fun backToPicture(service: AccessibilityService) {
         if (tiviRoots(service).any { scrollables(it).isNotEmpty() }) {
             service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
+        }
+    }
+
+    // ---------- Cover ----------
+    // A full-screen card over TiviMate while the picker works, so you never see it
+    // scrolling through the guide - just "ITV1" and then the picture.
+
+    private var cover: android.view.View? = null
+    @Volatile var cancelled = false
+    val covering get() = cover != null
+
+    fun showCover(channel: String) {
+        val service = HomeRedirectService.instance ?: return
+        main.post {
+            cover?.let { (it.findViewWithTag<android.widget.TextView>("name"))?.text = channel; return@post }
+            val c = service
+            val wm = c.getSystemService(android.view.WindowManager::class.java)
+            val box = android.widget.LinearLayout(c).apply {
+                orientation = android.widget.LinearLayout.VERTICAL
+                gravity = android.view.Gravity.CENTER
+                setBackgroundColor(0xFF000000.toInt())
+                alpha = 0f
+            }
+            box.addView(GlassUi.text(c, channel, 44f, R.font.inter_semibold).apply { tag = "name" })
+            box.addView(GlassUi.text(c, "Tuning…", 15f, R.font.inter_medium, 0x99FFFFFF.toInt()).apply {
+                setPadding(0, GlassUi.dp(c, 10f), 0, 0)
+            })
+            box.addView(android.widget.ProgressBar(c).apply {
+                isIndeterminate = true
+                indeterminateTintList = android.content.res.ColorStateList.valueOf(0x99FFFFFF.toInt())
+            }, android.widget.LinearLayout.LayoutParams(GlassUi.dp(c, 28f), GlassUi.dp(c, 28f)).apply { topMargin = GlassUi.dp(c, 22f) })
+            val lp = android.view.WindowManager.LayoutParams(
+                android.view.WindowManager.LayoutParams.MATCH_PARENT, android.view.WindowManager.LayoutParams.MATCH_PARENT,
+                android.view.WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                // Never takes focus or touches: the remote presses still go to TiviMate underneath.
+                android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                    android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                android.graphics.PixelFormat.TRANSLUCENT)
+            try {
+                wm.addView(box, lp)
+                cover = box
+                box.animate().alpha(1f).setDuration(150).start()
+                // Never leave it up by mistake.
+                main.postDelayed({ hideCover() }, 25_000)
+            } catch (e: Exception) { note("Couldn't show the cover: ${e.message}") }
+        }
+    }
+
+    fun hideCover() {
+        main.post {
+            val v = cover ?: return@post
+            cover = null
+            v.animate().alpha(0f).setDuration(250).withEndAction {
+                try { (v.context.getSystemService(android.view.WindowManager::class.java)).removeView(v) } catch (e: Exception) {}
+            }.start()
         }
     }
 
