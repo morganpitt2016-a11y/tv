@@ -384,7 +384,8 @@ class WatchActivity : AppCompatActivity() {
             background = GlassUi.rowBackground(c, 10f, if (first && p.isOn()) 0x2EFFFFFF else 0x14FFFFFF)
             isFocusable = true; isClickable = true
             contentDescription = "${p.title}, ${ch.name}"
-            setOnClickListener { programmeDialog(ch, p) }
+            setOnClickListener { playOrAsk(ch, p) }
+            setOnLongClickListener { programmeDialog(ch, p); true }
         }
         val col = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL; isDuplicateParentStateEnabled = true }
         col.addView(GlassUi.rowText(c, p.title, 12.5f, R.font.inter_semibold, GlassUi.primaryText()))
@@ -407,8 +408,14 @@ class WatchActivity : AppCompatActivity() {
         h.progress?.let { bar -> bar.post { bar.layoutParams.width = ((h.root.width) * p.progress()).toInt(); bar.requestLayout() } }
         ImageLoader.load(h.image, p.image ?: ch.logo, ImageLoader.CARD)
         h.root.contentDescription = "${p.title} on ${ch.name}"
-        h.root.setOnClickListener { programmeDialog(ch, p) }
+        h.root.setOnClickListener { playOrAsk(ch, p) }
+        h.root.setOnLongClickListener { programmeDialog(ch, p); true }
         focusEffect(h.root) { showProgrammeHero(ch, p) }
+    }
+
+    /** On now: straight to that channel in TiviMate. Later (or no TiviMate): the options. Hold OK for options any time. */
+    private fun playOrAsk(ch: LiveGuide.Channel, p: LiveGuide.Programme) {
+        if (p.isOn() && LiveGuide.hasTiviMate(this)) LiveGuide.openTiviMate(this, ch) else programmeDialog(ch, p)
     }
 
     private fun programmeDialog(ch: LiveGuide.Channel, p: LiveGuide.Programme) {
@@ -708,7 +715,7 @@ class WatchActivity : AppCompatActivity() {
         heroTitle.text = p.title
         heroMeta.text = listOf(timeRange(p), p.episode).filter { it.isNotBlank() }.joinToString("  ·  ")
         heroText.text = p.desc
-        heroWhere.text = if (LiveGuide.hasTiviMate(this)) "Select to watch in TiviMate" else ""
+        heroWhere.text = if (LiveGuide.hasTiviMate(this) && p.isOn()) "Press OK to watch in TiviMate · hold OK for more" else if (LiveGuide.hasTiviMate(this)) "Hold OK for options" else ""
         setHeroImage(p.image)
     }
 

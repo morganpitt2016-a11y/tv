@@ -22,42 +22,59 @@ object TiviTuner {
 
     fun canTune() = HomeRedirectService.instance != null && Build.VERSION.SDK_INT >= 33
 
-    /** Call right after launching TiviMate. [done] gets true if the channel was selected. */
+    /** Call right after launching TiviMate. [done] gets true once the channel is playing full screen. */
     fun tune(channel: String, done: (Boolean) -> Unit) {
         val service = HomeRedirectService.instance ?: return done(false)
         val wanted = normalise(channel)
         var attempts = 0
         var openedList = false
         var lastSeen = ""
+        var waitedForStart = 0
+
+        fun finish(ok: Boolean) {
+            if (!ok) { done(false); return }
+            // Once the channel has switched, make sure we end up full screen:
+            // if TiviMate's list is still showing, close it with Back.
+            main.postDelayed({
+                val root = service.rootInActiveWindow
+                if (root != null && root.packageName?.toString() == PKG && findScrollable(root) != null &&
+                    find(root) { n -> matches(normalise(n), wanted) } != null) {
+                    service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
+                }
+                done(true)
+            }, 1600)
+        }
 
         fun step() {
             attempts++
-            if (attempts > 40) { done(false); return }
+            if (attempts > 45) { done(false); return }
             val root = service.rootInActiveWindow
             if (root == null || root.packageName?.toString() != PKG) {
                 // TiviMate still starting up.
                 main.postDelayed({ step() }, 500); return
             }
-            val match = find(root) { n -> matches(normalise(n), wanted) }
-            if (match != null) {
-                done(select(service, match)); return
-            }
-            if (!openedList) {
-                // Bring up the channel list over the playing channel.
+            val list = findScrollable(root)
+            if (list == null && !openedList) {
+                // Playing full screen with no list showing: let playback settle, then
+                // press OK, which brings up TiviMate's channel list.
+                if (waitedForStart++ < 2) { main.postDelayed({ step() }, 700); return }
                 openedList = true
                 if (Build.VERSION.SDK_INT >= 33) service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_DPAD_CENTER)
                 main.postDelayed({ step() }, 900); return
             }
-            // Not on screen yet: scroll the list on and look again.
-            val seen = visibleText(root)
-            if (seen == lastSeen) { done(false); return } // reached the end
+            openedList = true
+            // Only look inside the list (or guide), never at the "now playing" banner.
+            val match = findInList(root, wanted)
+            if (match != null) { finish(select(service, match)); return }
+            val seen = visibleText(list ?: root)
+            if (seen == lastSeen) { done(false); return } // reached the end of the list
             lastSeen = seen
-            val list = findScrollable(root)
-            if (list != null) list.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
-            else if (Build.VERSION.SDK_INT >= 33) repeat(6) { service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_DPAD_DOWN) }
+            if (list?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD) != true && Build.VERSION.SDK_INT >= 33) {
+                repeat(8) { service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_DPAD_DOWN) }
+            }
             main.postDelayed({ step() }, 450)
         }
-        main.postDelayed({ step() }, 1500)
+        main.postDelayed({ step() }, 1200)
     }
 
     // ---------- Matching ----------
@@ -85,6 +102,18 @@ object TiviTuner {
         for (i in 0 until node.childCount) {
             val child = node.getChild(i) ?: continue
             find(child, test)?.let { return it }
+        }
+        return null
+    }
+
+    /** A matching channel name that sits inside a scrolling list or guide (not a banner). */
+    private fun findInList(node: AccessibilityNodeInfo, wanted: String, inList: Boolean = false): AccessibilityNodeInfo? {
+        val here = inList || node.isScrollable
+        val text = (node.text ?: node.contentDescription)?.toString()
+        if (here && text != null && matches(normalise(text), wanted)) return node
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            findInList(child, wanted, here)?.let { return it }
         }
         return null
     }
