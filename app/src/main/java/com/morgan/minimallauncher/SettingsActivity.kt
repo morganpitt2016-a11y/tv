@@ -167,7 +167,7 @@ class SettingsActivity : AppCompatActivity() {
             homeRow = row("Instead of Google TV Home") { AutoLaunch.setEnabled(this, !AutoLaunch.isEnabled(this)); refreshValues() }
             bootRow = row("When the TV Turns On") { AutoLaunch.setOnBoot(this, !AutoLaunch.onBoot(this)); refreshValues() }
             wakeRow = row("When Waking from Sleep") { AutoLaunch.setOnWake(this, !AutoLaunch.onWake(this)); refreshValues() }
-            accessibilityRow = row("Accessibility Service") { openAccessibilitySwitch() }
+            accessibilityRow = row("Accessibility Service") { accessibilityPressed() }
             usageRow = row("Usage Access") {
                 if (!tryOpen(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS, Uri.parse("package:$packageName"))))
                     open(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS), "Usage access settings")
@@ -366,6 +366,40 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     /** Jumps straight to this app's switch, skipping the accessibility list page. */
+    /** One press: switch it on directly if allowed, otherwise go straight to its on/off page. */
+    private fun accessibilityPressed() {
+        if (HomeRedirectService.isServiceEnabled(this)) { openAccessibilitySwitch(); return }
+        if (SelfEnable.enableAll(this)) {
+            GlassUi.toast(this, "Accessibility Service turned on")
+            handler.postDelayed({ refreshValues() }, 800)
+            return
+        }
+        GlassDialog(this).title("Turn On Accessibility Service")
+            .message("Open its on/off switch now, or set it up once so Minimal Launcher turns it on by itself from now on.")
+            .button("Open the Switch", GlassDialog.Style.BOLD) { openAccessibilitySwitch() }
+            .button("Turn On Automatically…") { showSelfEnableSteps() }
+            .button("Cancel")
+            .show()
+    }
+
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+
+    private fun showSelfEnableSteps() {
+        val ip = RemoteServer.ip(this) ?: "TV-IP"
+        GlassDialog(this).title("Turn On Automatically")
+            .message("One-time setup from your iPhone - no computer needed. These steps are also on the iPhone remote (More tab) for copying.\n\n" +
+                "1. On this TV: Settings › System › About › select “Android TV OS build” 7 times. Then Settings › System › Developer options › turn on “USB debugging”.\n\n" +
+                "2. On your iPhone: install “iSH Shell” (free, App Store), open it and type:\n" +
+                "apk add android-tools\n" +
+                "adb connect $ip:5555\n\n" +
+                "3. Choose “Allow” on the TV when it asks, then type on the iPhone:\n" +
+                SelfEnable.ADB_COMMAND + "\n\n" +
+                "4. Done. Minimal Launcher switches its Accessibility Service on itself (and Now Playing access), and turns it back on if it’s ever switched off. You can turn USB debugging off again.\n\n" +
+                "If “adb connect” is refused: in Developer options turn on “Wireless debugging”, choose “Pair device with pairing code”, run “adb pair IP:PORT CODE” with what it shows, then “adb connect” to the IP:port on the Wireless debugging screen.")
+            .button("Done", GlassDialog.Style.BOLD)
+            .show()
+    }
+
     private fun openAccessibilitySwitch() {
         val me = android.content.ComponentName(this, HomeRedirectService::class.java).flattenToString()
         if (android.os.Build.VERSION.SDK_INT >= 31 &&

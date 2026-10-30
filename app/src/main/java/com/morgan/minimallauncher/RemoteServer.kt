@@ -155,7 +155,9 @@ class RemoteServer(private val context: Context) {
                 .put("android", android.os.Build.VERSION.SDK_INT)
                 .put("city", Weather.getCity(context) ?: "")
                 .put("calendar", CalendarFeed.getUrl(context) != null)
-                .put("photos", WallpaperLibrary.album(context).size))
+                .put("photos", WallpaperLibrary.album(context).size)
+                .put("ip", ip(context) ?: "")
+                .put("selfEnable", SelfEnable.canSelfEnable(context)))
             "/api/key" -> json(out, JSONObject().put("ok", press(body.optString("key"))))
             "/api/text" -> json(out, JSONObject().put("ok", type(body.optString("text"), body.optBoolean("replace", false), body.optBoolean("enter", false))))
             "/api/apps" -> {

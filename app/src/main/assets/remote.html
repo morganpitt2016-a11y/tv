@@ -63,6 +63,9 @@
 
   .card { background: #1c1c1e; border-radius: 16px; padding: 16px; margin-top: 10px; }
   progress { width: 100%; height: 6px; margin-top: 12px; accent-color: var(--accent); }
+  .cmds button { display: block; width: 100%; text-align: left; margin: 6px 0; padding: 10px 12px; border: 0; border-radius: 10px;
+    background: #000; color: #30d158; font: 13px ui-monospace, Menlo, monospace; word-break: break-all; }
+  .cmds button:active { background: #2c2c2e; }
 
   nav { position: fixed; left: 0; right: 0; bottom: 0; display: flex; justify-content: space-around;
     padding: 8px 0 calc(8px + env(safe-area-inset-bottom)); background: rgba(22,22,24,.82);
@@ -133,6 +136,17 @@
   <div class="note">Paste your calendar's private iCal link. Google Calendar: Settings › your calendar › "Secret address in iCal format".</div>
   <form class="field" id="calForm"><input type="url" id="cal" placeholder="https://…/basic.ics"><button class="btn">Save</button></form>
   <div class="field"><button class="btn grey" id="calClear" style="flex:1">Remove Calendar</button></div>
+  <h2>Full Control</h2>
+  <div class="note" id="fullDone" hidden>✓ Set up. The TV turns its Accessibility Service on by itself.</div>
+  <div id="fullSteps">
+    <div class="note">One-time setup so the TV switches Minimal Launcher’s Accessibility Service on by itself (needed for the remote to control other apps and to pick TiviMate channels).</div>
+    <div class="card">
+      <div class="note" style="margin:0 0 10px">1. On the TV: Settings › System › About › select “Android TV OS build” 7 times. Then Settings › System › Developer options › turn on <b>USB debugging</b>.</div>
+      <div class="note" style="margin:0 0 10px">2. Install <b>iSH Shell</b> (free) from the App Store, open it and run these one at a time (tap to copy). Choose <b>Allow</b> on the TV when it asks.</div>
+      <div class="cmds" id="cmds"></div>
+      <div class="note" style="margin:10px 0 0">If “adb connect” is refused: in Developer options turn on Wireless debugging › Pair device with pairing code, run <code>adb pair IP:PORT CODE</code>, then connect to the IP:port it shows.</div>
+    </div>
+  </div>
   <h2>Tip</h2>
   <div class="note">Tap Share › <b>Add to Home Screen</b> in Safari to keep this remote one tap away.</div>
 </section>
@@ -165,6 +179,17 @@
   }
   const send = k => api('/api/key', { key: k }).then(r => { if (!r.ok) toast('Turn on the accessibility service on the TV'); }).catch(() => toast('TV not reachable'));
 
+  // Copy text (Safari blocks the clipboard API on plain-http pages, so use a hidden text box).
+  function copy(text) {
+    const t = document.createElement('textarea');
+    t.value = text; t.setAttribute('readonly', ''); t.style.position = 'fixed'; t.style.top = '-100px';
+    document.body.append(t);
+    t.focus(); t.setSelectionRange(0, text.length);
+    let ok = false; try { ok = document.execCommand('copy'); } catch (_) {}
+    t.remove();
+    toast(ok ? 'Copied' : 'Press and hold the command to copy it');
+  }
+
   // Status
   async function refresh() {
     try {
@@ -174,6 +199,16 @@
       $('#photoCount').textContent = s.photos + (s.photos === 1 ? ' photo on the TV' : ' photos on the TV');
       $('#city').value = s.city || '';
       $('#cal').placeholder = s.calendar ? 'Calendar connected (paste to replace)' : 'https://…/basic.ics';
+      $('#fullDone').hidden = !s.selfEnable; $('#fullSteps').hidden = s.selfEnable;
+      const cmds = ['apk add android-tools', 'adb connect ' + (s.ip || 'TV-IP') + ':5555',
+        'adb shell pm grant com.morgan.minimallauncher android.permission.WRITE_SECURE_SETTINGS'];
+      const box = $('#cmds');
+      if (box.dataset.ip !== s.ip) {
+        box.dataset.ip = s.ip; box.innerHTML = '';
+        cmds.forEach(c => { const b = document.createElement('button'); b.textContent = c;
+          b.onclick = () => copy(c);
+          box.append(b); });
+      }
     } catch (e) { if (e.message !== 'pair') { $('#status').textContent = 'TV not reachable'; $('#status').className = 'status'; } }
   }
   refresh(); setInterval(refresh, 15000);

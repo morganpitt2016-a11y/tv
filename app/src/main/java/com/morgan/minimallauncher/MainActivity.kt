@@ -141,6 +141,7 @@ class MainActivity : AppCompatActivity() {
         RedirectDiag.launcherShown(this)
         AppWatchService.startIfNeeded(this)
         RemoteService.startIfEnabled(this)
+        SelfEnable.enableAll(this)
         handler.post(clockTick)
         rotator.start()
         widgets.start()

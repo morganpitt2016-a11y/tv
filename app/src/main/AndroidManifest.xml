@@ -28,6 +28,10 @@
         tools:ignore="ProtectedPermissions"
         xmlns:tools="http://schemas.android.com/tools" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- Optional, granted once over ADB: lets the app switch its own accessibility service on -->
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS"
+        tools:ignore="ProtectedPermissions"
+        xmlns:tools="http://schemas.android.com/tools" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <!-- Cinema mode: Do Not Disturb -->
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
