@@ -361,8 +361,9 @@ class ClaudeRoomView(context: Context) : View(context) {
         val sway = if (dancing) sin(t * 6f) * unit * 0.18f else 0f
         val bob = sin(t * 1.6f) * unit * 0.04f + walkBob + danceBob
         val cyTop = by - bodyR - (if (sleeping) unit * 0.35f else bob)
-        // 'cy' here is the character's head height on screen; keep the old name for the body maths.
+        // 'chy' is the character's head height on screen; 'dx' shifts him when dancing.
         val chy = cyTop
+        val dx = bx + sway
 
         // Soft shadow.
         p.color = 0x44000000
