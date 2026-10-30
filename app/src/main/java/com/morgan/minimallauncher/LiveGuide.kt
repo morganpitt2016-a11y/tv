@@ -141,7 +141,9 @@ object LiveGuide {
     private fun parse(input: java.io.InputStream, custom: Boolean = false): List<Channel> {
         val now = System.currentTimeMillis()
         val from = now - 30 * 60_000L
-        val to = now + 14 * 3600_000L
+        // A provider's own guide usually has several days - keep a week so series recording
+        // can see future episodes. The free Freeview guide is short, so this just keeps what there is.
+        val to = now + (if (custom) 7 * 24 else 14) * 3600_000L
         val fmt = SimpleDateFormat("yyyyMMddHHmmss Z", Locale.US)
         val names = LinkedHashMap<String, Pair<String, String?>>()
         val progs = HashMap<String, MutableList<Programme>>()
@@ -191,7 +193,7 @@ object LiveGuide {
             ev = xp.next()
         }
         val channels = names.mapNotNull { (id, nl) ->
-            val p = progs[id]?.sortedBy { it.start } ?: return@mapNotNull null
+            val p = progs[id]?.sortedBy { it.start }?.take(600) ?: return@mapNotNull null
             if (isRadio(id, nl.first)) null else Channel(id, if (custom) nl.first.replace("&amp;", "&").trim() else cleanName(nl.first), nl.second, p)
         }
         // Your own guide: keep its channel names and order exactly, like TiviMate.
