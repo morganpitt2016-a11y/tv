@@ -7,128 +7,179 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.UUID
 
 /**
- * Minimal client for Govee's official Developer API (developer.govee.com).
+ * Govee Developer API client.
  *
- * Getting a key: in the Govee Home app, go to Settings -> About Us ->
- * Apply for API Key. Govee emails it, usually within minutes - no OAuth,
- * no Google Cloud project, just a free static key sent as a header.
+ * Key: Govee Home app -> Profile -> Settings -> Apply for API Key (emailed).
  *
- * This targets Govee's long-standing v1 REST API
- * (developer-api.govee.com), the most widely documented and stable
- * surface (also what Home Assistant's own Govee integration uses). This
- * session's network couldn't reach developer.govee.com to re-verify the
- * docs against anything that may have changed since, so if Govee has
- * since moved everything to a newer v2 platform, only BASE_URL and the
- * two request shapes below need updating - storage, UI and toggle wiring
- * all stay the same.
+ * Uses Govee's current "router" API (openapi.api.govee.com), which lists
+ * every device on the account - newer lights only appear there - and can
+ * read each light's real on/off state. Falls back to the older
+ * developer-api.govee.com/v1 API if the new one returns nothing.
  */
 object GoveeHelper {
-    private const val BASE_URL = "https://developer-api.govee.com/v1"
+    private const val NEW_API = "https://openapi.api.govee.com/router/api/v1"
+    private const val OLD_API = "https://developer-api.govee.com/v1"
     private const val PREFS = "govee_prefs"
     private const val KEY_API_KEY = "api_key"
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
     fun getApiKey(context: Context): String? =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_API_KEY, null)
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_API_KEY, null)?.takeIf { it.isNotBlank() }
 
     fun setApiKey(context: Context, key: String) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putString(KEY_API_KEY, key.trim())
-            .apply()
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_API_KEY, key.trim()).apply()
     }
 
     data class Device(
         val deviceId: String,
         val model: String,
         val name: String,
-        var isOn: Boolean = false
+        /** 2 = current router API, 1 = old v1 API. */
+        val api: Int,
+        var isOn: Boolean = false,
     )
 
+    private class HttpResult(val code: Int, val body: String)
+
+    private fun request(method: String, url: String, key: String, body: JSONObject? = null): HttpResult {
+        val conn = URL(url).openConnection() as HttpURLConnection
+        try {
+            conn.requestMethod = method
+            conn.setRequestProperty("Govee-API-Key", key)
+            conn.setRequestProperty("Content-Type", "application/json")
+            conn.connectTimeout = 10_000
+            conn.readTimeout = 10_000
+            if (body != null) {
+                conn.doOutput = true
+                conn.outputStream.use { it.write(body.toString().toByteArray()) }
+            }
+            val code = conn.responseCode
+            val text = (if (code in 200..299) conn.inputStream else conn.errorStream)
+                ?.bufferedReader()?.readText().orEmpty()
+            return HttpResult(code, text)
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    private fun describe(r: HttpResult): String {
+        val msg = try { JSONObject(r.body).optString("message", JSONObject(r.body).optString("msg")) } catch (e: Exception) { "" }
+        return when (r.code) {
+            401, 403 -> "Govee rejected the API key (check it was copied exactly)"
+            429 -> "Govee rate limit reached - try again in a minute"
+            else -> "Govee error ${r.code}${if (msg.isNotBlank()) ": $msg" else ""}"
+        }
+    }
+
+    /** Lists devices that can be switched on and off, with their current state. */
     fun listDevices(context: Context, onResult: (devices: List<Device>?, error: String?) -> Unit) {
-        val apiKey = getApiKey(context)
-        if (apiKey.isNullOrBlank()) {
+        val key = getApiKey(context)
+        if (key == null) {
             onResult(null, "No Govee API key set yet")
             return
         }
         Thread {
+            var error: String? = null
+            var devices: List<Device> = emptyList()
             try {
-                val conn = URL("$BASE_URL/devices").openConnection() as HttpURLConnection
-                conn.requestMethod = "GET"
-                conn.setRequestProperty("Govee-API-Key", apiKey)
-                conn.connectTimeout = 8000
-                conn.readTimeout = 8000
-                val code = conn.responseCode
-                val body = (if (code in 200..299) conn.inputStream else conn.errorStream)
-                    .bufferedReader().readText()
-                conn.disconnect()
-                if (code !in 200..299) {
-                    mainHandler.post { onResult(null, "Govee error $code: $body") }
-                    return@Thread
-                }
-                val data = JSONObject(body).optJSONObject("data")
-                val devicesJson = data?.optJSONArray("devices") ?: JSONArray()
-                val devices = mutableListOf<Device>()
-                for (i in 0 until devicesJson.length()) {
-                    val d = devicesJson.getJSONObject(i)
-                    devices.add(
-                        Device(
-                            deviceId = d.getString("device"),
-                            model = d.getString("model"),
-                            name = d.optString("deviceName", d.getString("model"))
-                        )
-                    )
-                }
-                mainHandler.post { onResult(devices, null) }
+                val r = request("GET", "$NEW_API/user/devices", key)
+                if (r.code in 200..299) {
+                    devices = parseNew(r.body)
+                    devices.forEach { d -> d.isOn = readStateNew(key, d) ?: false }
+                } else error = describe(r)
             } catch (e: Exception) {
-                mainHandler.post { onResult(null, e.message ?: "Network error reaching Govee") }
+                error = "Couldn't reach Govee (${e.javaClass.simpleName})"
             }
+            if (devices.isEmpty()) {
+                // Older accounts/devices may only be visible through the v1 API.
+                try {
+                    val r = request("GET", "$OLD_API/devices", key)
+                    if (r.code in 200..299) devices = parseOld(r.body)
+                    else if (error == null) error = describe(r)
+                } catch (_: Exception) {}
+            }
+            val result = devices
+            val err = if (result.isEmpty()) (error ?: "Connected, but Govee reported no controllable devices on this account") else null
+            mainHandler.post { onResult(if (err == null) result else if (error == null) emptyList() else null, err) }
         }.start()
     }
 
-    fun setPower(
-        context: Context,
-        device: Device,
-        turnOn: Boolean,
-        onResult: (success: Boolean, error: String?) -> Unit
-    ) {
-        val apiKey = getApiKey(context)
-        if (apiKey.isNullOrBlank()) {
+    private fun parseNew(body: String): List<Device> {
+        val data = JSONObject(body).optJSONArray("data") ?: JSONArray()
+        val out = mutableListOf<Device>()
+        for (i in 0 until data.length()) {
+            val d = data.getJSONObject(i)
+            val caps = d.optJSONArray("capabilities") ?: JSONArray()
+            val canSwitch = (0 until caps.length()).any { caps.getJSONObject(it).optString("instance") == "powerSwitch" }
+            if (!canSwitch) continue
+            out += Device(
+                deviceId = d.getString("device"),
+                model = d.getString("sku"),
+                name = d.optString("deviceName").ifBlank { d.getString("sku") },
+                api = 2,
+            )
+        }
+        return out
+    }
+
+    private fun parseOld(body: String): List<Device> {
+        val arr = JSONObject(body).optJSONObject("data")?.optJSONArray("devices") ?: JSONArray()
+        return (0 until arr.length()).map { i ->
+            val d = arr.getJSONObject(i)
+            Device(d.getString("device"), d.getString("model"), d.optString("deviceName").ifBlank { d.getString("model") }, api = 1)
+        }
+    }
+
+    private fun readStateNew(key: String, d: Device): Boolean? = try {
+        val body = JSONObject()
+            .put("requestId", UUID.randomUUID().toString())
+            .put("payload", JSONObject().put("sku", d.model).put("device", d.deviceId))
+        val r = request("POST", "$NEW_API/device/state", key, body)
+        if (r.code !in 200..299) null else {
+            val caps = JSONObject(r.body).optJSONObject("payload")?.optJSONArray("capabilities") ?: JSONArray()
+            (0 until caps.length()).map { caps.getJSONObject(it) }
+                .firstOrNull { it.optString("instance") == "powerSwitch" }
+                ?.optJSONObject("state")?.optInt("value", 0)?.let { it == 1 }
+        }
+    } catch (e: Exception) {
+        null
+    }
+
+    fun setPower(context: Context, device: Device, turnOn: Boolean, onResult: (success: Boolean, error: String?) -> Unit) {
+        val key = getApiKey(context)
+        if (key == null) {
             onResult(false, "No Govee API key set yet")
             return
         }
         Thread {
-            try {
-                val conn = URL("$BASE_URL/devices/control").openConnection() as HttpURLConnection
-                conn.requestMethod = "PUT"
-                conn.doOutput = true
-                conn.setRequestProperty("Govee-API-Key", apiKey)
-                conn.setRequestProperty("Content-Type", "application/json")
-                conn.connectTimeout = 8000
-                conn.readTimeout = 8000
-                val body = JSONObject().apply {
-                    put("device", device.deviceId)
-                    put("model", device.model)
-                    put("cmd", JSONObject().apply {
-                        put("name", "turn")
-                        put("value", if (turnOn) "on" else "off")
-                    })
-                }
-                conn.outputStream.use { it.write(body.toString().toByteArray()) }
-                val code = conn.responseCode
-                val respBody = (if (code in 200..299) conn.inputStream else conn.errorStream)
-                    .bufferedReader().readText()
-                conn.disconnect()
-                if (code in 200..299) {
-                    mainHandler.post { onResult(true, null) }
+            val error: String? = try {
+                val r = if (device.api == 2) {
+                    request("POST", "$NEW_API/device/control", key, JSONObject()
+                        .put("requestId", UUID.randomUUID().toString())
+                        .put("payload", JSONObject()
+                            .put("sku", device.model)
+                            .put("device", device.deviceId)
+                            .put("capability", JSONObject()
+                                .put("type", "devices.capabilities.on_off")
+                                .put("instance", "powerSwitch")
+                                .put("value", if (turnOn) 1 else 0))))
                 } else {
-                    mainHandler.post { onResult(false, "Govee error $code: $respBody") }
+                    request("PUT", "$OLD_API/devices/control", key, JSONObject()
+                        .put("device", device.deviceId)
+                        .put("model", device.model)
+                        .put("cmd", JSONObject().put("name", "turn").put("value", if (turnOn) "on" else "off")))
                 }
+                // The router API can answer HTTP 200 with an error code in the body.
+                val bodyCode = try { JSONObject(r.body).optInt("code", 200) } catch (e: Exception) { 200 }
+                if (r.code in 200..299 && bodyCode == 200) null else describe(HttpResult(if (r.code in 200..299) bodyCode else r.code, r.body))
             } catch (e: Exception) {
-                mainHandler.post { onResult(false, e.message ?: "Network error reaching Govee") }
+                "Couldn't reach Govee (${e.javaClass.simpleName})"
             }
+            mainHandler.post { onResult(error == null, error) }
         }.start()
     }
 }

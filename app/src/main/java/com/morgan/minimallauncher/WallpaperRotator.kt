@@ -24,6 +24,9 @@ class WallpaperRotator(
         private const val ROTATE_EVERY_MS = 5 * 60 * 1000L
         private const val FADE_MS = 1800L
         private const val ZOOM_TO = 1.06f
+
+        /** The photo currently on the home screen; Settings/Apps blur it as their backdrop. */
+        @JvmStatic var currentRes: Int = R.drawable.wp_01
     }
 
     private val handler = Handler(Looper.getMainLooper())
@@ -58,6 +61,7 @@ class WallpaperRotator(
             index = 0
         }
         val res = order[index++]
+        currentRes = res
         Thread {
             val bitmap: Bitmap? = try {
                 BitmapFactory.decodeResource(context.resources, res)

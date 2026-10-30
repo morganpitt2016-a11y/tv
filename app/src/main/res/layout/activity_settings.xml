@@ -1,254 +1,79 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<!-- tvOS-style Settings: big glass icon + title on the left, grouped rows
+     on the right, over the blurred wallpaper. Rows are built in code. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/settingsRoot"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/background_black"
-    android:padding="32dp">
+    android:background="#000000">
 
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical">
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Settings"
-            android:textColor="@color/text_white"
-            android:textSize="32sp"
-            android:layout_marginBottom="24dp" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Open automatically"
-            android:textColor="@color/text_white"
-            android:textSize="20sp"
-            android:layout_marginBottom="8dp" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Google TV doesn\'t let you choose a different home app, so this uses an accessibility service: whenever the Google TV home screen appears (when the TV turns on, when you press Home, or when you leave an app) Minimal Launcher opens instead."
-            android:textColor="@color/text_grey"
-            android:textSize="14sp"
-            android:layout_marginBottom="12dp" />
-
-        <TextView
-            android:id="@+id/autoLaunchStatus"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:textColor="@color/text_white"
-            android:textSize="15sp"
-            android:layout_marginBottom="8dp" />
-
-        <TextView
-            android:id="@+id/autoLaunchDiag"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:fontFamily="monospace"
-            android:textColor="@color/text_grey"
-            android:textSize="12sp"
-            android:layout_marginBottom="8dp" />
+        android:layout_height="match_parent"
+        android:orientation="horizontal"
+        android:paddingStart="56dp"
+        android:paddingEnd="48dp">
 
         <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_marginBottom="8dp">
+            android:layout_width="300dp"
+            android:layout_height="match_parent"
+            android:gravity="center"
+            android:orientation="vertical">
+
+            <FrameLayout
+                android:id="@+id/settingsIconTile"
+                android:layout_width="150dp"
+                android:layout_height="150dp">
+
+                <ImageView
+                    android:layout_width="68dp"
+                    android:layout_height="68dp"
+                    android:layout_gravity="center"
+                    android:contentDescription="@null"
+                    android:src="@drawable/ic_lucide_settings" />
+            </FrameLayout>
 
             <TextView
-                android:id="@+id/autoLaunchToggle"
-                style="@style/QuickSettingButton" />
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="22dp"
+                android:fontFamily="@font/inter_semibold"
+                android:includeFontPadding="false"
+                android:text="Settings"
+                android:textColor="#FFFFFFFF"
+                android:textSize="30dp" />
 
             <TextView
-                android:id="@+id/openAccessibilityButton"
-                style="@style/QuickSettingButton"
-                android:text="Open accessibility settings" />
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:fontFamily="@font/inter_regular"
+                android:includeFontPadding="false"
+                android:text="Minimal Launcher"
+                android:textColor="#99FFFFFF"
+                android:textSize="13dp" />
         </LinearLayout>
 
-        <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_marginBottom="8dp">
+        <ScrollView
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:clipToPadding="false"
+            android:fadingEdgeLength="40dp"
+            android:paddingTop="40dp"
+            android:paddingBottom="60dp"
+            android:requiresFadingEdge="vertical"
+            android:scrollbars="none">
 
-            <TextView
-                android:id="@+id/onBootToggle"
-                style="@style/QuickSettingButton" />
-
-            <TextView
-                android:id="@+id/onWakeToggle"
-                style="@style/QuickSettingButton" />
-
-            <TextView
-                android:id="@+id/overlayPermissionButton"
-                style="@style/QuickSettingButton" />
-        </LinearLayout>
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="In accessibility settings, choose \'Minimal Launcher: open automatically\' and turn it on. If it\'s greyed out or says \'Restricted setting\', go to Settings → Apps → Minimal Launcher, open the ⋮ menu or scroll down, choose \'Allow restricted settings\', then try again."
-            android:textColor="@color/text_grey"
-            android:textSize="13sp"
-            android:layout_marginBottom="24dp" />
-
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:background="@color/text_grey"
-            android:layout_marginBottom="24dp" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Govee smart plugs/lights"
-            android:textColor="@color/text_white"
-            android:textSize="20sp"
-            android:layout_marginBottom="8dp" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Get a free key in the Govee Home app: Settings → About Us → Apply for API Key (arrives by email, usually within minutes)."
-            android:textColor="@color/text_grey"
-            android:textSize="14sp"
-            android:layout_marginBottom="12dp" />
-
-        <EditText
-            android:id="@+id/apiKeyInput"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:hint="Govee API key"
-            android:textColor="@color/text_white"
-            android:textColorHint="@color/text_grey"
-            android:singleLine="true"
-            android:focusable="true"
-            android:focusableInTouchMode="true" />
-
-        <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_marginTop="8dp"
-            android:layout_marginBottom="16dp">
-
-            <TextView
-                android:id="@+id/saveApiKeyButton"
-                style="@style/QuickSettingButton"
-                android:text="Save key" />
-
-            <TextView
-                android:id="@+id/refreshDevicesButton"
-                style="@style/QuickSettingButton"
-                android:text="Refresh devices" />
-
-        </LinearLayout>
-
-        <TextView
-            android:id="@+id/deviceStatusText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:textColor="@color/text_grey"
-            android:textSize="14sp"
-            android:layout_marginBottom="24dp"
-            android:text="No devices loaded yet." />
-
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:background="@color/text_grey"
-            android:layout_marginBottom="24dp" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Profiles"
-            android:textColor="@color/text_white"
-            android:textSize="20sp"
-            android:layout_marginBottom="8dp" />
-
-        <LinearLayout
-            android:id="@+id/profileListContainer"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:layout_marginBottom="8dp" />
-
-        <TextView
-            android:id="@+id/addProfileButton"
-            style="@style/QuickSettingButton"
-            android:layout_width="wrap_content"
-            android:text="+ Add profile"
-            android:layout_marginBottom="24dp" />
-
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:background="@color/text_grey"
-            android:layout_marginBottom="24dp" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Pinned apps for this profile"
-            android:textColor="@color/text_white"
-            android:textSize="20sp"
-            android:layout_marginBottom="8dp" />
-
-        <LinearLayout
-            android:id="@+id/appCheckboxContainer"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:layout_marginBottom="24dp" />
-
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:background="@color/text_grey"
-            android:layout_marginBottom="24dp" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="System"
-            android:textColor="@color/text_white"
-            android:textSize="20sp"
-            android:layout_marginBottom="8dp" />
-
-        <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_marginBottom="32dp">
-
-            <TextView
-                android:id="@+id/qsWifi"
-                style="@style/QuickSettingButton"
-                android:text="Wi-Fi" />
-
-            <TextView
-                android:id="@+id/qsDisplay"
-                style="@style/QuickSettingButton"
-                android:text="Display" />
-
-            <TextView
-                android:id="@+id/qsApps"
-                style="@style/QuickSettingButton"
-                android:text="Apps" />
-
-        </LinearLayout>
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/wallpaper_credits"
-            android:textColor="@color/text_grey"
-            android:textSize="11sp"
-            android:layout_marginBottom="32dp" />
-
+            <LinearLayout
+                android:id="@+id/settingsList"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:clipChildren="false"
+                android:clipToPadding="false"
+                android:orientation="vertical"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp" />
+        </ScrollView>
     </LinearLayout>
-
-</ScrollView>
+</FrameLayout>

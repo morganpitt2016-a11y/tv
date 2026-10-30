@@ -1,190 +1,295 @@
 package com.morgan.minimallauncher
 
-import android.app.AlertDialog
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
-import android.widget.CheckBox
-import android.widget.EditText
+import android.view.Gravity
+import android.view.View
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import com.morgan.minimallauncher.GlassUi.dp
 
+/**
+ * tvOS-style Settings. Every row is a single remote-focusable item that
+ * turns white when selected; values show in grey on the right. Anything
+ * that needs typing or choosing opens a GlassDialog.
+ */
 class SettingsActivity : AppCompatActivity() {
 
-    private lateinit var apiKeyInput: EditText
-    private lateinit var deviceStatusText: TextView
-    private lateinit var profileListContainer: LinearLayout
-    private lateinit var appCheckboxContainer: LinearLayout
+    private class Row(val view: View, val value: TextView)
+
+    private lateinit var list: LinearLayout
+
+    private lateinit var profileRow: Row
+    private lateinit var dockRow: Row
+    private lateinit var homeRow: Row
+    private lateinit var bootRow: Row
+    private lateinit var wakeRow: Row
+    private lateinit var accessibilityRow: Row
+    private lateinit var overlayRow: Row
+    private lateinit var autoStatus: TextView
+    private lateinit var autoDiag: TextView
+    private lateinit var keyRow: Row
+    private lateinit var devicesRow: Row
+    private lateinit var devicesNote: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_settings)
+        GlassUi.installBackdrop(findViewById<FrameLayout>(R.id.settingsRoot))
+        findViewById<View>(R.id.settingsIconTile).background = GlassUi.panel(this, 34f, 0x30)
+        list = findViewById(R.id.settingsList)
 
-        apiKeyInput = findViewById(R.id.apiKeyInput)
-        deviceStatusText = findViewById(R.id.deviceStatusText)
-        profileListContainer = findViewById(R.id.profileListContainer)
-        appCheckboxContainer = findViewById(R.id.appCheckboxContainer)
+        section("Home Screen")
+        group {
+            profileRow = row("Profile") { showProfilePicker() }
+            dockRow = row("Dock Apps") { showDockAppsPicker() }
+        }
 
-        GoveeHelper.getApiKey(this)?.let { apiKeyInput.setText(it) }
-
-        findViewById<TextView>(R.id.saveApiKeyButton).setOnClickListener {
-            val key = apiKeyInput.text.toString().trim()
-            if (key.isNotEmpty()) {
-                GoveeHelper.setApiKey(this, key)
-                Toast.makeText(this, "Saved", Toast.LENGTH_SHORT).show()
+        section("Open Automatically")
+        group {
+            homeRow = row("Instead of Google TV Home") { AutoLaunch.setEnabled(this, !AutoLaunch.isEnabled(this)); refreshValues() }
+            bootRow = row("When the TV Turns On") { AutoLaunch.setOnBoot(this, !AutoLaunch.onBoot(this)); refreshValues() }
+            wakeRow = row("When Waking from Sleep") { AutoLaunch.setOnWake(this, !AutoLaunch.onWake(this)); refreshValues() }
+            accessibilityRow = row("Accessibility Service") {
+                open(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS), "Accessibility settings")
+            }
+            overlayRow = row("Display Over Other Apps") {
+                open(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")),
+                    "\"Display over other apps\"")
             }
         }
+        autoStatus = footnote("")
+        autoDiag = footnote("", mono = true)
 
-        findViewById<TextView>(R.id.refreshDevicesButton).setOnClickListener {
-            deviceStatusText.text = "Loading..."
-            GoveeHelper.listDevices(this) { devices, error ->
-                deviceStatusText.text = when {
-                    devices != null && devices.isNotEmpty() ->
-                        "Found ${devices.size} device(s): " + devices.joinToString(", ") { it.name }
-                    devices != null -> "Connected, but no devices found on this Govee account."
-                    else -> "Error: $error"
-                }
+        section("Govee Lights")
+        group {
+            keyRow = row("API Key") { showApiKeyDialog() }
+            devicesRow = row("Devices") { refreshDevices() }
+        }
+        devicesNote = footnote("")
+
+        section("System")
+        group {
+            row("Wi-Fi", chevron = true) { open(Intent(Settings.ACTION_WIFI_SETTINGS), "Wi-Fi settings") }
+            row("Display & Sound", chevron = true) { open(Intent(Settings.ACTION_DISPLAY_SETTINGS), "Display settings") }
+            row("Apps", chevron = true) { open(Intent(Settings.ACTION_APPLICATION_SETTINGS), "App settings") }
+            row("All TV Settings", chevron = true) { open(Intent(Settings.ACTION_SETTINGS), "TV settings") }
+        }
+
+        section("About")
+        group {
+            row("Photo Credits", chevron = true) {
+                GlassDialog(this).title("Photo Credits").message(getString(R.string.wallpaper_credits))
+                    .button("Done", GlassDialog.Style.BOLD).show()
             }
         }
+        footnote("Minimal Launcher · personal build")
 
-        findViewById<TextView>(R.id.addProfileButton).setOnClickListener { showAddProfileDialog() }
-
-        findViewById<TextView>(R.id.qsWifi).setOnClickListener {
-            startActivity(Intent(Settings.ACTION_WIFI_SETTINGS))
-        }
-        findViewById<TextView>(R.id.qsDisplay).setOnClickListener {
-            startActivity(Intent(Settings.ACTION_DISPLAY_SETTINGS))
-        }
-        findViewById<TextView>(R.id.qsApps).setOnClickListener {
-            startActivity(Intent(Settings.ACTION_APPLICATION_SETTINGS))
-        }
-
-        findViewById<TextView>(R.id.autoLaunchToggle).setOnClickListener {
-            AutoLaunch.setEnabled(this, !AutoLaunch.isEnabled(this))
-            refreshAutoLaunch()
-        }
-        findViewById<TextView>(R.id.onBootToggle).setOnClickListener {
-            AutoLaunch.setOnBoot(this, !AutoLaunch.onBoot(this))
-            refreshAutoLaunch()
-        }
-        findViewById<TextView>(R.id.onWakeToggle).setOnClickListener {
-            AutoLaunch.setOnWake(this, !AutoLaunch.onWake(this))
-            refreshAutoLaunch()
-        }
-        findViewById<TextView>(R.id.overlayPermissionButton).setOnClickListener {
-            try {
-                startActivity(
-                    Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, android.net.Uri.parse("package:$packageName"))
-                )
-            } catch (e: Exception) {
-                Toast.makeText(this, "This TV doesn't offer \"Display over other apps\" — the accessibility service covers it instead", Toast.LENGTH_LONG).show()
-            }
-        }
-        findViewById<TextView>(R.id.openAccessibilityButton).setOnClickListener {
-            try {
-                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-            } catch (e: Exception) {
-                Toast.makeText(this, "Accessibility settings aren't available on this device", Toast.LENGTH_SHORT).show()
-            }
-        }
-
-        rebuildProfileList()
-        rebuildAppCheckboxes()
+        list.post { list.getChildAt(1)?.let { (it as? LinearLayout)?.getChildAt(0)?.requestFocus() } }
+        if (GoveeHelper.getApiKey(this) != null) refreshDevices()
     }
 
     override fun onResume() {
         super.onResume()
-        // The user may be coming back from the accessibility settings.
-        refreshAutoLaunch()
+        refreshValues() // e.g. coming back from the accessibility settings
     }
 
-    private fun refreshAutoLaunch() {
+    private fun refreshValues() {
+        val active = ProfileManager.getActiveProfile(this)
+        profileRow.value.text = active
+        val pinned = ProfileManager.getPinnedApps(this, active).size
+        dockRow.value.text = if (pinned == 0) "Automatic" else "$pinned chosen"
+
+        fun onOff(b: Boolean) = if (b) "On" else "Off"
+        homeRow.value.text = onOff(AutoLaunch.isEnabled(this))
+        bootRow.value.text = onOff(AutoLaunch.onBoot(this))
+        wakeRow.value.text = onOff(AutoLaunch.onWake(this))
         val serviceOn = HomeRedirectService.isServiceEnabled(this)
-        val wanted = AutoLaunch.isEnabled(this)
-        findViewById<TextView>(R.id.autoLaunchToggle).text =
-            if (wanted) "Instead of Google TV home: On" else "Instead of Google TV home: Off"
-        findViewById<TextView>(R.id.onBootToggle).text =
-            if (AutoLaunch.onBoot(this)) "When the TV turns on: On" else "When the TV turns on: Off"
-        findViewById<TextView>(R.id.onWakeToggle).text =
-            if (AutoLaunch.onWake(this)) "When waking from sleep: On" else "When waking from sleep: Off"
-        val overlayOk = Settings.canDrawOverlays(this)
-        findViewById<TextView>(R.id.overlayPermissionButton).text =
-            if (overlayOk) "Display over other apps: allowed" else "Allow display over other apps (backup)"
-        findViewById<TextView>(R.id.autoLaunchStatus).text = when {
-            !wanted -> "Off. The Google TV home screen will show as normal."
-            serviceOn -> "Working. Minimal Launcher opens when the TV turns on and when you leave an app."
-            else -> "One more step: turn on the accessibility service (button below)."
+        accessibilityRow.value.text = onOff(serviceOn)
+        overlayRow.value.text = if (Settings.canDrawOverlays(this)) "Allowed" else "Not Allowed"
+        val anyWanted = AutoLaunch.isEnabled(this) || AutoLaunch.onBoot(this) || AutoLaunch.onWake(this)
+        autoStatus.text = when {
+            !anyWanted -> "All off: the Google TV home screen shows as normal."
+            serviceOn -> "Ready. Google TV has no setting to change the home app, so the accessibility service opens Minimal Launcher for you."
+            else -> "One more step: select Accessibility Service, choose “Minimal Launcher: open automatically” and turn it on. If it says “Restricted setting”, allow restricted settings for this app under Settings › Apps first."
         }
-        findViewById<TextView>(R.id.autoLaunchDiag).text = RedirectDiag.summary(this)
+        autoDiag.text = RedirectDiag.summary(this)
+        keyRow.value.text = if (GoveeHelper.getApiKey(this) != null) "Set" else "Not Set"
     }
 
-    private fun showAddProfileDialog() {
-        val input = EditText(this)
-        AlertDialog.Builder(this)
-            .setTitle("New profile name")
-            .setView(input)
-            .setPositiveButton("Add") { _, _ ->
-                val name = input.text.toString().trim()
-                if (name.isNotEmpty()) {
-                    ProfileManager.addProfile(this, name)
-                    rebuildProfileList()
-                }
+    // ---------- Dialogs ----------
+
+    private fun showProfilePicker() {
+        val profiles = ProfileManager.getProfiles(this)
+        val active = ProfileManager.getActiveProfile(this)
+        val d = GlassDialog(this).title("Profile").message("Each person has their own dock apps.").scrolling()
+        for (p in profiles) {
+            d.button(if (p == active) "$p  ✓" else p, if (p == active) GlassDialog.Style.BOLD else GlassDialog.Style.NORMAL) {
+                ProfileManager.setActiveProfile(this, p)
+                refreshValues()
             }
-            .setNegativeButton("Cancel", null)
+        }
+        d.button("Add Person…") { showAddProfile() }
+        if (profiles.size > 1) {
+            d.button("Delete “$active”", GlassDialog.Style.DESTRUCTIVE) {
+                GlassDialog(this).title("Delete “$active”?")
+                    .message("Their dock apps will be forgotten.")
+                    .button("Delete", GlassDialog.Style.DESTRUCTIVE) {
+                        ProfileManager.removeProfile(this, active); refreshValues()
+                        GlassUi.toast(this, "Deleted $active")
+                    }
+                    .button("Cancel", GlassDialog.Style.BOLD)
+                    .focusButton(1)
+                    .show()
+            }
+        }
+        d.button("Cancel", GlassDialog.Style.BOLD)
+        d.focusButton(profiles.indexOf(active).coerceAtLeast(0)).show()
+    }
+
+    private fun showAddProfile() {
+        val d = GlassDialog(this)
+        d.title("Add Person").message("Enter a name for the new profile.").input("Name")
+            .button("Add", GlassDialog.Style.BOLD) {
+                val name = d.inputText.replace(",", " ").trim()
+                if (name.isEmpty()) return@button
+                ProfileManager.addProfile(this, name)
+                ProfileManager.setActiveProfile(this, name)
+                refreshValues()
+                GlassUi.toast(this, "Switched to $name")
+            }
+            .button("Cancel")
             .show()
     }
 
-    private fun rebuildProfileList() {
-        profileListContainer.removeAllViews()
+    private fun showDockAppsPicker() {
         val active = ProfileManager.getActiveProfile(this)
-        for (name in ProfileManager.getProfiles(this)) {
-            val row = LinearLayout(this)
-            row.orientation = LinearLayout.HORIZONTAL
-            row.setPadding(0, 8, 0, 8)
-
-            val label = TextView(this)
-            label.text = if (name == active) "$name (active)" else name
-            label.setTextColor(resources.getColor(R.color.text_white, theme))
-            label.textSize = 16f
-            label.setOnClickListener {
-                ProfileManager.setActiveProfile(this, name)
-                rebuildProfileList()
-                rebuildAppCheckboxes()
+        val pinned = ProfileManager.getPinnedApps(this, active).toMutableSet()
+        val d = GlassDialog(this).title("Dock Apps")
+            .message("Choose the apps for $active’s dock. Up to 10 fit; with none chosen, the dock shows your first 10 apps.")
+            .scrolling()
+        for (app in AppListHelper.loadLaunchableTvApps(this)) {
+            d.toggle(app.label, app.packageName in pinned) {
+                if (!pinned.add(app.packageName)) pinned.remove(app.packageName)
+                ProfileManager.setPinnedApps(this, active, pinned)
+                refreshValues()
             }
-            row.addView(label, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        }
+        d.button("Done", GlassDialog.Style.BOLD).show()
+    }
 
-            val deleteBtn = TextView(this)
-            deleteBtn.text = "Delete"
-            deleteBtn.setTextColor(resources.getColor(R.color.text_grey, theme))
-            deleteBtn.setOnClickListener {
-                ProfileManager.removeProfile(this, name)
-                rebuildProfileList()
-                rebuildAppCheckboxes()
+    private fun showApiKeyDialog() {
+        val d = GlassDialog(this)
+        d.title("Govee API Key")
+            .message("Use the key Govee emailed you. To get one: Govee Home app › Profile › Settings › Apply for API Key.")
+            .input("API key", GoveeHelper.getApiKey(this).orEmpty(), secret = true)
+            .button("Save", GlassDialog.Style.BOLD) {
+                GoveeHelper.setApiKey(this, d.inputText)
+                refreshValues()
+                refreshDevices()
             }
-            row.addView(deleteBtn)
+            .button("Cancel")
+            .show()
+    }
 
-            profileListContainer.addView(row)
+    private fun refreshDevices() {
+        if (GoveeHelper.getApiKey(this) == null) {
+            devicesRow.value.text = "—"
+            devicesNote.text = "Add your API key to control Govee lights from the home screen."
+            return
+        }
+        devicesRow.value.text = "Checking…"
+        devicesNote.text = ""
+        GoveeHelper.listDevices(this) { devices, error ->
+            when {
+                !devices.isNullOrEmpty() -> {
+                    devicesRow.value.text = if (devices.size == 1) "1 light" else "${devices.size} lights"
+                    devicesNote.text = devices.joinToString("\n") { "${it.name}  ·  ${if (it.isOn) "On" else "Off"}" } +
+                        "\n\nThey appear next to the moon button on the home screen."
+                }
+                else -> {
+                    devicesRow.value.text = if (devices == null) "Error" else "None Found"
+                    devicesNote.text = error ?: "No devices found."
+                }
+            }
         }
     }
 
-    private fun rebuildAppCheckboxes() {
-        appCheckboxContainer.removeAllViews()
-        val active = ProfileManager.getActiveProfile(this)
-        val pinned = ProfileManager.getPinnedApps(this, active).toMutableSet()
-        val apps = AppListHelper.loadLaunchableTvApps(this)
-
-        for (app in apps) {
-            val checkBox = CheckBox(this)
-            checkBox.text = app.label
-            checkBox.setTextColor(resources.getColor(R.color.text_white, theme))
-            checkBox.isChecked = pinned.contains(app.packageName)
-            checkBox.setOnCheckedChangeListener { _, isChecked ->
-                if (isChecked) pinned.add(app.packageName) else pinned.remove(app.packageName)
-                ProfileManager.setPinnedApps(this, active, pinned)
-            }
-            appCheckboxContainer.addView(checkBox)
+    private fun open(intent: Intent, what: String) {
+        try {
+            startActivity(intent)
+        } catch (e: Exception) {
+            GlassUi.toast(this, "$what isn’t available on this TV")
         }
+    }
+
+    // ---------- Building blocks ----------
+
+    private fun section(title: String) {
+        list.addView(GlassUi.text(this, title.uppercase(), 12f, R.font.inter_semibold, 0x8CFFFFFF.toInt()).apply {
+            letterSpacing = 0.08f
+        }, LinearLayout.LayoutParams(-2, -2).apply {
+            marginStart = dp(this@SettingsActivity, 16f)
+            topMargin = dp(this@SettingsActivity, if (list.childCount == 0) 0f else 26f)
+            bottomMargin = dp(this@SettingsActivity, 8f)
+        })
+    }
+
+    private var currentGroup: LinearLayout? = null
+
+    private fun group(build: () -> Unit) {
+        val g = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GlassUi.panel(this@SettingsActivity, 20f)
+            setPadding(dp(context, 6f), dp(context, 6f), dp(context, 6f), dp(context, 6f))
+            clipChildren = false
+            clipToPadding = false
+        }
+        currentGroup = g
+        build()
+        currentGroup = null
+        list.addView(g, LinearLayout.LayoutParams(-1, -2))
+    }
+
+    private fun row(title: String, chevron: Boolean = false, onClick: () -> Unit): Row {
+        val c = this
+        val row = LinearLayout(c).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = GlassUi.rowBackground(c)
+            setPadding(dp(c, 16f), 0, dp(c, 16f), 0)
+            isFocusable = true
+            isClickable = true
+            contentDescription = title
+            setOnClickListener { onClick() }
+        }
+        row.addView(GlassUi.rowText(c, title, 15.5f, R.font.inter_medium, GlassUi.primaryText()),
+            LinearLayout.LayoutParams(0, -2, 1f))
+        val value = GlassUi.rowText(c, "", 14.5f, R.font.inter_regular, GlassUi.secondaryText())
+        row.addView(value, LinearLayout.LayoutParams(-2, -2))
+        if (chevron) {
+            row.addView(GlassUi.rowText(c, "›", 20f, R.font.inter_regular, GlassUi.secondaryText()),
+                LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(c, 10f) })
+        }
+        GlassUi.focusLift(row, 1.025f)
+        (currentGroup ?: list).addView(row, LinearLayout.LayoutParams(-1, dp(c, 50f)))
+        return Row(row, value)
+    }
+
+    private fun footnote(text: String, mono: Boolean = false): TextView {
+        val t = GlassUi.text(this, text, if (mono) 11f else 12.5f, R.font.inter_regular, 0x8CFFFFFF.toInt()).apply {
+            if (mono) typeface = android.graphics.Typeface.MONOSPACE
+            setLineSpacing(0f, 1.3f)
+        }
+        list.addView(t, LinearLayout.LayoutParams(-1, -2).apply {
+            marginStart = dp(this@SettingsActivity, 16f)
+            marginEnd = dp(this@SettingsActivity, 16f)
+            topMargin = dp(this@SettingsActivity, 10f)
+        })
+        return t
     }
 }

@@ -15,12 +15,12 @@ import android.text.format.DateUtils
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.view.ViewOutlineProvider
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -105,14 +105,40 @@ class MainActivity : AppCompatActivity() {
         rotator.stop()
     }
 
-    private fun refreshAll() {
+    /**
+     * Rebuilds every row. Rebuilding removes the focused button, which
+     * would make Android jump focus somewhere else (e.g. to the moon), so
+     * remember which row/position had focus and put it back afterwards.
+     */
+    private fun refreshAll(focusActiveProfile: Boolean = false) {
+        val saved = savedFocus()
         val allApps = AppListHelper.loadLaunchableTvApps(this)
         buildProfileSwitch()
         buildDock(allApps)
         buildKeepWatching(allApps)
         buildDeviceRow()
         fetchDevicesIfNeeded()
-        if (currentFocus == null) dock.getChildAt(0)?.requestFocus()
+        if (focusActiveProfile) {
+            val i = ProfileManager.getProfiles(this).indexOf(ProfileManager.getActiveProfile(this))
+            profileSwitch.getChildAt(i.coerceAtLeast(0))?.requestFocus()
+        } else {
+            restoreFocus(saved)
+        }
+    }
+
+    private fun savedFocus(): Pair<ViewGroup, Int>? {
+        val focused = currentFocus ?: return null
+        val row = listOf(profileSwitch, dock, keepWatchingRow, deviceRow).firstOrNull { focused.parent === it } ?: return null
+        return row to row.indexOfChild(focused)
+    }
+
+    private fun restoreFocus(saved: Pair<ViewGroup, Int>?) {
+        val (row, index) = saved ?: (null to 0)
+        val target = row?.takeIf { it.isShown && it.childCount > 0 }?.getChildAt(index.coerceAtMost(row.childCount - 1))
+        when {
+            target != null -> target.requestFocus()
+            currentFocus == null || saved != null -> dock.getChildAt(0)?.requestFocus()
+        }
     }
 
     private fun fitStage() {
@@ -188,7 +214,7 @@ class MainActivity : AppCompatActivity() {
                 contentDescription = if (isActive) "$name, selected profile" else "Switch to $name"
                 setOnClickListener {
                     ProfileManager.setActiveProfile(this@MainActivity, name)
-                    refreshAll()
+                    refreshAll(focusActiveProfile = true)
                 }
             }
             addFocusScale(seg, 1.06f)
@@ -321,6 +347,7 @@ class MainActivity : AppCompatActivity() {
     // ---------- Govee device pills (top-right, only when set up) ----------
 
     private fun buildDeviceRow() {
+        val focusedIndex = currentFocus?.takeIf { it.parent === deviceRow }?.let { deviceRow.indexOfChild(it) }
         deviceRow.removeAllViews()
         for (device in govDevices) {
             val pill = LinearLayout(this).apply {
@@ -343,6 +370,7 @@ class MainActivity : AppCompatActivity() {
             addFocusScale(pill, 1.06f)
             deviceRow.addView(pill, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(32)).apply { marginEnd = dp(10) })
         }
+        focusedIndex?.let { deviceRow.getChildAt(it.coerceAtMost(deviceRow.childCount - 1))?.requestFocus() }
     }
 
     private fun fetchDevicesIfNeeded() {
@@ -364,7 +392,7 @@ class MainActivity : AppCompatActivity() {
                 device.isOn = newState
                 buildDeviceRow()
             } else {
-                Toast.makeText(this, error ?: "Couldn't reach Govee", Toast.LENGTH_SHORT).show()
+                GlassUi.toast(this, error ?: "Couldn’t reach Govee")
             }
         }
     }
@@ -374,7 +402,11 @@ class MainActivity : AppCompatActivity() {
     private fun launchApp(app: AppEntry) {
         val intent = app.launchIntent ?: return
         RecentAppsTracker.recordOpened(this, app.packageName)
-        startActivity(intent)
+        try {
+            startActivity(intent)
+        } catch (e: Exception) {
+            GlassUi.toast(this, "${app.label} couldn’t be opened")
+        }
     }
 
     private fun label(text: String, fontRes: Int, sizeDp: Float, color: Int) = TextView(this).apply {
