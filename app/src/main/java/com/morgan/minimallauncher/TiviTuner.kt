@@ -40,7 +40,12 @@ object TiviTuner {
     // ---------- Tuning ----------
 
     /** Call right after launching TiviMate. [done] gets true once the channel was selected. */
-    fun tune(channel: String, done: (Boolean) -> Unit) {
+    fun tune(channel: String, doneOuter: (Boolean) -> Unit) {
+        // On failure, keep a picture of what TiviMate was showing, for the log.
+        val done: (Boolean) -> Unit = { ok ->
+            if (!ok) note("What TiviMate showed:\n" + compactScreen())
+            doneOuter(ok)
+        }
         val service = HomeRedirectService.instance ?: run { note("Accessibility service not running"); return done(false) }
         val wanted = normalise(channel)
         note("---- Tune to \"$channel\" (looking for \"$wanted\")")
@@ -185,6 +190,30 @@ object TiviTuner {
             findInList(child, wanted, here)?.let { return it }
         }
         return null
+    }
+
+    /** Short version of the screen: one line per piece of text, with list/clickable/focusable flags. */
+    private fun compactScreen(): String {
+        val service = HomeRedirectService.instance ?: return "(service not running)"
+        val lines = mutableListOf<String>()
+        val windows = try { service.windows.orEmpty() } catch (e: Exception) { emptyList() }
+        val roots = windows.mapNotNull { it.root }.ifEmpty { listOfNotNull(service.rootInActiveWindow) }
+        for (root in roots) {
+            lines += "[${root.packageName}]"
+            fun walk(n: AccessibilityNodeInfo, inList: Boolean) {
+                if (lines.size > 70) return
+                val list = inList || n.isScrollable
+                if (n.isScrollable) lines += "  <list ${n.className?.toString()?.substringAfterLast('.')}>"
+                val t = (n.text ?: n.contentDescription)?.toString()?.replace('\n', ' ')?.trim()
+                if (!t.isNullOrBlank()) {
+                    val f = buildString { if (list) append("L"); if (n.isClickable) append("C"); if (n.isFocusable) append("F"); if (n.isFocused) append("*") }
+                    lines += "  ${t.take(40)}${if (f.isNotEmpty()) "  ($f)" else ""}"
+                }
+                for (i in 0 until n.childCount) n.getChild(i)?.let { walk(it, list) }
+            }
+            walk(root, false)
+        }
+        return lines.joinToString("\n").ifBlank { "(nothing readable)" }
     }
 
     /** Everything on screen, for the iPhone remote's "Capture TV screen". */

@@ -249,7 +249,9 @@ object LiveGuide {
             return
         }
         try {
-            activity.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            // Start TiviMate fresh, so it opens on live TV rather than whatever screen it was last left on.
+            val flags = if (channel != null) Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK else Intent.FLAG_ACTIVITY_NEW_TASK
+            activity.startActivity(intent.addFlags(flags))
         } catch (e: Exception) { GlassUi.toast(activity, "TiviMate couldn’t be opened"); return }
         if (channel == null) return
         val app = activity.applicationContext

@@ -142,6 +142,16 @@ class SettingsActivity : AppCompatActivity() {
         }
         footnote("The film button on the home screen dims everything, silences notifications, dims your lights to 12%, shows a cinema clock and opens your app. Press it again to undo.")
 
+        section("Live TV")
+        group {
+            vrow("TiviMate Tuning Log", { "" }, chevron = true) {
+                GlassDialog(this).title("TiviMate Tuning Log")
+                    .message(TiviTuner.logText().takeLast(3500).let { if (it.length < 300) it + "\n\n(Long logs scroll - use Up/Down.)" else it })
+                    .button("Done", GlassDialog.Style.BOLD).show()
+            }
+        }
+        footnote("What happened the last time Live TV tried to switch TiviMate to a channel - including what TiviMate showed if it couldn’t find it.")
+
         section("iPhone Remote")
         group {
             vrow("iPhone Remote", { onOff(RemoteService.isEnabled(this)) }) {
