@@ -679,6 +679,7 @@ class MainActivity : AppCompatActivity() {
             } catch (e: Throwable) { null }
             if (bmp != null) handler.post { image.setImageBitmap(bmp) }
         })
+        return cell
     }
 
     /** The service's own logo from JustWatch, when there is one (runs on the grid thread). */
