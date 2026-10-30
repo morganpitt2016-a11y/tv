@@ -327,17 +327,7 @@ class WatchActivity : AppCompatActivity() {
     // ---------- Live TV ----------
 
     private fun buildLive(token: Int) {
-        val apps = AppListHelper.loadLaunchableTvApps(this)
-        val live = WatchCatalog.LIVE_APPS.mapNotNull { pkg -> apps.firstOrNull { it.packageName == pkg } }
-        if (live.isNotEmpty()) {
-            val r = row("apps", "Live TV Apps", height = 120f)
-            r.list.adapter = CardAdapter(live, { p -> card(p, 160f, 90f) }) { h, app ->
-                bindApp(h, app)
-                h.root.setOnClickListener { AppActions.launch(this, app, h.root) }
-                focusEffect(h.root) { showPlainHero("LIVE TV", app.label, if (app.packageName == LiveGuide.TIVIMATE) "Your channels and TV guide." else "Live channels and catch-up.") }
-            }
-            rows.addView(r.view)
-        }
+        // Just the TV guide (the live TV apps are on the home screen).
         val loading = GlassUi.text(this, "Loading the TV guide…", 13f, R.font.inter_medium, 0x99FFFFFF.toInt())
         rows.addView(loading, LinearLayout.LayoutParams(-2, -2).apply { setMargins(dp(this@WatchActivity, 56f), dp(this@WatchActivity, 20f), 0, 0) })
         LiveGuide.load(this) { channels ->

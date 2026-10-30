@@ -123,8 +123,8 @@ object TiviTuner {
         val wanted = normalise(channel)
         loadRows(service)
         note("---- Tune to \"$channel\" (looking for \"$wanted\"${learnedRow(wanted)?.let { ", remembered row $it" } ?: ""})")
-        var jumped = false
-        var relaunched = false
+        var nudged = false
+        var goingDown = true
         var attempts = 0
         var okPresses = 0
         var settle = 0
@@ -133,21 +133,13 @@ object TiviTuner {
 
         fun step() {
             attempts++
-            if (attempts > 90) { note("Gave up after $attempts checks"); done(false); return }
+            if (attempts > 120) { note("Gave up after $attempts checks"); done(false); return }
             val roots = tiviRoots(service)
             if (roots.isEmpty()) {
                 if (attempts % 4 == 1) note("Waiting for TiviMate (front: ${frontPackages(service)})")
                 main.postDelayed({ step() }, 200); return
             }
             val lists = roots.flatMap { scrollables(it) }
-            val match = roots.firstNotNullOfOrNull { findInList(it, wanted) }
-                ?: roots.firstNotNullOfOrNull { r -> find(r) { n -> normalise(n) == wanted }?.takeIf { lists.isNotEmpty() } }
-            if (match != null) {
-                note("Found \"${match.text ?: match.contentDescription}\" (${match.className}) after $attempts checks")
-                rowOf(match)?.let { row -> if (rows[wanted] != row) { rows[wanted] = row; saveRows(service) } }
-                select(service, match) { ok -> finish(service, wanted, ok, done) }
-                return
-            }
             val texts = roots.flatMap { texts(it) }
             if (lists.isEmpty()) {
                 // Playing full screen: let playback settle, then press OK to bring up the channel list.
@@ -159,31 +151,36 @@ object TiviTuner {
                 settle = 0
                 main.postDelayed({ step() }, 550); return
             }
-            // First look at the list: jump straight to the remembered row, or to the top.
-            if (!jumped) {
-                jumped = true
-                // TiviMate came back on some other screen (not the channel list): restart it once.
-                val known = rows.size >= 3 && texts.none { t -> rows.containsKey(normalise(t)) }
-                if (known && !relaunched && relaunch != null) {
-                    relaunched = true; jumped = false
-                    note("Not the channel list - restarting TiviMate on live TV")
-                    relaunch(); main.postDelayed({ step() }, 900); return
-                }
-                val row = learnedRow(wanted) ?: 0
-                if (lists.any { scrollTo(it, row) }) {
-                    note("Jumped to row $row")
-                    main.postDelayed({ step() }, 220); return
-                }
+            // The channel list (or TV guide grid) is the biggest list on screen - not the group list beside it.
+            val list = lists.maxByOrNull { descendants(it) }!!
+            val match = bestMatch(list, wanted)
+            if (match != null) {
+                note("Found \"${match.text ?: match.contentDescription}\" after $attempts checks")
+                rowOf(match)?.let { row -> if (rows[wanted] != row) { rows[wanted] = row; saveRows(service) } }
+                if (rows.isEmpty()) { rows[wanted] = 0; saveRows(service) }
+                select(service, list, wanted) { ok -> finish(service, wanted, ok, done) }
+                return
             }
-            val seen = texts.joinToString("|")
+            // Not on screen yet: move TiviMate's highlight down the list (then back up), like the remote.
+            val inList = focusRowIn(service, list) != null
+            if (!inList && !nudged) {
+                nudged = true
+                note("Highlight isn't in the channel list - pressing Right")
+                service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_DPAD_RIGHT)
+                main.postDelayed({ step() }, 300); return
+            }
+            val seen = texts(list).joinToString("|")
             if (seen == lastSeen) {
-                if (++sameCount >= 2) { note("End of list, not found. Last names seen: ${texts.take(20)}"); done(false); return }
+                if (++sameCount >= 2) {
+                    if (goingDown) { goingDown = false; sameCount = 0; note("Reached the bottom - searching upwards") }
+                    else { note("Not in this channel group. Last names seen: ${texts(list).take(20)}"); done(false); return }
+                }
             } else sameCount = 0
             lastSeen = seen
-            if (attempts % 3 == 1) note("${lists.size} list(s), names: ${texts.take(12)} - scrolling")
-            val scrolled = lists.any { it.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD) }
-            if (!scrolled) repeat(6) { service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_DPAD_DOWN) }
-            main.postDelayed({ step() }, 170)
+            if (attempts % 4 == 1) note("Searching ${if (goingDown) "down" else "up"}: ${texts(list).take(8)}")
+            val key = if (goingDown) AccessibilityService.GLOBAL_ACTION_DPAD_DOWN else AccessibilityService.GLOBAL_ACTION_DPAD_UP
+            for (i in 0 until 8) main.postDelayed({ service.performGlobalAction(key) }, i * 40L)
+            main.postDelayed({ step() }, 8 * 40L + 200)
         }
         main.postDelayed({ step() }, 400)
     }
@@ -202,84 +199,90 @@ object TiviTuner {
         }, 900)
     }
 
-    /** The name TiviMate's own highlight (the remote's focus) is on right now. */
-    private fun focusedNames(service: AccessibilityService): List<String> {
-        val f = service.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: return emptyList()
-        return texts(f)
+    private fun descendants(n: AccessibilityNodeInfo): Int {
+        var c = 0
+        fun walk(x: AccessibilityNodeInfo, d: Int) { c++; if (d < 6) for (i in 0 until x.childCount) x.getChild(i)?.let { walk(it, d + 1) } }
+        walk(n, 0)
+        return c
     }
 
-    private fun focusIsOn(service: AccessibilityService, wanted: String) =
-        focusedNames(service).any { normalise(it) == wanted }
-
-    /** Row of the highlighted item (it, or something inside it, reports its list position). */
-    private fun focusedRow(service: AccessibilityService): Int? {
-        val f = service.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: return null
-        rowOf(f)?.let { return it }
-        fun walk(n: AccessibilityNodeInfo, depth: Int): Int? {
-            n.collectionItemInfo?.let { return it.rowIndex }
-            if (depth > 3) return null
-            for (i in 0 until n.childCount) n.getChild(i)?.let { c -> walk(c, depth + 1)?.let { return it } }
+    /** The channel's name in [list]: an exact name first, then a close one ("BBC One London" for "BBC One"). */
+    private fun bestMatch(list: AccessibilityNodeInfo, wanted: String): AccessibilityNodeInfo? {
+        var loose: AccessibilityNodeInfo? = null
+        fun walk(n: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+            val t = (n.text ?: n.contentDescription)?.toString()
+            if (t != null && t.length < 60) {
+                val k = normalise(t)
+                if (k == wanted) return n
+                if (loose == null && matches(k, wanted)) loose = n
+            }
+            for (i in 0 until n.childCount) n.getChild(i)?.let { c -> walk(c)?.let { return it } }
             return null
         }
-        return walk(f, 0)
+        return walk(list) ?: loose
     }
 
-    /**
-     * Select the channel the way the remote does. TiviMate keeps its own highlight
-     * (on the channel last watched) even when told to focus another row, so pressing
-     * OK straight away replays the old channel. Instead: move the highlight with
-     * Up/Down until TiviMate itself says it is on the wanted channel, and only then
-     * press OK.
-     */
-    private fun select(service: AccessibilityService, node: AccessibilityNodeInfo, done: (Boolean) -> Unit) {
-        val wanted = normalise((node.text ?: node.contentDescription)?.toString().orEmpty())
-        val targetRow = rowOf(node)
-        var n: AccessibilityNodeInfo? = node
-        var focusable: AccessibilityNodeInfo? = null
-        while (n != null && focusable == null) { if (n.isFocusable) focusable = n; n = n.parent }
-        focusable?.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+    /** The row of [list] that [node] is in (its ancestor directly inside the list). */
+    private fun rowIn(list: AccessibilityNodeInfo, node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+        var n = node
+        var depth = 0
+        while (n != null && depth++ < 12) {
+            val parent = n.parent ?: return null
+            if (parent == list) return n
+            n = parent
+        }
+        return null
+    }
 
+    private fun focusRowIn(service: AccessibilityService, list: AccessibilityNodeInfo) =
+        rowIn(list, service.findFocus(AccessibilityNodeInfo.FOCUS_INPUT))
+
+    private fun rowNames(row: AccessibilityNodeInfo?) = row?.let { texts(it).take(3) } ?: emptyList()
+
+    /**
+     * Select the channel the way the remote does: move TiviMate's own highlight
+     * (Up/Down) until it is on the channel's row, check it stays there, then
+     * press OK. Works in the channel list and in TiviMate's TV guide, where the
+     * highlight sits on a programme in the channel's row.
+     */
+    private fun select(service: AccessibilityService, list: AccessibilityNodeInfo, wanted: String, done: (Boolean) -> Unit) {
         var rounds = 0
+        var lastTop = Int.MIN_VALUE
         var stuck = 0
-        var lastRow: Int? = null
-        var lostFocus = 0
-        fun clickInstead() {
-            var c: AccessibilityNodeInfo? = node
-            while (c != null && !c.isClickable) c = c.parent
-            if (c?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true) { note("Clicked it instead"); done(true) } else done(false)
-        }
-        fun pressOk() {
-            note("Highlight is on ${focusedNames(service).take(2)} - pressing OK")
-            service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_DPAD_CENTER)
-            done(true)
-        }
         fun check() {
-            if (focusIsOn(service, wanted)) {
-                // Make sure it stays there (TiviMate can snap back), then press OK.
-                main.postDelayed({ if (focusIsOn(service, wanted)) pressOk() else check() }, 120)
+            list.refresh()
+            val target = bestMatch(list, wanted)?.let { rowIn(list, it) }
+            val focused = focusRowIn(service, list)
+            if (target == null) { note("Lost sight of the channel"); done(false); return }
+            if (focused == null) {
+                if (++rounds > 3) { note("TiviMate's highlight isn't in the list"); done(false); return }
+                service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_DPAD_RIGHT)
+                main.postDelayed({ check() }, 250); return
+            }
+            if (focused == target) {
+                main.postDelayed({
+                    if (focusRowIn(service, list) == target) {
+                        note("Highlight is on ${rowNames(target)} - pressing OK")
+                        service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_DPAD_CENTER)
+                        done(true)
+                    } else check()
+                }, 150)
                 return
             }
-            if (++rounds > 40) { note("Couldn't get TiviMate's highlight onto it (on ${focusedNames(service).take(2)})"); done(false); return }
-            val cur = focusedRow(service)
-            if (cur == null && targetRow != null && lostFocus++ < 2) {
-                // The list jumped and the highlight went with the old row: one press brings it back into view.
-                service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_DPAD_DOWN)
-                main.postDelayed({ check() }, 220); return
-            }
-            if (cur == null || targetRow == null) {
-                note("TiviMate doesn't report row positions (highlight on ${focusedNames(service).take(2)})"); clickInstead(); return
-            }
-            if (cur == lastRow) stuck++ else stuck = 0
-            lastRow = cur
-            if (stuck >= 3) { note("Highlight won't move past row $cur"); done(false); return }
-            val diff = targetRow - cur
-            val key = if (diff > 0) AccessibilityService.GLOBAL_ACTION_DPAD_DOWN else AccessibilityService.GLOBAL_ACTION_DPAD_UP
-            val steps = minOf(kotlin.math.abs(diff).coerceAtLeast(1), 10)
-            if (rounds == 1) note("Highlight is on row $cur ${focusedNames(service).take(2)}, channel is row $targetRow - moving")
+            if (++rounds > 40) { note("Couldn't get the highlight onto it (on ${rowNames(focused)})"); done(false); return }
+            val f = android.graphics.Rect().also { focused.getBoundsInScreen(it) }
+            val t = android.graphics.Rect().also { target.getBoundsInScreen(it) }
+            if (f.top == lastTop) stuck++ else stuck = 0
+            lastTop = f.top
+            if (stuck >= 4) { note("Highlight won't move (on ${rowNames(focused)})"); done(false); return }
+            val dy = t.centerY() - f.centerY()
+            val steps = (kotlin.math.abs(dy) / f.height().coerceAtLeast(1)).coerceIn(1, 10)
+            val key = if (dy > 0) AccessibilityService.GLOBAL_ACTION_DPAD_DOWN else AccessibilityService.GLOBAL_ACTION_DPAD_UP
+            if (rounds == 1) note("Highlight is on ${rowNames(focused)} - moving ${if (dy > 0) "down" else "up"} to it")
             for (i in 0 until steps) main.postDelayed({ service.performGlobalAction(key) }, i * 45L)
-            main.postDelayed({ check() }, steps * 45L + 160)
+            main.postDelayed({ check() }, steps * 45L + 180)
         }
-        main.postDelayed({ check() }, 150)
+        main.postDelayed({ check() }, 100)
     }
 
     // ---------- Recording ----------
