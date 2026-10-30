@@ -232,6 +232,9 @@ object TiviTuner {
             }
             val lists = roots.flatMap { scrollables(it) }
             val texts = roots.flatMap { texts(it) }
+            // Silence the old channel while the guide is open (not before: OK on a paused
+            // picture would un-pause it instead of opening the channel list).
+            if (lists.isNotEmpty()) hushNow(service)
             if (lists.isEmpty()) {
                 // Playing full screen: let playback settle, then press OK to bring up the channel list.
                 if (settle++ < 1) { main.postDelayed({ step() }, 100); return }
@@ -557,6 +560,36 @@ object TiviTuner {
 
     private var mutedByUs = false
 
+    /**
+     * Pause whatever TiviMate is playing (the old channel), so nothing is heard while
+     * the cover is up. The Chromecast's own volume is fixed (the TV controls it), so
+     * muting alone doesn't work there.
+     */
+    private var lastHush = 0L
+
+    /** [hush], at most every 700ms. */
+    private fun hushNow(c: android.content.Context) {
+        val now = android.os.SystemClock.uptimeMillis()
+        if (now - lastHush < 700) return
+        lastHush = now
+        hush(c)
+    }
+
+    fun hush(c: android.content.Context) {
+        try {
+            val msm = c.getSystemService(android.media.session.MediaSessionManager::class.java)
+            val sessions = msm.getActiveSessions(android.content.ComponentName(c, MediaListener::class.java))
+            val tivi = sessions.filter { it.packageName == PKG }
+            if (tivi.isNotEmpty()) { tivi.forEach { it.transportControls.pause() }; return }
+        } catch (e: Exception) {}
+        // No media session to talk to: the remote's Pause key instead.
+        try {
+            val am = c.getSystemService(android.media.AudioManager::class.java)
+            am.dispatchMediaKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_MEDIA_PAUSE))
+            am.dispatchMediaKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_MEDIA_PAUSE))
+        } catch (e: Exception) {}
+    }
+
     /** Silence the TV while TiviMate is being driven, so the old channel isn't heard. */
     private fun mute(c: android.content.Context, on: Boolean) {
         val am = c.getSystemService(android.media.AudioManager::class.java) ?: return
@@ -621,13 +654,13 @@ object TiviTuner {
         val app = c.applicationContext
         fun say(t: String) = android.widget.Toast.makeText(app, t, android.widget.Toast.LENGTH_LONG).show()
         val intent = LiveGuide.launchIntent(app, PKG) ?: return say("TiviMate isn’t installed")
-        if (!canTune()) return say("Turn on the accessibility service in Settings to open films in TiviMate")
+        if (!canTune()) return say("Turn on the accessibility service in Settings to open films on Dodgy Box")
         val service = HomeRedirectService.instance ?: return
         val wanted = vodKey(title)
         cancelled = false
         busy = true
         returnToWatch = true
-        showCover(title, "Opening in TiviMate…")
+        showCover(title, "Opening Dodgy Box…")
         note("---- Find ${if (show) "show" else "film"} \"$title\" ($year) in TiviMate (looking for \"$wanted\")")
         try { app.startActivity(Intent(intent).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {}
 
@@ -654,13 +687,15 @@ object TiviTuner {
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP))
                 } catch (e: Exception) {}
                 hideCover()
-                say("Couldn’t find $title in TiviMate")
+                say("Couldn’t find $title on Dodgy Box")
             }
         }
         fun step() {
             if (cancelled) return finish(false, "Cancelled")
             if (++attempts > 90) return finish(false, "Gave up")
             if (tiviRoots(service).isEmpty()) { main.postDelayed({ step() }, 100); return }
+            // Keep TiviMate's live channel quiet until the film itself is started.
+            if (stage < 2) hushNow(service)
             when (stage) {
                 0 -> {
                     val field = findNode(service) { it.isEditable || it.className?.toString()?.endsWith("EditText") == true }

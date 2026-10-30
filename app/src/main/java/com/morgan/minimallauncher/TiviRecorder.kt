@@ -41,7 +41,7 @@ object TiviRecorder {
         // Let the picture start and TiviMate settle first.
         android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
             TiviTuner.record { ok ->
-                say(app, if (ok) "Recording in TiviMate" else "Couldn’t find TiviMate’s Record button - see Settings ▸ TiviMate Tuning Log")
+                say(app, if (ok) "Recording on Dodgy Box" else "Couldn’t find the Record button - see Settings ▸ TiviMate Tuning Log")
             }
         }, 2500)
     }
@@ -191,7 +191,7 @@ object TiviRecorder {
             try { c.startActivity(Intent(intent).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)) } catch (e: Exception) {}
         }
         TiviTuner.tune(item.channel, restart) { ok ->
-            if (ok) pressRecord(c) else say(c, "Couldn’t find ${item.channel} in TiviMate to record ${item.title}")
+            if (ok) pressRecord(c) else say(c, "Couldn’t find ${item.channel} on Dodgy Box to record ${item.title}")
         }
     }
 

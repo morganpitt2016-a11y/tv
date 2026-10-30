@@ -421,9 +421,9 @@ class WatchActivity : AppCompatActivity() {
         d.message(listOf("${ch.name}  ·  ${timeRange(p)}" + (if (p.episode.isNotBlank()) "  ·  ${p.episode}" else ""), p.desc.take(300))
             .filter { it.isNotBlank() }.joinToString("\n\n"))
         if (LiveGuide.hasTiviMate(this)) {
-            d.button("Watch in TiviMate", GlassDialog.Style.BOLD) { LiveGuide.openTiviMate(this, ch) }
+            d.button("Watch on Dodgy Box", GlassDialog.Style.BOLD) { LiveGuide.openTiviMate(this, ch) }
             when {
-                p.isOn() -> d.button("Record in TiviMate") { TiviRecorder.recordNow(this, ch) }
+                p.isOn() -> d.button("Record on Dodgy Box") { TiviRecorder.recordNow(this, ch) }
                 TiviRecorder.isScheduled(this, ch, p) -> d.button("Cancel This Recording", GlassDialog.Style.DESTRUCTIVE) {
                     TiviRecorder.list(this).filter { it.channel == ch.name && it.start == p.start }.forEach { TiviRecorder.cancel(this, it.id) }
                     GlassUi.toast(this, "Recording cancelled")
@@ -582,7 +582,7 @@ class WatchActivity : AppCompatActivity() {
         }
         // TiviMate's own films and series (from the TV provider), played the same way as live TV.
         if (LiveGuide.hasTiviMate(c)) {
-            buttons.addView(pillButton("Watch in TiviMate") { TiviTuner.playVod(this, t.name, t.year, show = t.type == "SHOW") },
+            buttons.addView(pillButton("Watch on Dodgy Box") { TiviTuner.playVod(this, t.name, t.year, show = t.type == "SHOW") },
                 LinearLayout.LayoutParams(-2, dp(c, 40f)).apply { marginEnd = dp(c, 10f) })
         }
         val trailerButton = pillButton("Trailer") {}
@@ -747,7 +747,7 @@ class WatchActivity : AppCompatActivity() {
         heroTitle.text = p.title
         heroMeta.text = listOf(timeRange(p), p.episode).filter { it.isNotBlank() }.joinToString("  ·  ")
         heroText.text = p.desc
-        heroWhere.text = if (LiveGuide.hasTiviMate(this) && p.isOn()) "Press OK to watch in TiviMate · hold OK for more" else if (LiveGuide.hasTiviMate(this)) "Hold OK for options" else ""
+        heroWhere.text = if (LiveGuide.hasTiviMate(this) && p.isOn()) "Press OK to watch on Dodgy Box · hold OK for more" else if (LiveGuide.hasTiviMate(this)) "Hold OK for options" else ""
         setHeroImage(p.image)
     }
 

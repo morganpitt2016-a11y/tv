@@ -295,11 +295,11 @@ object LiveGuide {
                 try { app.startActivity(Intent(intent).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)) } catch (e: Exception) {}
             }
             TiviTuner.tune(channel.name, restart) { ok ->
-                if (!ok) say("Couldn’t find ${channel.name} in TiviMate - choose it from the list")
+                if (!ok) say("Couldn’t find ${channel.name} on Dodgy Box - choose it from the list")
                 then?.invoke(ok)
             }
         } else {
-            say("Choose ${channel.name} in TiviMate")
+            say("Choose ${channel.name} on Dodgy Box")
         }
     }
 
