@@ -29,6 +29,8 @@ import androidx.core.content.ContextCompat
 class HomeRedirectService : AccessibilityService() {
 
     private var otherHomes: Set<String> = emptySet()
+    /** package -> the class names of its home-screen activity (real class and any alias). */
+    private var homeActivities: Map<String, Set<String>> = emptyMap()
     private var lastLaunch = 0L
     private var keepAliveWindow: View? = null
 
@@ -46,6 +48,10 @@ class HomeRedirectService : AccessibilityService() {
 
     override fun onServiceConnected() {
         otherHomes = findOtherHomeApps()
+        homeActivities = findHomeActivities(otherHomes)
+        RedirectDiag.watching(this, homeActivities.flatMap { (pkg, classes) ->
+            classes.ifEmpty { setOf("?") }.map { "${pkg.substringAfterLast('.')}/${it.substringAfterLast('.')}" }
+        }.joinToString(", "))
         addKeepAliveWindow()
         RedirectDiag.connected(this, keepAliveWindow != null)
         if (!wakeReceiverRegistered) {
@@ -54,17 +60,23 @@ class HomeRedirectService : AccessibilityService() {
             )
             wakeReceiverRegistered = true
         }
-        // Covers power-on: the service starts after boot, when the stock
-        // home screen is (or is about to be) showing.
-        if (AutoLaunch.isEnabled(this) || AutoLaunch.onBoot(this)) openLauncher()
+        // Covers power-on: the service starts shortly after boot. Only then -
+        // the service also (re)connects when it's switched on in Settings,
+        // and jumping to the launcher at that moment yanks you out of the
+        // accessibility screen.
+        if (AutoLaunch.onBoot(this) && SystemClock.elapsedRealtime() < 3 * 60_000L) {
+            RedirectDiag.event(this, "boot")
+            openLauncher()
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
         if (!AutoLaunch.isEnabled(this)) return
         val pkg = event.packageName?.toString() ?: return
-        RedirectDiag.seen(this, pkg)
-        if (pkg in otherHomes) openLauncher()
+        val cls = event.className?.toString().orEmpty()
+        RedirectDiag.seen(this, "$pkg/${cls.substringAfterLast('.')}")
+        if (pkg in otherHomes && isHomeScreen(pkg, cls)) openLauncher()
     }
 
     override fun onInterrupt() = Unit
@@ -119,6 +131,25 @@ class HomeRedirectService : AccessibilityService() {
     }
 
     /** Every other installed home app, minus setup wizards and fallbacks. */
+    /**
+     * Only the stock home *screen* counts. The Google TV home app also
+     * draws other windows (e.g. its settings side panel); reacting to those
+     * bounced people back to the launcher while they were in Settings.
+     */
+    private fun isHomeScreen(pkg: String, cls: String): Boolean {
+        val known = homeActivities[pkg].orEmpty()
+        if (known.isNotEmpty()) return cls in known
+        // Home activity couldn't be resolved: fall back to its likely name.
+        return cls.contains("Home", ignoreCase = true) || cls.contains("Launcher", ignoreCase = true)
+    }
+
+    private fun findHomeActivities(packages: Set<String>): Map<String, Set<String>> =
+        packages.associateWith { pkg ->
+            packageManager.queryIntentActivities(
+                Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME).setPackage(pkg), 0
+            ).flatMap { listOfNotNull(it.activityInfo.name, it.activityInfo.targetActivity) }.toSet()
+        }
+
     private fun findOtherHomeApps(): Set<String> {
         val found = packageManager.queryIntentActivities(
             Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), 0
@@ -202,6 +233,7 @@ object RedirectDiag {
     }
 
     fun attempted(c: Context) = prefs(c).edit().putLong("attempt", now()).apply()
+    fun watching(c: Context, what: String) = prefs(c).edit().putString("watching", what).apply()
 
     /** e.g. "boot" or "wake", shown with its time. */
     fun event(c: Context, name: String) = prefs(c).edit().putLong("event_$name", now()).apply()
@@ -221,7 +253,8 @@ object RedirectDiag {
         return buildString {
             append("Service started: ").append(time("connected"))
             append(if (p.getBoolean("overlay", false)) " (overlay ok)" else " (overlay missing)").append('\n')
-            append("Recent apps seen: ").append(p.getString("seen", "").orEmpty().ifBlank { "none" }).append('\n')
+            append("Watching for: ").append(p.getString("watching", "").orEmpty().ifBlank { "nothing found" }).append('\n')
+            append("Recent screens: ").append(p.getString("seen", "").orEmpty().ifBlank { "none" }).append('\n')
             append("Last switch: ").append(time("attempt")).append(" → ").append(result).append('\n')
             append("Last power-on: ").append(time("event_boot")).append("   Last wake: ").append(time("event_wake"))
             p.getString("error", null)?.let { append('\n').append("Error: ").append(it) }
