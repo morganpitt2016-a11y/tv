@@ -1,0 +1,73 @@
+name: TV guide
+
+# Every few hours: download the free Freeview EPG (github.com/dp247/Freeview-EPG,
+# ~20 MB XML), keep the next ~30 hours of TV channels, and publish a small
+# JSON file on the `guide-data` branch for the launcher to download quickly.
+on:
+  schedule:
+    - cron: "23 */4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  guide:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build guide.json
+        shell: python
+        run: |
+          import json, time, urllib.request, xml.etree.ElementTree as ET
+          from datetime import datetime
+          SRC = "https://raw.githubusercontent.com/dp247/Freeview-EPG/master/epg.xml"
+          req = urllib.request.Request(SRC, headers={"User-Agent": "MinimalTVLauncher guide builder"})
+          with urllib.request.urlopen(req, timeout=120) as r, open("epg.xml", "wb") as f:
+              f.write(r.read())
+          now = time.time() * 1000
+          lo, hi = now - 3600_000, now + 30 * 3600_000
+          def ms(s):
+              return int(datetime.strptime(s, "%Y%m%d%H%M%S %z").timestamp() * 1000)
+          def radio(cid, name):
+              n = (name or "").lower()
+              return cid.startswith("BBCR") or "radio" in n or "asian network" in n or n.endswith(" fm")
+          chans, progs = {}, {}
+          for ev, el in ET.iterparse("epg.xml", events=("end",)):
+              if el.tag == "channel":
+                  icon = el.find("icon")
+                  chans[el.get("id")] = {"id": el.get("id"), "name": (el.findtext("display-name") or el.get("id")).strip(),
+                                         "logo": icon.get("src") if icon is not None else None}
+                  el.clear()
+              elif el.tag == "programme":
+                  cid = el.get("channel")
+                  try:
+                      s, e = ms(el.get("start")), ms(el.get("stop"))
+                  except Exception:
+                      el.clear(); continue
+                  if e > lo and s < hi:
+                      icon = el.find("icon")
+                      ep = ""
+                      for n in el.findall("episode-num"):
+                          if n.get("system") == "onscreen": ep = (n.text or "").strip()
+                      progs.setdefault(cid, []).append({"t": (el.findtext("title") or "").strip(), "d": (el.findtext("desc") or "").strip()[:300],
+                          "s": s, "e": e, "i": icon.get("src") if icon is not None else None, "n": ep})
+                  el.clear()
+          out = []
+          for cid, ch in chans.items():
+              p = sorted(progs.get(cid, []), key=lambda x: x["s"])
+              if p and not radio(cid, ch["name"]):
+                  out.append({**ch, "p": p})
+          import os
+          os.makedirs("out", exist_ok=True)
+          json.dump({"built": int(now), "channels": out}, open("out/guide.json", "w"), separators=(",", ":"))
+          print(len(out), "channels,", sum(len(c["p"]) for c in out), "programmes,", os.path.getsize("out/guide.json"), "bytes")
+
+      - name: Publish to guide-data branch
+        run: |
+          cd out
+          git init -q -b guide-data
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add guide.json
+          git commit -q -m "TV guide $(date -u +%FT%TZ)"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" guide-data

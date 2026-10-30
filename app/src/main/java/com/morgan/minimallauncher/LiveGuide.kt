@@ -27,6 +27,8 @@ import java.util.Locale
  */
 object LiveGuide {
     private const val EPG_URL = "https://raw.githubusercontent.com/dp247/Freeview-EPG/master/epg.xml"
+    /** The same guide, pre-shrunk to ~1 MB of JSON every few hours by .github/workflows/guide.yml. */
+    private const val SMALL_URL = "https://raw.githubusercontent.com/morganpitt2016-a11y/tv/guide-data/guide.json"
     private const val MAX_AGE = 4 * 3600_000L
     const val TIVIMATE = "ar.tvplayer.tv"
     private val main = Handler(Looper.getMainLooper())
@@ -77,6 +79,28 @@ object LiveGuide {
     // ---------- Download + parse ----------
 
     private fun download(): List<Channel> {
+        // Fast path: the small pre-built file; fall back to the full XML.
+        try {
+            val json = JSONObject(Net.get(SMALL_URL, timeoutMs = 30_000))
+            val arr = json.getJSONArray("channels")
+            val list = parseJsonChannels(arr)
+            if (list.isNotEmpty()) return order(dedupeRegions(list.filter { !isRadio(it.id, it.name) }.map { it.copy(name = cleanName(it.name)) }))
+        } catch (e: Exception) {}
+        return downloadXml()
+    }
+
+    private fun parseJsonChannels(arr: JSONArray): List<Channel> = (0 until arr.length()).map { i ->
+        val o = arr.getJSONObject(i)
+        val ps = o.getJSONArray("p")
+        Channel(o.getString("id"), o.getString("name"), o.optString("logo").takeIf { it.isNotBlank() && it != "null" },
+            (0 until ps.length()).map { j ->
+                val p = ps.getJSONObject(j)
+                Programme(p.optString("t"), p.optString("d"), p.getLong("s"), p.getLong("e"),
+                    p.optString("i").takeIf { it.isNotBlank() && it != "null" }, p.optString("n"))
+            })
+    }
+
+    private fun downloadXml(): List<Channel> {
         val conn = URL(EPG_URL).openConnection() as HttpURLConnection
         conn.connectTimeout = 20_000
         conn.readTimeout = 60_000
@@ -195,16 +219,7 @@ object LiveGuide {
     }
 
     private fun readCache(f: File): List<Channel>? = try {
-        val arr = JSONArray(f.readText())
-        (0 until arr.length()).map { i ->
-            val o = arr.getJSONObject(i)
-            val ps = o.getJSONArray("p")
-            Channel(o.getString("id"), o.getString("name"), o.optString("logo").takeIf { it.isNotBlank() },
-                (0 until ps.length()).map { j ->
-                    val p = ps.getJSONObject(j)
-                    Programme(p.getString("t"), p.optString("d"), p.getLong("s"), p.getLong("e"), p.optString("i").takeIf { it.isNotBlank() }, p.optString("n"))
-                })
-        }
+        parseJsonChannels(JSONArray(f.readText()))
     } catch (e: Exception) { null }
 
     // ---------- Watching ----------
@@ -235,8 +250,16 @@ object LiveGuide {
         }
         try {
             activity.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            if (channel != null) GlassUi.toast(activity, "Choose ${channel.name} in TiviMate")
-        } catch (e: Exception) { GlassUi.toast(activity, "TiviMate couldn’t be opened") }
+        } catch (e: Exception) { GlassUi.toast(activity, "TiviMate couldn’t be opened"); return }
+        if (channel == null) return
+        val app = activity.applicationContext
+        // A system toast, so it shows on top of TiviMate.
+        fun say(t: String) = android.widget.Toast.makeText(app, t, android.widget.Toast.LENGTH_LONG).show()
+        if (TiviTuner.canTune()) {
+            TiviTuner.tune(channel.name) { ok -> if (!ok) say("Couldn’t find ${channel.name} in TiviMate - choose it from the list") }
+        } else {
+            say("Choose ${channel.name} in TiviMate")
+        }
     }
 
     fun openApp(activity: Activity, pkg: String) {

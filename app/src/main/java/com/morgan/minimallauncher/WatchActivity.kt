@@ -46,6 +46,9 @@ import java.util.Date
  * Selecting a title opens a full detail page: cast, seasons, where to
  * watch (with each service's logo), trailer, My List and More Like This.
  */
+/** Loads a row of titles and hands them to the callback. */
+typealias TitleLoader = ((List<WatchCatalog.Title>?) -> Unit) -> Unit
+
 class WatchActivity : AppCompatActivity() {
 
     private val handler = Handler(Looper.getMainLooper())
@@ -59,6 +62,7 @@ class WatchActivity : AppCompatActivity() {
     private lateinit var heroMeta: TextView
     private lateinit var heroText: TextView
     private lateinit var heroWhere: TextView
+    private lateinit var info: LinearLayout
     private lateinit var nav: LinearLayout
     private lateinit var scroll: ScrollView
     private lateinit var rows: LinearLayout
@@ -101,7 +105,7 @@ class WatchActivity : AppCompatActivity() {
         }, FrameLayout.LayoutParams(-1, dp(c, 90f), Gravity.TOP))
 
         // Title details.
-        val info = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL }
+        info = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL }
         eyebrow = GlassUi.text(c, "", 10.5f, R.font.inter_semibold, 0xB3FFFFFF.toInt()).apply { letterSpacing = 0.12f }
         heroTitle = GlassUi.text(c, "Watch", 32f, R.font.inter_semibold).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END }
         heroMeta = GlassUi.text(c, "", 12.5f, R.font.inter_medium, 0xB3FFFFFF.toInt())
@@ -142,7 +146,8 @@ class WatchActivity : AppCompatActivity() {
 
         // Glide each row to the top of the rows area as focus reaches it.
         window.decorView.viewTreeObserver.addOnGlobalFocusChangeListener { _, new ->
-            if (new == null || detail != null) return@addOnGlobalFocusChangeListener
+            if (new == null) return@addOnGlobalFocusChangeListener
+            if (detail != null) { detailFocusMoved(new); return@addOnGlobalFocusChangeListener }
             val row = rowOf(new) ?: return@addOnGlobalFocusChangeListener
             val guideRow = row.getTag(R.id.blur_radius) == "guide"
             scroll.smoothScrollTo(0, (row.top - if (guideRow) dp(this, 64f) else 0).coerceAtLeast(0))
@@ -163,7 +168,13 @@ class WatchActivity : AppCompatActivity() {
         Thread {
             providers = try { WatchCatalog.featuredProviders(this) } catch (e: Exception) { emptyList() }
             installed = providers.filter { it.installed != null }
-            handler.post { if (!isDestroyed) { heroWhere.text = ""; showTab("home", focusContent = true) } }
+            handler.post {
+                if (!isDestroyed) {
+                    heroWhere.text = ""
+                    showTab("home", focusContent = true)
+                    handler.postDelayed({ if (!isDestroyed) prefetch() }, 2500)
+                }
+            }
         }.start()
     }
 
@@ -191,9 +202,35 @@ class WatchActivity : AppCompatActivity() {
             background = GlassUi.rowBackground(c, 15f)
             isFocusable = true; isClickable = true
             tag = id
-            setOnClickListener { if (id == "search") askSearch() else showTab(id, focusContent = true) }
-            GlassUi.focusLift(this, 1.05f)
+            setOnClickListener { if (id == "search") askSearch() else if (id != tab) showTab(id, focusContent = true) else firstItem()?.requestFocus() }
+            // tvOS: moving onto a tab shows it (after a short pause, so passing over doesn't load everything).
+            setOnFocusChangeListener { v, has ->
+                v.animate().scaleX(if (has) 1.05f else 1f).scaleY(if (has) 1.05f else 1f)
+                    .setInterpolator(DecelerateInterpolator(2f)).setDuration(200).start()
+                pendingTab?.let { handler.removeCallbacks(it) }
+                if (has && id != tab) {
+                    val r = Runnable {
+                        if (!v.isFocused) return@Runnable
+                        if (id == "search") showSearchTab() else showTab(id, focusContent = false)
+                    }
+                    pendingTab = r
+                    handler.postDelayed(r, 350)
+                }
+            }
         }
+    }
+
+    private var pendingTab: Runnable? = null
+
+    /** The Search tab: last results, or a hint to press OK. */
+    private fun showSearchTab() {
+        val q = lastSearch
+        if (q != null) { search(q, focusResults = false); return }
+        tab = "search"
+        for (i in 0 until nav.childCount) nav.getChildAt(i).isSelected = nav.getChildAt(i).tag == "search"
+        rows.removeAllViews()
+        ++buildToken
+        showPlainHero("SEARCH", "Find anything", "Press OK to search films, shows and what’s on TV, by typing or by voice.")
     }
 
     private fun tabIndex() = (0 until nav.childCount).firstOrNull { nav.getChildAt(it).tag == tab } ?: 0
@@ -254,17 +291,30 @@ class WatchActivity : AppCompatActivity() {
 
     // ---------- Films / Shows ----------
 
-    private fun buildCategory(token: Int, type: String) {
+    private val genreList = listOf("act" to "Action", "cmy" to "Comedy", "drm" to "Drama", "trl" to "Thrillers", "crm" to "Crime",
+        "scf" to "Sci-Fi", "fml" to "Family", "doc" to "Documentaries")
+
+    /** The rows of the Films / Shows tabs: (key, title, loader). */
+    private fun categoryLoads(type: String): List<Triple<String, String, TitleLoader>> {
         val what = if (type == "MOVIE") "Films" else "Shows"
-        titleRow(token, "pop", "Popular $what") { done -> WatchCatalog.titles(this, packages = shorts(), types = listOf(type), done = done) }
-        titleRow(token, "trend", "Trending $what") { done -> WatchCatalog.titles(this, sort = "TRENDING", packages = shorts(), types = listOf(type), done = done) }
-        val genres = listOf("act" to "Action", "cmy" to "Comedy", "drm" to "Drama", "trl" to "Thrillers", "crm" to "Crime",
-            "scf" to "Sci-Fi", "fml" to "Family", "ani" to "Animation", "hrr" to "Horror", "doc" to "Documentaries", "rma" to "Romance")
-        for ((g, name) in genres) {
-            titleRow(token, "g_$g", name, quietFail = true) { done ->
-                WatchCatalog.titles(this, packages = shorts(), types = listOf(type), genres = listOf(g), done = done)
-            }
+        val list = mutableListOf<Triple<String, String, TitleLoader>>()
+        list += Triple<String, String, TitleLoader>("pop", "Popular $what") { d -> WatchCatalog.titles(this, packages = shorts(), types = listOf(type), done = d) }
+        list += Triple<String, String, TitleLoader>("trend", "Trending $what") { d -> WatchCatalog.titles(this, sort = "TRENDING", packages = shorts(), types = listOf(type), done = d) }
+        for ((g, name) in genreList) {
+            list += Triple<String, String, TitleLoader>("g_$g", name) { d -> WatchCatalog.titles(this, packages = shorts(), types = listOf(type), genres = listOf(g), done = d) }
         }
+        return list
+    }
+
+    private fun buildCategory(token: Int, type: String) {
+        for ((key, title, load) in categoryLoads(type)) titleRow(token, key, title, quietFail = key.startsWith("g_"), load = load)
+    }
+
+    /** Quietly load the other tabs (and their first posters) so switching is instant. */
+    private fun prefetch() {
+        val warm: (List<WatchCatalog.Title>?) -> Unit = { list -> list?.take(8)?.forEach { t -> t.poster?.let { ImageLoader.prefetch(this, it) } } }
+        for (type in listOf("MOVIE", "SHOW")) categoryLoads(type).forEach { (_, _, load) -> load(warm) }
+        LiveGuide.load(this) {}
     }
 
     // ---------- Live TV ----------
@@ -300,7 +350,7 @@ class WatchActivity : AppCompatActivity() {
             }
             rows.addView(GlassUi.text(this, "Guide", 15f, R.font.inter_semibold),
                 LinearLayout.LayoutParams(-2, -2).apply { setMargins(dp(this@WatchActivity, 56f), dp(this@WatchActivity, 16f), 0, dp(this@WatchActivity, 4f)) })
-            for (ch in channels) rows.addView(guideRow(ch))
+            for (ch in channels.take(150)) { try { rows.addView(guideRow(ch)) } catch (e: Exception) {} }
             if (live.isEmpty() && rows.findFocus() == null) rows.post { firstItem()?.requestFocus() }
         }
     }
@@ -318,7 +368,7 @@ class WatchActivity : AppCompatActivity() {
         }
         val logoImg = ImageView(c).apply { scaleType = ImageView.ScaleType.FIT_CENTER }
         logo.addView(logoImg, FrameLayout.LayoutParams(-1, -1).apply { setMargins(dp(c, 8f), dp(c, 6f), dp(c, 8f), dp(c, 6f)) })
-        if (ch.logo != null) ImageLoader.load(logoImg, ch.logo)
+        if (ch.logo != null) ImageLoader.load(logoImg, ch.logo, ImageLoader.ICON)
         else logo.addView(GlassUi.text(c, ch.name, 10f, R.font.inter_semibold).apply { gravity = Gravity.CENTER }, FrameLayout.LayoutParams(-1, -1))
         row.addView(logo, LinearLayout.LayoutParams(dp(c, 88f), dp(c, 46f)))
         val progs = ch.upcoming().take(3)
@@ -355,7 +405,7 @@ class WatchActivity : AppCompatActivity() {
         h.label.text = p.title
         h.sub?.text = "${ch.name}  ·  ${timeRange(p)}"
         h.progress?.let { bar -> bar.post { bar.layoutParams.width = ((h.root.width) * p.progress()).toInt(); bar.requestLayout() } }
-        ImageLoader.load(h.image, p.image ?: ch.logo)
+        ImageLoader.load(h.image, p.image ?: ch.logo, ImageLoader.CARD)
         h.root.contentDescription = "${p.title} on ${ch.name}"
         h.root.setOnClickListener { programmeDialog(ch, p) }
         focusEffect(h.root) { showProgrammeHero(ch, p) }
@@ -403,7 +453,7 @@ class WatchActivity : AppCompatActivity() {
         d.show()
     }
 
-    private fun search(query: String) {
+    private fun search(query: String, focusResults: Boolean = true) {
         lastSearch = query
         if (detail != null) closeDetail()
         tab = "search"
@@ -422,41 +472,63 @@ class WatchActivity : AppCompatActivity() {
             r.list.adapter = CardAdapter(hits, { p -> wideCard(p) }) { h, (ch, prog) -> bindProgramme(h, ch, prog) }
             rows.addView(r.view)
         }
-        rows.post { firstItem()?.requestFocus() }
-        handler.postDelayed({ if (tab == "search" && rows.findFocus() == null) firstItem()?.requestFocus() }, 1500)
+        if (focusResults) {
+            rows.post { firstItem()?.requestFocus() }
+            handler.postDelayed({ if (tab == "search" && rows.findFocus() == null) firstItem()?.requestFocus() }, 1500)
+        }
     }
 
     // ---------- Detail page ----------
 
+    private var detailScroll: ScrollView? = null
+    private var detailMore: View? = null
+
     private fun openDetail(t: WatchCatalog.Title, from: View?) {
         val c = this
-        detailReturn = from
+        if (detail == null) detailReturn = from
         detail?.let { root.removeView(it) }
-        val page = FrameLayout(c).apply {
-            isClickable = true
-            background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(0xF2000000.toInt(), 0xCC000000.toInt(), 0x33000000, 0x00000000))
-            alpha = 0f
-        }
+        // The browse screen fades away underneath, so nothing shows through.
+        for (v in listOf<View>(info, nav, scroll)) v.animate().alpha(0f).setDuration(200).withEndAction { if (detail != null) v.visibility = View.INVISIBLE }.start()
+        val page = FrameLayout(c).apply { isClickable = true; alpha = 0f }
         page.addView(View(c).apply {
-            background = GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP, intArrayOf(0xFF000000.toInt(), 0xCC000000.toInt(), 0x00000000))
-        }, FrameLayout.LayoutParams(-1, dp(c, 260f), Gravity.BOTTOM))
+            background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(0xF7000000.toInt(), 0xD9000000.toInt(), 0x66000000, 0x1A000000))
+        }, FrameLayout.LayoutParams(-1, -1))
+        page.addView(View(c).apply {
+            background = GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP, intArrayOf(0xFF000000.toInt(), 0xB3000000.toInt(), 0x00000000))
+        }, FrameLayout.LayoutParams(-1, dp(c, 300f), Gravity.BOTTOM))
         detail = page
         root.addView(page, FrameLayout.LayoutParams(-1, -1))
         page.animate().alpha(1f).setDuration(280).start()
+        heroUrl = null
         setHeroImage(t.backdrop ?: t.poster)
 
-        val col = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL; clipChildren = false; clipToPadding = false }
+        // One column that glides down to "More Like This".
+        val col = LinearLayout(c).apply {
+            orientation = LinearLayout.VERTICAL; clipChildren = false; clipToPadding = false
+            setPadding(0, dp(c, 46f), 0, dp(c, 60f))
+        }
+        val sv = RowScroll(c).apply {
+            isVerticalScrollBarEnabled = false; overScrollMode = View.OVER_SCROLL_NEVER
+            clipChildren = false; clipToPadding = false
+            addView(col)
+        }
+        detailScroll = sv
+        page.addView(sv, FrameLayout.LayoutParams(-1, -1))
+        fun inset(v: View, top: Float, w: Int = -2) = col.addView(v, LinearLayout.LayoutParams(w, -2).apply {
+            marginStart = dp(c, 56f); marginEnd = dp(c, 40f); topMargin = dp(c, top)
+        })
+
         val main = t.bestOffer ?: t.offers.firstOrNull()
-        col.addView(GlassUi.text(c, listOfNotNull(main?.provider?.displayName?.uppercase(), if (t.type == "SHOW") "SERIES" else "FILM").joinToString("  ·  "),
-            10.5f, R.font.inter_semibold, 0xB3FFFFFF.toInt()).apply { letterSpacing = 0.12f })
-        col.addView(GlassUi.text(c, t.name, 38f, R.font.inter_semibold).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END }, lp(4f))
+        inset(GlassUi.text(c, listOfNotNull(main?.provider?.displayName?.uppercase(), if (t.type == "SHOW") "SERIES" else "FILM").joinToString("  ·  "),
+            10.5f, R.font.inter_semibold, 0xB3FFFFFF.toInt()).apply { letterSpacing = 0.12f }, 0f)
+        inset(GlassUi.text(c, t.name, 38f, R.font.inter_semibold).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END }, 4f, dp(c, 620f))
         val meta = GlassUi.text(c, metaLine(t, null), 12.5f, R.font.inter_medium, 0xCCFFFFFF.toInt())
-        col.addView(meta, lp(8f))
-        col.addView(GlassUi.text(c, t.description, 13.5f, R.font.inter_regular, 0xE6FFFFFF.toInt()).apply {
+        inset(meta, 8f)
+        inset(GlassUi.text(c, t.description, 13.5f, R.font.inter_regular, 0xE6FFFFFF.toInt()).apply {
             maxLines = 4; ellipsize = TextUtils.TruncateAt.END; setLineSpacing(0f, 1.25f)
-        }, LinearLayout.LayoutParams(dp(c, 520f), -2).apply { topMargin = dp(c, 12f) })
+        }, 12f, dp(c, 540f))
         val people = GlassUi.text(c, "", 11.5f, R.font.inter_medium, 0x99FFFFFF.toInt()).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END }
-        col.addView(people, LinearLayout.LayoutParams(dp(c, 520f), -2).apply { topMargin = dp(c, 8f) })
+        inset(people, 8f, dp(c, 540f))
 
         // Buttons.
         val buttons = LinearLayout(c).apply { gravity = Gravity.CENTER_VERTICAL; clipChildren = false }
@@ -469,35 +541,36 @@ class WatchActivity : AppCompatActivity() {
             }
             pillButton(label, primary = true) { useOffer(t, main) }
         }
-        primary?.let { buttons.addView(it, LinearLayout.LayoutParams(-2, dp(c, 40f))) }
+        primary?.let { buttons.addView(it, LinearLayout.LayoutParams(-2, dp(c, 40f)).apply { marginEnd = dp(c, 10f) }) }
+        if (primary == null) {
+            buttons.addView(pillButton("Search Google TV", primary = true) { WatchCatalog.searchGoogleTv(this, t.name) },
+                LinearLayout.LayoutParams(-2, dp(c, 40f)).apply { marginEnd = dp(c, 10f) })
+        }
         val trailerButton = pillButton("Trailer") {}
         trailerButton.visibility = View.GONE
-        buttons.addView(trailerButton, LinearLayout.LayoutParams(-2, dp(c, 40f)).apply { marginStart = dp(c, 10f) })
+        buttons.addView(trailerButton, LinearLayout.LayoutParams(-2, dp(c, 40f)).apply { marginEnd = dp(c, 10f) })
         val listButton = pillButton(if (WatchCatalog.inMyList(c, t)) "✓  In My List" else "+  My List") {}
         listButton.setOnClickListener {
             val added = WatchCatalog.toggleMyList(c, t)
             (listButton as TextView).text = if (added) "✓  In My List" else "+  My List"
             GlassUi.toast(this, if (added) "Added to My List" else "Removed from My List")
         }
-        buttons.addView(listButton, LinearLayout.LayoutParams(-2, dp(c, 40f)).apply { marginStart = dp(c, 10f) })
-        if (primary == null) {
-            buttons.addView(pillButton("Search Google TV", primary = true) { WatchCatalog.searchGoogleTv(this, t.name) }, LinearLayout.LayoutParams(-2, dp(c, 40f)).apply { marginStart = dp(c, 10f) })
-        }
-        col.addView(buttons, lp(18f))
+        buttons.addView(listButton, LinearLayout.LayoutParams(-2, dp(c, 40f)))
+        inset(buttons, 20f)
 
         // Where to watch: every service with this title.
         if (t.offers.isNotEmpty()) {
-            col.addView(GlassUi.text(c, "WHERE TO WATCH", 10f, R.font.inter_semibold, 0x99FFFFFF.toInt()).apply { letterSpacing = 0.12f }, lp(20f))
+            inset(GlassUi.text(c, "WHERE TO WATCH", 10f, R.font.inter_semibold, 0x99FFFFFF.toInt()).apply { letterSpacing = 0.12f }, 24f)
             val chips = LinearLayout(c).apply { gravity = Gravity.CENTER_VERTICAL; clipChildren = false }
-            for (o in t.offers.take(6)) chips.addView(offerChip(t, o), LinearLayout.LayoutParams(-2, dp(c, 44f)).apply { marginEnd = dp(c, 10f) })
-            col.addView(chips, lp(8f))
+            for (o in t.offers.take(5)) chips.addView(offerChip(t, o), LinearLayout.LayoutParams(-2, dp(c, 44f)).apply { marginEnd = dp(c, 10f) })
+            inset(chips, 8f)
         }
-        page.addView(col, FrameLayout.LayoutParams(-2, -2).apply { setMargins(dp(c, 56f), dp(c, 46f), dp(c, 40f), 0) })
 
         // More Like This (filled in when the details arrive).
         val more = row("more", "More Like This", height = 196f)
         more.view.visibility = View.GONE
-        page.addView(more.view, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM).apply { bottomMargin = dp(c, 6f) })
+        col.addView(more.view, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(c, 18f) })
+        detailMore = more.view
 
         (primary ?: listButton).requestFocus()
         WatchCatalog.detail(this, t) { d ->
@@ -518,11 +591,26 @@ class WatchActivity : AppCompatActivity() {
         }
     }
 
+    /** Inside the detail page: glide down to More Like This, or back up to the buttons. */
+    private fun detailFocusMoved(v: View) {
+        val sv = detailScroll ?: return
+        val more = detailMore ?: return
+        var p: Any? = v.parent
+        var inMore = false
+        while (p is View) { if (p === more) { inMore = true; break }; p = p.parent }
+        sv.smoothScrollTo(0, if (inMore) (more.top - dp(this, 24f)).coerceAtLeast(0) else 0)
+    }
+
     private fun closeDetail() {
         val page = detail ?: return
         detail = null
+        detailScroll = null
+        detailMore = null
+        for (v in listOf<View>(info, nav, scroll)) { v.visibility = View.VISIBLE; v.animate().alpha(1f).setDuration(240).start() }
         page.animate().alpha(0f).setDuration(200).withEndAction { root.removeView(page) }.start()
+        heroUrl = null
         detailReturn?.takeIf { it.isAttachedToWindow }?.requestFocus() ?: firstItem()?.requestFocus()
+        detailReturn = null
     }
 
     private fun metaLine(t: WatchCatalog.Title, d: WatchCatalog.Detail?) = listOfNotNull(
@@ -559,7 +647,7 @@ class WatchActivity : AppCompatActivity() {
             clipToOutline = true
             outlineProvider = ViewOutlineProvider.BACKGROUND
         }
-        ImageLoader.load(icon, o.provider.icon)
+        ImageLoader.load(icon, o.provider.icon, ImageLoader.ICON)
         chip.addView(icon, LinearLayout.LayoutParams(dp(c, 32f), dp(c, 32f)))
         val text = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL; isDuplicateParentStateEnabled = true }
         text.addView(GlassUi.rowText(c, o.provider.displayName, 12f, R.font.inter_semibold, GlassUi.primaryText()))
@@ -647,7 +735,7 @@ class WatchActivity : AppCompatActivity() {
         val outgoing = if (heroShowingA) heroA else heroB
         heroShowingA = !heroShowingA
         if (url == null) { outgoing.animate().alpha(0f).setDuration(500).start(); return }
-        ImageLoader.load(incoming, url, fade = false) { bmp ->
+        ImageLoader.load(incoming, url, ImageLoader.HERO, fade = false) { bmp ->
             if (bmp == null || heroUrl != url) return@load
             incoming.bringToFront()
             incoming.alpha = 0f
@@ -671,7 +759,7 @@ class WatchActivity : AppCompatActivity() {
                     background = GradientDrawable().apply { cornerRadius = dp(c, 5f).toFloat(); setColor(0x33FFFFFF) }
                     clipToOutline = true; outlineProvider = ViewOutlineProvider.BACKGROUND
                 }
-                ImageLoader.load(iv, icon)
+                ImageLoader.load(iv, icon, ImageLoader.ICON)
                 header.addView(iv, LinearLayout.LayoutParams(dp(c, 20f), dp(c, 20f)).apply { marginEnd = dp(c, 9f) })
             }
             header.addView(GlassUi.text(c, title, 15f, R.font.inter_semibold))
@@ -824,16 +912,8 @@ class WatchActivity : AppCompatActivity() {
         h.label.text = t.name
         h.root.contentDescription = t.name
         ImageLoader.load(h.image, t.poster)
-        h.root.setOnClickListener {
-            if (inDetail) closeDetailQuietly()
-            openDetail(t, h.root)
-        }
+        h.root.setOnClickListener { openDetail(t, h.root) }
         focusEffect(h.root) { if (!inDetail) showTitleHero(t) }
-    }
-
-    private fun closeDetailQuietly() {
-        detail?.let { root.removeView(it) }
-        detail = null
     }
 
     private fun bindApp(h: Holder, app: AppEntry) {

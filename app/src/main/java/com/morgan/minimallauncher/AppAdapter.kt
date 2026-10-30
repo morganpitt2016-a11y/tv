@@ -39,7 +39,7 @@ class AppAdapter(
             isClickable = true
         }
         val tile = FrameLayout(c).apply {
-            background = GlassUi.panel(c, 14f, 0x22)
+            background = GradientDrawable().apply { cornerRadius = dp(c, 14f).toFloat(); setColor(0xFF26252A.toInt()) }
             outlineProvider = object : ViewOutlineProvider() {
                 override fun getOutline(view: android.view.View, outline: android.graphics.Outline) {
                     outline.setRoundRect(0, 0, view.width, view.height, dp(c, 14f).toFloat())
@@ -49,14 +49,7 @@ class AppAdapter(
             isDuplicateParentStateEnabled = true
             foreground = android.graphics.drawable.StateListDrawable().apply {
                 // Focused: a soft top sheen and thin bright edge (tvOS), not a thick outline.
-                addState(intArrayOf(android.R.attr.state_focused), android.graphics.drawable.LayerDrawable(arrayOf(
-                    GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(0x33FFFFFF, 0x05FFFFFF, 0x00FFFFFF))
-                        .apply { cornerRadius = dp(c, 14f).toFloat() },
-                    GradientDrawable().apply { cornerRadius = dp(c, 14f).toFloat(); setStroke(dp(c, 1f), 0x8CFFFFFF.toInt()) }
-                )))
-                addState(intArrayOf(), GradientDrawable().apply {
-                    cornerRadius = dp(c, 14f).toFloat(); setStroke(dp(c, 0.5f), 0x26FFFFFF)
-                })
+                // Matte, like tvOS: focus is shown by the lift, not an outline.
             }
         }
         val image = ImageView(c)

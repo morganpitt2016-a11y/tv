@@ -166,26 +166,31 @@ object WatchCatalog {
      * Popular or trending titles. [packages]: JustWatch short names to limit to;
      * [types]: MOVIE / SHOW; [search]: free text. Calls back on the main thread.
      */
+    private val memory = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, List<Title>>>()
+    private val pool = java.util.concurrent.Executors.newFixedThreadPool(6)
+
     fun titles(
         c: Context, sort: String = "POPULAR", packages: List<String> = emptyList(), types: List<String> = emptyList(),
         search: String? = null, first: Int = 30, genres: List<String> = emptyList(), done: (List<Title>?) -> Unit,
     ) {
         val app = c.applicationContext
-        Thread {
+        val filter = JSONObject()
+        if (packages.isNotEmpty()) filter.put("packages", JSONArray(packages))
+        if (types.isNotEmpty()) filter.put("objectTypes", JSONArray(types))
+        if (!search.isNullOrBlank()) filter.put("searchQuery", search)
+        if (genres.isNotEmpty()) filter.put("genres", JSONArray(genres))
+        val vars = JSONObject().put("country", country()).put("language", "en").put("first", first)
+            .put("filter", filter).put("sortBy", sort)
+        val key = "t_" + (vars.toString().hashCode().toLong() and 0xffffffffL)
+        // Already loaded this session: show it instantly.
+        memory[key]?.let { (at, list) -> if (System.currentTimeMillis() - at < 3 * 3600_000L) { done(list); return } }
+        pool.execute {
             val result = try {
-                val filter = JSONObject()
-                if (packages.isNotEmpty()) filter.put("packages", JSONArray(packages))
-                if (types.isNotEmpty()) filter.put("objectTypes", JSONArray(types))
-                if (!search.isNullOrBlank()) filter.put("searchQuery", search)
-                if (genres.isNotEmpty()) filter.put("genres", JSONArray(genres))
-                val vars = JSONObject().put("country", country()).put("language", "en").put("first", first)
-                    .put("filter", filter).put("sortBy", sort)
-                val key = "t_" + (vars.toString().hashCode().toLong() and 0xffffffffL)
                 val json = cached(app, key, if (search != null) 30 * 60_000L else 6 * 3600_000L) { post(TITLE_QUERY, vars) }
-                parse(app, json)
+                parse(app, json).also { memory[key] = System.currentTimeMillis() to it }
             } catch (e: Exception) { null }
             main.post { done(result) }
-        }.start()
+        }
     }
 
     private fun parse(c: Context, json: JSONObject): List<Title> {

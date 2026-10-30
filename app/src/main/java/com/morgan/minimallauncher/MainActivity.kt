@@ -473,7 +473,6 @@ class MainActivity : AppCompatActivity() {
                 thumb.animate().scaleX(if (has) 1.1f else 1f).scaleY(if (has) 1.1f else 1f)
                     .translationZ(if (has) dp(10).toFloat() else 0f).setInterpolator(ease).setDuration(220).start()
                 GlassUi.spotlight(thumb, has)
-                text.animate().translationX(if (has) dp(4).toFloat() else 0f).setInterpolator(ease).setDuration(220).start()
             }
             val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(64))
             if (index > 0) lp.marginStart = dp(22)

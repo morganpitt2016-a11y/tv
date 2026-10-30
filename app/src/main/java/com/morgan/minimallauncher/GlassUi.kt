@@ -188,13 +188,13 @@ object GlassUi {
     }
 
     /**
-     * Spotlight: a soft white glow under the focused item (its shadow is
-     * tinted white), as if it caught the light.
+     * Focus shadow: a soft, neutral drop shadow under the lifted item
+     * (tvOS style - matte, no glow).
      */
     fun spotlight(view: View, on: Boolean) {
         if (Build.VERSION.SDK_INT >= 28) {
-            view.outlineSpotShadowColor = if (on) 0xFFFFFFFF.toInt() else 0xFF000000.toInt()
-            view.outlineAmbientShadowColor = if (on) 0x66FFFFFF else 0xFF000000.toInt()
+            view.outlineSpotShadowColor = 0xFF000000.toInt()
+            view.outlineAmbientShadowColor = if (on) 0x99000000.toInt() else 0xFF000000.toInt()
         }
     }
 
