@@ -46,7 +46,16 @@ object LiveGuide {
     @Volatile private var memory: List<Channel>? = null
     @Volatile private var loading = false
 
-    private fun cacheFile(c: Context) = File(c.filesDir, "guide.json")
+    private fun cacheFile(c: Context) = File(c.filesDir, if (customUrl(c) != null) "guide_custom.json" else "guide.json")
+
+    /** Your own guide link (e.g. the EPG link in TiviMate › Settings › EPG), so names match TiviMate's channels. */
+    fun customUrl(c: Context): String? = Prefs.string(c, "epg_url")?.takeIf { it.isNotBlank() }
+
+    fun setCustomUrl(c: Context, url: String?) {
+        Prefs.setString(c, "epg_url", url?.trim()?.takeIf { it.isNotBlank() })
+        memory = null
+        File(c.filesDir, "guide_custom.json").delete()
+    }
 
     /** The guide, from memory/disk straight away if fresh enough, else downloaded. Main-thread callback. */
     fun load(c: Context, done: (List<Channel>?) -> Unit) {
@@ -59,7 +68,8 @@ object LiveGuide {
             if (result == null && !loading) {
                 loading = true
                 try {
-                    result = download()
+                    val custom = customUrl(app)
+                    result = if (custom != null) downloadXml(custom, custom = true) else download()
                     writeCache(f, result)
                 } catch (e: Exception) {
                     result = if (f.exists()) readCache(f) else null
@@ -100,18 +110,35 @@ object LiveGuide {
             })
     }
 
-    private fun downloadXml(): List<Channel> {
-        val conn = URL(EPG_URL).openConnection() as HttpURLConnection
-        conn.connectTimeout = 20_000
-        conn.readTimeout = 60_000
-        conn.setRequestProperty("User-Agent", Net.USER_AGENT)
-        try {
-            if (conn.responseCode !in 200..299) throw java.io.IOException("HTTP ${conn.responseCode}")
-            return parse(conn.inputStream)
-        } finally { conn.disconnect() }
+    private fun downloadXml(url: String = EPG_URL, custom: Boolean = false): List<Channel> {
+        var current = URL(url)
+        // Follow redirects ourselves (including http <-> https, which Android won't).
+        repeat(5) {
+            val conn = current.openConnection() as HttpURLConnection
+            conn.connectTimeout = 20_000
+            conn.readTimeout = 90_000
+            conn.instanceFollowRedirects = false
+            conn.setRequestProperty("User-Agent", Net.USER_AGENT)
+            try {
+                val code = conn.responseCode
+                if (code in 300..399) {
+                    current = URL(current, conn.getHeaderField("Location") ?: throw java.io.IOException("Bad redirect"))
+                    return@repeat
+                }
+                if (code !in 200..299) throw java.io.IOException("HTTP $code")
+                // Guides are often gzipped (.xml.gz): spot it from the first two bytes.
+                val raw = java.io.BufferedInputStream(conn.inputStream, 64 * 1024)
+                raw.mark(4)
+                val gz = raw.read() == 0x1f && raw.read() == 0x8b
+                raw.reset()
+                val input = if (gz) java.util.zip.GZIPInputStream(raw, 64 * 1024) else raw
+                return parse(input, custom)
+            } finally { conn.disconnect() }
+        }
+        throw java.io.IOException("Too many redirects")
     }
 
-    private fun parse(input: java.io.InputStream): List<Channel> {
+    private fun parse(input: java.io.InputStream, custom: Boolean = false): List<Channel> {
         val now = System.currentTimeMillis()
         val from = now - 30 * 60_000L
         val to = now + 14 * 3600_000L
@@ -165,9 +192,10 @@ object LiveGuide {
         }
         val channels = names.mapNotNull { (id, nl) ->
             val p = progs[id]?.sortedBy { it.start } ?: return@mapNotNull null
-            if (isRadio(id, nl.first)) null else Channel(id, cleanName(nl.first), nl.second, p)
+            if (isRadio(id, nl.first)) null else Channel(id, if (custom) nl.first.replace("&amp;", "&").trim() else cleanName(nl.first), nl.second, p)
         }
-        return order(dedupeRegions(channels))
+        // Your own guide: keep its channel names and order exactly, like TiviMate.
+        return if (custom) channels else order(dedupeRegions(channels))
     }
 
     private fun isRadio(id: String?, name: String?) =

@@ -41,6 +41,7 @@
 
     <application
         android:name=".LauncherApp"
+        android:usesCleartextTraffic="true"
         android:allowBackup="true"
         android:banner="@drawable/app_banner"
         android:icon="@drawable/ic_launcher"

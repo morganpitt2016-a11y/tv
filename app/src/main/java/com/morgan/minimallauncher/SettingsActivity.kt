@@ -144,6 +144,7 @@ class SettingsActivity : AppCompatActivity() {
 
         section("Live TV")
         group {
+            vrow("TV Guide", { if (LiveGuide.customUrl(this) != null) "Your Guide Link" else "Freeview" }) { editGuide() }
             vrow("TiviMate Tuning Log", { "" }, chevron = true) {
                 GlassDialog(this).title("TiviMate Tuning Log")
                     .message(TiviTuner.logText().takeLast(3500).let { if (it.length < 300) it + "\n\n(Long logs scroll - use Up/Down.)" else it })
@@ -569,6 +570,15 @@ class SettingsActivity : AppCompatActivity() {
         val d = GlassDialog(this).title("Weather Location").message("Enter a town or city, or leave empty to work it out from your internet connection.")
             .input("Town or city", Weather.getCity(this).orEmpty())
         d.button("Save", GlassDialog.Style.BOLD) { Weather.setCity(this, d.inputText.ifBlank { null }); refreshValues() }
+        d.button("Cancel").show()
+    }
+
+    private fun editGuide() {
+        val d = GlassDialog(this).title("TV Guide")
+            .message("To match TiviMate’s channels, use the same guide: in TiviMate open Settings › EPG, note the EPG source link, and enter it here (easiest from the iPhone remote’s More tab). Leave empty for the free Freeview guide.")
+            .input("http://…/epg.xml", LiveGuide.customUrl(this).orEmpty())
+        d.button("Save", GlassDialog.Style.BOLD) { LiveGuide.setCustomUrl(this, d.inputText.ifBlank { null }); refreshValues() }
+        if (LiveGuide.customUrl(this) != null) d.button("Use Freeview Instead") { LiveGuide.setCustomUrl(this, null); refreshValues() }
         d.button("Cancel").show()
     }
 

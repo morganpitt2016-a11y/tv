@@ -147,6 +147,10 @@
       <div class="note" style="margin:10px 0 0">If “adb connect” is refused: in Developer options turn on Wireless debugging › Pair device with pairing code, run <code>adb pair IP:PORT CODE</code>, then connect to the IP:port it shows.</div>
     </div>
   </div>
+  <h2>TV Guide</h2>
+  <div class="note">To make Live TV match TiviMate’s channels, paste the same guide (EPG) link TiviMate uses - in TiviMate: Settings › EPG › your EPG source. Leave empty for the free Freeview guide.</div>
+  <form class="field" id="epgForm"><input type="url" id="epg" placeholder="http://…/xmltv.php?…"><button class="btn">Save</button></form>
+  <div class="field"><button class="btn grey" id="epgClear" style="flex:1">Use Freeview Guide</button></div>
   <h2>TiviMate Channel Help</h2>
   <div class="note">If Live TV opens TiviMate on the wrong channel: open TiviMate’s channel list on the TV (press OK while watching), then tap <b>Capture TV Screen</b> here, copy the text and send it over so the channel matching can be fixed.</div>
   <div class="field"><button class="btn grey" id="tuneLog" style="flex:1">Last Tuning Log</button><button class="btn grey" id="capture" style="flex:1">Capture TV Screen</button></div>
@@ -204,6 +208,7 @@
       $('#photoCount').textContent = s.photos + (s.photos === 1 ? ' photo on the TV' : ' photos on the TV');
       $('#city').value = s.city || '';
       $('#cal').placeholder = s.calendar ? 'Calendar connected (paste to replace)' : 'https://…/basic.ics';
+      $('#epg').placeholder = s.epg ? 'Your guide link is set (paste to replace)' : 'http://…/xmltv.php?…';
       $('#fullDone').hidden = !s.selfEnable; $('#fullSteps').hidden = s.selfEnable;
       const cmds = ['apk add android-tools', 'adb connect ' + (s.ip || 'TV-IP') + ':5555',
         'adb shell pm grant com.morgan.minimallauncher android.permission.WRITE_SECURE_SETTINGS'];
@@ -317,6 +322,9 @@
   $('#cityForm').onsubmit = e => { e.preventDefault(); api('/api/settings', { city: $('#city').value }).then(() => toast('Saved')); };
   $('#calForm').onsubmit = e => { e.preventDefault(); const v = $('#cal').value.trim(); if (!v) return;
     api('/api/settings', { calendar: v }).then(() => { toast('Calendar connected'); $('#cal').value = ''; refresh(); }); };
+  $('#epgForm').onsubmit = e => { e.preventDefault(); const v = $('#epg').value.trim(); if (!v) return;
+    api('/api/settings', { epg: v }).then(() => { toast('Guide link saved'); $('#epg').value = ''; refresh(); }); };
+  $('#epgClear').onclick = () => api('/api/settings', { epg: '' }).then(() => { toast('Using Freeview guide'); refresh(); });
   $('#calClear').onclick = () => api('/api/settings', { calendar: '' }).then(() => { toast('Calendar removed'); refresh(); });
 })();
 </script>

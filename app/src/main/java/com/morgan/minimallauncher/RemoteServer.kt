@@ -155,6 +155,7 @@ class RemoteServer(private val context: Context) {
                 .put("android", android.os.Build.VERSION.SDK_INT)
                 .put("city", Weather.getCity(context) ?: "")
                 .put("calendar", CalendarFeed.getUrl(context) != null)
+                .put("epg", LiveGuide.customUrl(context) != null)
                 .put("photos", WallpaperLibrary.album(context).size)
                 .put("ip", ip(context) ?: "")
                 .put("selfEnable", SelfEnable.canSelfEnable(context)))
@@ -202,6 +203,7 @@ class RemoteServer(private val context: Context) {
             "/api/settings" -> {
                 if (body.has("city")) Weather.setCity(context, body.optString("city").ifBlank { null })
                 if (body.has("calendar")) CalendarFeed.setUrl(context, body.optString("calendar").ifBlank { null })
+                if (body.has("epg")) LiveGuide.setCustomUrl(context, body.optString("epg").ifBlank { null })
                 json(out, JSONObject().put("ok", true))
             }
             "/api/upload" -> {
