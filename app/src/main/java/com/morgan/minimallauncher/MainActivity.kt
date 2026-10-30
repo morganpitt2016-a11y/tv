@@ -94,6 +94,7 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         RedirectDiag.launcherShown(this)
+        AppWatchService.startIfNeeded(this)
         handler.post(clockTick)
         rotator.start()
         refreshAll()

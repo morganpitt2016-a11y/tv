@@ -28,9 +28,7 @@ import androidx.core.content.ContextCompat
  */
 class HomeRedirectService : AccessibilityService() {
 
-    private var otherHomes: Set<String> = emptySet()
-    /** package -> the class names of its home-screen activity (real class and any alias). */
-    private var homeActivities: Map<String, Set<String>> = emptyMap()
+    private var detector: HomeDetector? = null
     private var lastLaunch = 0L
     private var keepAliveWindow: View? = null
 
@@ -47,11 +45,7 @@ class HomeRedirectService : AccessibilityService() {
     private var wakeReceiverRegistered = false
 
     override fun onServiceConnected() {
-        otherHomes = findOtherHomeApps()
-        homeActivities = findHomeActivities(otherHomes)
-        RedirectDiag.watching(this, homeActivities.flatMap { (pkg, classes) ->
-            classes.ifEmpty { setOf("?") }.map { "${pkg.substringAfterLast('.')}/${it.substringAfterLast('.')}" }
-        }.joinToString(", "))
+        detector = HomeDetector(this).also { RedirectDiag.watching(this, it.describe()) }
         addKeepAliveWindow()
         RedirectDiag.connected(this, keepAliveWindow != null)
         if (!wakeReceiverRegistered) {
@@ -76,7 +70,7 @@ class HomeRedirectService : AccessibilityService() {
         val pkg = event.packageName?.toString() ?: return
         val cls = event.className?.toString().orEmpty()
         RedirectDiag.seen(this, "$pkg/${cls.substringAfterLast('.')}")
-        if (pkg in otherHomes && isHomeScreen(pkg, cls)) openLauncher()
+        if (detector?.isHomeScreen(pkg, cls) == true) openLauncher()
     }
 
     override fun onInterrupt() = Unit
@@ -131,41 +125,7 @@ class HomeRedirectService : AccessibilityService() {
     }
 
     /** Every other installed home app, minus setup wizards and fallbacks. */
-    /**
-     * Only the stock home *screen* counts. The Google TV home app also
-     * draws other windows (e.g. its settings side panel); reacting to those
-     * bounced people back to the launcher while they were in Settings.
-     */
-    private fun isHomeScreen(pkg: String, cls: String): Boolean {
-        val known = homeActivities[pkg].orEmpty()
-        if (known.isNotEmpty()) return cls in known
-        // Home activity couldn't be resolved: fall back to its likely name.
-        return cls.contains("Home", ignoreCase = true) || cls.contains("Launcher", ignoreCase = true)
-    }
-
-    private fun findHomeActivities(packages: Set<String>): Map<String, Set<String>> =
-        packages.associateWith { pkg ->
-            packageManager.queryIntentActivities(
-                Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME).setPackage(pkg), 0
-            ).flatMap { listOfNotNull(it.activityInfo.name, it.activityInfo.targetActivity) }.toSet()
-        }
-
-    private fun findOtherHomeApps(): Set<String> {
-        val found = packageManager.queryIntentActivities(
-            Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), 0
-        ).map { it.activityInfo.packageName }
-        return (found + KNOWN_STOCK_LAUNCHERS)
-            .filter { it != packageName && "setup" !in it && it != "com.android.settings" && it != "com.android.tv.settings" }
-            .toSet()
-    }
-
     companion object {
-        private val KNOWN_STOCK_LAUNCHERS = listOf(
-            "com.google.android.apps.tv.launcherx", // Google TV home
-            "com.google.android.tvlauncher",        // Android TV home
-            "com.google.android.leanbacklauncher",  // older Android TV home
-        )
-
         fun isServiceEnabled(context: Context): Boolean {
             val enabled = Settings.Secure.getString(
                 context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES

@@ -30,6 +30,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var wakeRow: Row
     private lateinit var accessibilityRow: Row
     private lateinit var overlayRow: Row
+    private lateinit var usageRow: Row
     private lateinit var autoStatus: TextView
     private lateinit var autoDiag: TextView
     private lateinit var keyRow: Row
@@ -54,8 +55,10 @@ class SettingsActivity : AppCompatActivity() {
             homeRow = row("Instead of Google TV Home") { AutoLaunch.setEnabled(this, !AutoLaunch.isEnabled(this)); refreshValues() }
             bootRow = row("When the TV Turns On") { AutoLaunch.setOnBoot(this, !AutoLaunch.onBoot(this)); refreshValues() }
             wakeRow = row("When Waking from Sleep") { AutoLaunch.setOnWake(this, !AutoLaunch.onWake(this)); refreshValues() }
-            accessibilityRow = row("Accessibility Service") {
-                open(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS), "Accessibility settings")
+            accessibilityRow = row("Accessibility Service") { openAccessibilitySwitch() }
+            usageRow = row("Usage Access") {
+                if (!tryOpen(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS, Uri.parse("package:$packageName"))))
+                    open(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS), "Usage access settings")
             }
             overlayRow = row("Display Over Other Apps") {
                 open(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")),
@@ -111,11 +114,14 @@ class SettingsActivity : AppCompatActivity() {
         val serviceOn = HomeRedirectService.isServiceEnabled(this)
         accessibilityRow.value.text = onOff(serviceOn)
         overlayRow.value.text = if (Settings.canDrawOverlays(this)) "Allowed" else "Not Allowed"
+        usageRow.value.text = if (AppWatchService.hasUsageAccess(this)) "Allowed" else "Not Allowed"
+        AppWatchService.startIfNeeded(this)
         val anyWanted = AutoLaunch.isEnabled(this) || AutoLaunch.onBoot(this) || AutoLaunch.onWake(this)
         autoStatus.text = when {
             !anyWanted -> "All off: the Google TV home screen shows as normal."
             serviceOn -> "Ready. Google TV has no setting to change the home app, so the accessibility service opens Minimal Launcher for you."
-            else -> "One more step: select Accessibility Service, choose “Minimal Launcher: open automatically” and turn it on. If it says “Restricted setting”, allow restricted settings for this app under Settings › Apps first."
+            AppWatchService.canRun(this) -> "Ready (backup method). Usage Access lets Minimal Launcher spot the Google TV home screen and open itself instead."
+            else -> "Turn on ONE of these:\n\u2022 Accessibility Service (opens this app\u2019s switch directly), or\n\u2022 if your TV\u2019s accessibility page doesn\u2019t work: allow both Usage Access and Display Over Other Apps."
         }
         autoDiag.text = RedirectDiag.summary(this)
         keyRow.value.text = if (GoveeHelper.getApiKey(this) != null) "Set" else "Not Set"
@@ -217,6 +223,20 @@ class SettingsActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    /** Jumps straight to this app's switch, skipping the accessibility list page. */
+    private fun openAccessibilitySwitch() {
+        val me = android.content.ComponentName(this, HomeRedirectService::class.java).flattenToString()
+        if (android.os.Build.VERSION.SDK_INT >= 31 &&
+            tryOpen(Intent(Settings.ACTION_ACCESSIBILITY_DETAILS_SETTINGS).putExtra(Intent.EXTRA_COMPONENT_NAME, me))) return
+        open(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS), "Accessibility settings")
+    }
+
+    private fun tryOpen(intent: Intent): Boolean = try {
+        startActivity(intent); true
+    } catch (e: Exception) {
+        false
     }
 
     private fun open(intent: Intent, what: String) {
