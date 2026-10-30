@@ -245,15 +245,26 @@ object TiviTuner {
      * press OK. Works in the channel list and in TiviMate's TV guide, where the
      * highlight sits on a programme in the channel's row.
      */
-    private fun select(service: AccessibilityService, list: AccessibilityNodeInfo, wanted: String, done: (Boolean) -> Unit) {
+    private fun select(service: AccessibilityService, firstList: AccessibilityNodeInfo, wanted: String, done: (Boolean) -> Unit) {
         var rounds = 0
         var lastTop = Int.MIN_VALUE
         var stuck = 0
+        var lastKey = 0
+        var lost = 0
         fun check() {
-            list.refresh()
+            // Read the screen afresh each time: TiviMate rebuilds its rows as the guide scrolls.
+            val list = tiviRoots(service).flatMap { scrollables(it) }.maxByOrNull { descendants(it) } ?: firstList
             val target = bestMatch(list, wanted)?.let { rowIn(list, it) }
             val focused = focusRowIn(service, list)
-            if (target == null) { note("Lost sight of the channel"); done(false); return }
+            if (target == null) {
+                // Went past it: step back the other way, one row at a time.
+                if (lastKey == 0 || ++lost > 8) { note("Lost sight of the channel"); done(false); return }
+                val back = if (lastKey == AccessibilityService.GLOBAL_ACTION_DPAD_UP) AccessibilityService.GLOBAL_ACTION_DPAD_DOWN else AccessibilityService.GLOBAL_ACTION_DPAD_UP
+                if (lost == 1) note("Went past it - stepping back")
+                service.performGlobalAction(back)
+                main.postDelayed({ check() }, 260); return
+            }
+            lost = 0
             if (focused == null) {
                 if (++rounds > 3) { note("TiviMate's highlight isn't in the list"); done(false); return }
                 service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_DPAD_RIGHT)
@@ -261,7 +272,8 @@ object TiviTuner {
             }
             if (focused == target) {
                 main.postDelayed({
-                    if (focusRowIn(service, list) == target) {
+                    val again = tiviRoots(service).flatMap { scrollables(it) }.maxByOrNull { descendants(it) } ?: list
+                    if (focusRowIn(service, again) == bestMatch(again, wanted)?.let { rowIn(again, it) }) {
                         note("Highlight is on ${rowNames(target)} - pressing OK")
                         service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_DPAD_CENTER)
                         done(true)
@@ -272,15 +284,19 @@ object TiviTuner {
             if (++rounds > 40) { note("Couldn't get the highlight onto it (on ${rowNames(focused)})"); done(false); return }
             val f = android.graphics.Rect().also { focused.getBoundsInScreen(it) }
             val t = android.graphics.Rect().also { target.getBoundsInScreen(it) }
-            if (f.top == lastTop) stuck++ else stuck = 0
-            lastTop = f.top
+            // Stuck only if neither the highlight nor the channel's row moved.
+            val where = f.top * 10007 + t.top
+            if (where == lastTop) stuck++ else stuck = 0
+            lastTop = where
             if (stuck >= 4) { note("Highlight won't move (on ${rowNames(focused)})"); done(false); return }
             val dy = t.centerY() - f.centerY()
-            val steps = (kotlin.math.abs(dy) / f.height().coerceAtLeast(1)).coerceIn(1, 10)
+            // Small moves, re-checking after each, so it never overshoots.
+            val steps = (kotlin.math.abs(dy) / f.height().coerceAtLeast(1)).coerceIn(1, 3)
             val key = if (dy > 0) AccessibilityService.GLOBAL_ACTION_DPAD_DOWN else AccessibilityService.GLOBAL_ACTION_DPAD_UP
+            lastKey = key
             if (rounds == 1) note("Highlight is on ${rowNames(focused)} - moving ${if (dy > 0) "down" else "up"} to it")
-            for (i in 0 until steps) main.postDelayed({ service.performGlobalAction(key) }, i * 45L)
-            main.postDelayed({ check() }, steps * 45L + 180)
+            for (i in 0 until steps) main.postDelayed({ service.performGlobalAction(key) }, i * 60L)
+            main.postDelayed({ check() }, steps * 60L + 240)
         }
         main.postDelayed({ check() }, 100)
     }
