@@ -3,9 +3,9 @@
     <!-- Bundled wallpaper photos, rotated by WallpaperRotator. The first one shows first.
          Sources and licences: see the README and the photo credits in Settings. -->
     <array name="wallpapers">
+        <item>@drawable/wp_03</item>
         <item>@drawable/wp_01</item>
         <item>@drawable/wp_02</item>
-        <item>@drawable/wp_03</item>
         <item>@drawable/wp_04</item>
         <item>@drawable/wp_05</item>
         <item>@drawable/wp_06</item>
@@ -18,5 +18,26 @@
         <item>@drawable/wp_13</item>
         <item>@drawable/wp_14</item>
         <item>@drawable/wp_15</item>
+    </array>
+
+    <!-- Same order: the land-only cut-out drawn in front of the clock, so peaks
+         overlap the digits. @null where the skyline would hide too much of the
+         clock (or wasn't detected cleanly). Made with tools/wallpaper/depth.py. -->
+    <array name="wallpaper_fronts">
+        <item>@drawable/wp_03_front</item>
+        <item>@null</item>
+        <item>@null</item>
+        <item>@null</item>
+        <item>@null</item>
+        <item>@drawable/wp_06_front</item>
+        <item>@null</item>
+        <item>@null</item>
+        <item>@drawable/wp_09_front</item>
+        <item>@null</item>
+        <item>@null</item>
+        <item>@drawable/wp_12_front</item>
+        <item>@drawable/wp_13_front</item>
+        <item>@null</item>
+        <item>@null</item>
     </array>
 </resources>

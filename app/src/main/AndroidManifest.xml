@@ -16,6 +16,8 @@
     <!-- Needed for Govee light control -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Quick settings: show the Wi-Fi network -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
 
     <!-- Open the launcher when the TV finishes starting up -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -75,6 +77,14 @@
             android:exported="false"
             android:screenOrientation="landscape"
             android:parentActivityName=".MainActivity"
+            android:theme="@style/Theme.MinimalLauncher" />
+
+        <activity
+            android:name=".ClaudeActivity"
+            android:exported="false"
+            android:screenOrientation="landscape"
+            android:parentActivityName=".MainActivity"
+            android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.MinimalLauncher" />
 
         <receiver

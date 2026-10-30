@@ -37,6 +37,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var profileSwitch: LinearLayout
     private lateinit var deviceRow: LinearLayout
     private lateinit var nightModeButton: View
+    private lateinit var quickSettingsButton: View
     private lateinit var nightOverlay: View
     private lateinit var keepWatchingLabel: TextView
     private lateinit var keepWatchingRow: LinearLayout
@@ -73,7 +74,10 @@ class MainActivity : AppCompatActivity() {
         wallpaperFront = findViewById(R.id.wallpaperFront)
 
         setupClockFont()
-        rotator = WallpaperRotator(this, findViewById(R.id.photoA), findViewById(R.id.photoB)) { photoShowing ->
+        rotator = WallpaperRotator(
+            this, findViewById(R.id.photoA), findViewById(R.id.photoB),
+            findViewById(R.id.frontA), findViewById(R.id.frontB)
+        ) { photoShowing ->
             // Real photos replace the painted scene, foreground layer included.
             wallpaperFront.visibility = if (photoShowing) View.GONE else View.VISIBLE
         }
@@ -86,9 +90,12 @@ class MainActivity : AppCompatActivity() {
             override fun handleOnBackPressed() = Unit
         })
 
-        addFocusScale(nightModeButton, 1.1f)
+        addFocusScale(nightModeButton, 1.08f)
         nightModeButton.setOnClickListener { setNightMode(!isNightMode()) }
-        applyNightMode()
+        quickSettingsButton = findViewById(R.id.quickSettingsButton)
+        addFocusScale(quickSettingsButton, 1.08f)
+        quickSettingsButton.setOnClickListener { openQuickSettings() }
+        applyNightMode(animate = false)
     }
 
     override fun onResume() {
@@ -179,17 +186,42 @@ class MainActivity : AppCompatActivity() {
 
     // ---------- Night mode ----------
 
-    private fun isNightMode() = getPreferences(MODE_PRIVATE).getBoolean("night", false)
+    fun isNightMode() = getPreferences(MODE_PRIVATE).getBoolean("night", false)
 
-    private fun setNightMode(on: Boolean) {
+    fun setNightMode(on: Boolean) {
         getPreferences(MODE_PRIVATE).edit().putBoolean("night", on).apply()
-        applyNightMode()
+        applyNightMode(animate = true)
     }
 
-    private fun applyNightMode() {
+    /** Dims the scene with a slow fade either way, rather than an instant switch. */
+    private fun applyNightMode(animate: Boolean) {
         val on = isNightMode()
-        nightOverlay.visibility = if (on) View.VISIBLE else View.GONE
         nightModeButton.isActivated = on
+        nightOverlay.animate().cancel()
+        if (!animate) {
+            nightOverlay.alpha = if (on) 1f else 0f
+            nightOverlay.visibility = if (on) View.VISIBLE else View.GONE
+            return
+        }
+        nightOverlay.visibility = View.VISIBLE
+        nightOverlay.animate()
+            .alpha(if (on) 1f else 0f)
+            .setDuration(NIGHT_FADE_MS)
+            .setInterpolator(android.view.animation.AccelerateDecelerateInterpolator())
+            .withEndAction { if (!isNightMode()) nightOverlay.visibility = View.GONE }
+            .start()
+    }
+
+    // ---------- Quick settings ----------
+
+    private fun openQuickSettings() {
+        QuickSettings(this, object : QuickSettings.Host {
+            override fun isNightMode() = this@MainActivity.isNightMode()
+            override fun setNightMode(on: Boolean) = this@MainActivity.setNightMode(on)
+            override fun nextWallpaper() = rotator.next()
+            override fun lights() = govDevices
+            override fun toggleLight(device: GoveeHelper.Device, done: () -> Unit) = toggleDevice(device, done)
+        }).show()
     }
 
     // ---------- Profile selector ----------
@@ -218,7 +250,7 @@ class MainActivity : AppCompatActivity() {
                     refreshAll(focusActiveProfile = true)
                 }
             }
-            addFocusScale(seg, 1.06f)
+            addFocusScale(seg, 1.04f)
             profileSwitch.addView(seg, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(21)))
         }
     }
@@ -262,13 +294,13 @@ class MainActivity : AppCompatActivity() {
             }
             clipToOutline = true
             outlineProvider = ViewOutlineProvider.BACKGROUND
-            foreground = ContextCompat.getDrawable(this@MainActivity, R.drawable.focus_ring_tile)
+            foreground = ContextCompat.getDrawable(this@MainActivity, R.drawable.tile_bezel)
             isFocusable = true
             contentDescription = label
             setOnClickListener { onClick() }
             addView(content, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         }
-        addFocusScale(tile, 1.12f)
+        addFocusScale(tile, 1.09f)
         val lp = LinearLayout.LayoutParams(dp(56), dp(56))
         if (dock.childCount > 0) lp.marginStart = dp(13)
         dock.addView(tile, lp)
@@ -289,7 +321,7 @@ class MainActivity : AppCompatActivity() {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
                 background = ContextCompat.getDrawable(this@MainActivity, R.drawable.glass_card_bg)
-                foreground = ContextCompat.getDrawable(this@MainActivity, R.drawable.focus_ring_tile)
+                foreground = ContextCompat.getDrawable(this@MainActivity, R.drawable.tile_bezel)
                 setPadding(dp(8), 0, dp(10), 0)
                 isFocusable = true
                 contentDescription = "Open ${app.label}"
@@ -326,7 +358,7 @@ class MainActivity : AppCompatActivity() {
             text.addView(label(relativeTime(recent.openedAt), R.font.inter_regular, 10.5f, 0x9EFFFFFF.toInt()), marginTop(2))
             card.addView(text, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(10) })
 
-            addFocusScale(card, 1.04f)
+            addFocusScale(card, 1.03f)
             val lp = LinearLayout.LayoutParams(dp(259), dp(70))
             if (index > 0) lp.marginStart = dp(11)
             keepWatchingRow.addView(card, lp)
@@ -366,9 +398,9 @@ class MainActivity : AppCompatActivity() {
                 imageTintList = ColorStateList.valueOf(if (device.isOn) 0xFFFFD27A.toInt() else 0xB3FFFFFF.toInt())
             }
             pill.addView(bulb, LinearLayout.LayoutParams(dp(15), dp(15)))
-            pill.addView(label(device.name, R.font.inter_medium, 11f, 0xFFFFFFFF.toInt()),
+            pill.addView(label(device.name, R.font.inter_medium, 11f, 0xFFFFFFFF.toInt()).apply { isDuplicateParentStateEnabled = true },
                 LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(6) })
-            addFocusScale(pill, 1.06f)
+            addFocusScale(pill, 1.04f)
             deviceRow.addView(pill, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(32)).apply { marginEnd = dp(10) })
         }
         focusedIndex?.let { deviceRow.getChildAt(it.coerceAtMost(deviceRow.childCount - 1))?.requestFocus() }
@@ -386,12 +418,13 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun toggleDevice(device: GoveeHelper.Device) {
+    private fun toggleDevice(device: GoveeHelper.Device, done: () -> Unit = {}) {
         val newState = !device.isOn
         GoveeHelper.setPower(this, device, newState) { success, error ->
             if (success) {
                 device.isOn = newState
                 buildDeviceRow()
+                done()
             } else {
                 GlassUi.toast(this, error ?: "Couldn’t reach Govee")
             }
@@ -426,17 +459,21 @@ class MainActivity : AppCompatActivity() {
 
     private fun font(res: Int): Typeface? = ResourcesCompat.getFont(this, res)
 
-    /** Subtle grow on D-pad focus, like the reference's selected tile. */
+    /** Calm tvOS-style lift on D-pad focus: small grow, soft shadow, eased (no bounce). */
     private fun addFocusScale(view: View, scale: Float) {
         view.setOnFocusChangeListener { v, hasFocus ->
             val s = if (hasFocus) scale else 1f
-            v.animate().scaleX(s).scaleY(s).translationZ(if (hasFocus) dp(6).toFloat() else 0f).setDuration(150).start()
+            v.animate().scaleX(s).scaleY(s)
+                .translationZ(if (hasFocus) dp(10).toFloat() else 0f)
+                .setInterpolator(android.view.animation.DecelerateInterpolator(2f))
+                .setDuration(220).start()
         }
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density + 0.5f).toInt()
 
     companion object {
-        private const val SYSTEM_TILE = 0xFF48454B.toInt()
+        private const val SYSTEM_TILE = 0xFF3A383E.toInt()
+        private const val NIGHT_FADE_MS = 900L
     }
 }

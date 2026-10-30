@@ -47,8 +47,14 @@ class AppAdapter(
             clipToOutline = true
             isDuplicateParentStateEnabled = true
             foreground = android.graphics.drawable.StateListDrawable().apply {
-                addState(intArrayOf(android.R.attr.state_focused), GradientDrawable().apply {
-                    cornerRadius = dp(c, 14f).toFloat(); setStroke(dp(c, 2f), 0xE6FFFFFF.toInt())
+                // Focused: a soft top sheen and thin bright edge (tvOS), not a thick outline.
+                addState(intArrayOf(android.R.attr.state_focused), android.graphics.drawable.LayerDrawable(arrayOf(
+                    GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(0x33FFFFFF, 0x05FFFFFF, 0x00FFFFFF))
+                        .apply { cornerRadius = dp(c, 14f).toFloat() },
+                    GradientDrawable().apply { cornerRadius = dp(c, 14f).toFloat(); setStroke(dp(c, 1f), 0x8CFFFFFF.toInt()) }
+                )))
+                addState(intArrayOf(), GradientDrawable().apply {
+                    cornerRadius = dp(c, 14f).toFloat(); setStroke(dp(c, 0.5f), 0x26FFFFFF)
                 })
             }
         }
@@ -60,9 +66,10 @@ class AppAdapter(
         }
         root.addView(label, LinearLayout.LayoutParams(dp(c, 150f), -2).apply { topMargin = dp(c, 8f) })
         root.setOnFocusChangeListener { _, has ->
-            tile.animate().scaleX(if (has) 1.1f else 1f).scaleY(if (has) 1.1f else 1f)
-                .translationZ(if (has) dp(c, 12f).toFloat() else 0f).setDuration(150).start()
-            label.animate().translationY(if (has) dp(c, 5f).toFloat() else 0f).setDuration(150).start()
+            val ease = android.view.animation.DecelerateInterpolator(2f)
+            tile.animate().scaleX(if (has) 1.07f else 1f).scaleY(if (has) 1.07f else 1f)
+                .translationZ(if (has) dp(c, 12f).toFloat() else 0f).setInterpolator(ease).setDuration(220).start()
+            label.animate().translationY(if (has) dp(c, 4f).toFloat() else 0f).setInterpolator(ease).setDuration(220).start()
         }
         return Holder(root, tile, image, label)
     }

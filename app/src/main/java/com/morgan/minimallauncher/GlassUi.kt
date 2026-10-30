@@ -125,11 +125,15 @@ object GlassUi {
             ellipsize = TextUtils.TruncateAt.END
         }
 
-    /** Gentle grow + lift on focus. */
+    /**
+     * Gentle grow on focus. No elevation: a shadow under a white row on
+     * glass shows up as a dark band, especially while the list scrolls.
+     */
     fun focusLift(view: View, scale: Float = 1.03f) {
         view.setOnFocusChangeListener { v, has ->
             v.animate().scaleX(if (has) scale else 1f).scaleY(if (has) scale else 1f)
-                .translationZ(if (has) dp(v.context, 8f).toFloat() else 0f).setDuration(140).start()
+                .setInterpolator(android.view.animation.DecelerateInterpolator(2f))
+                .setDuration(200).start()
         }
     }
 

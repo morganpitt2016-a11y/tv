@@ -1,5 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
-    <solid android:color="#801C1A20" />
-    <stroke android:width="0.5dp" android:color="#24FFFFFF" />
-</shape>
+<!-- Round glass button; turns white when focused (tvOS style). -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_focused="true">
+        <shape android:shape="oval"><solid android:color="#F5FFFFFF" /></shape>
+    </item>
+    <item android:state_activated="true">
+        <shape android:shape="oval"><solid android:color="#5CFFFFFF" /><stroke android:width="0.5dp" android:color="#40FFFFFF" /></shape>
+    </item>
+    <item>
+        <shape android:shape="oval"><solid android:color="#801C1A20" /><stroke android:width="0.5dp" android:color="#24FFFFFF" /></shape>
+    </item>
+</selector>

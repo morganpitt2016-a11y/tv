@@ -72,6 +72,30 @@
             android:shadowRadius="12"
             android:text="8:47" />
 
+        <!-- Land cut-outs of the current photo (sky transparent) so peaks and
+             trees pass in front of the clock. Zoomed in step with the photo. -->
+        <FrameLayout
+            android:id="@+id/frontLayer"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent">
+
+            <ImageView
+                android:id="@+id/frontA"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:alpha="0"
+                android:scaleType="centerCrop"
+                android:contentDescription="@null" />
+
+            <ImageView
+                android:id="@+id/frontB"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:alpha="0"
+                android:scaleType="centerCrop"
+                android:contentDescription="@null" />
+        </FrameLayout>
+
         <!-- Painted scene foreground (hidden once a real photo is showing) -->
         <ImageView
             android:id="@+id/wallpaperFront"
@@ -92,6 +116,7 @@
             android:id="@+id/nightOverlay"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
+            android:alpha="0"
             android:background="#8C000000"
             android:visibility="gone" />
 
@@ -142,11 +167,30 @@
                 android:orientation="horizontal" />
 
             <FrameLayout
+                android:id="@+id/quickSettingsButton"
+                android:layout_width="43dp"
+                android:layout_height="43dp"
+                android:layout_marginEnd="10dp"
+                android:background="@drawable/glass_circle_bg"
+                android:contentDescription="Quick settings"
+                android:focusable="true"
+                android:focusableInTouchMode="false">
+
+                <ImageView
+                    android:layout_width="19dp"
+                    android:layout_height="19dp"
+                    android:layout_gravity="center"
+                    android:duplicateParentState="true"
+                    android:src="@drawable/ic_lucide_toggle"
+                    android:tint="@color/icon_on_glass"
+                    android:contentDescription="@null" />
+            </FrameLayout>
+
+            <FrameLayout
                 android:id="@+id/nightModeButton"
                 android:layout_width="43dp"
                 android:layout_height="43dp"
                 android:background="@drawable/glass_circle_bg"
-                android:foreground="@drawable/focus_ring_circle"
                 android:contentDescription="@string/night_mode"
                 android:focusable="true"
                 android:focusableInTouchMode="false">
@@ -155,7 +199,9 @@
                     android:layout_width="18dp"
                     android:layout_height="18dp"
                     android:layout_gravity="center"
+                    android:duplicateParentState="true"
                     android:src="@drawable/ic_lucide_moon"
+                    android:tint="@color/icon_on_glass"
                     android:contentDescription="@null" />
             </FrameLayout>
         </LinearLayout>

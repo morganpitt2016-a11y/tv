@@ -58,11 +58,10 @@
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
+            android:overScrollMode="never"
             android:clipToPadding="false"
-            android:fadingEdgeLength="40dp"
             android:paddingTop="40dp"
             android:paddingBottom="60dp"
-            android:requiresFadingEdge="vertical"
             android:scrollbars="none">
 
             <LinearLayout

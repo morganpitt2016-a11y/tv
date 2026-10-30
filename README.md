@@ -71,14 +71,26 @@ stage (the 1920x1080 reference at 2x) that scales to fit any screen:
 
 - **Wallpaper**: 15 real mountain/lake photos bundled in the app, cross-fading
   every 5 minutes with a slow zoom (no internet needed). They're listed in
-  `res/values/wallpapers.xml`; credits are below and in Settings.
+  `res/values/wallpapers.xml`; credits are below and in Settings. Five
+  photos also have a land-only cut-out (`wp_XX_front.webp`, made by
+  `tools/wallpaper/depth.py`) drawn above the clock, so peaks and trees
+  pass in front of the digits.
 - **Profile selector** (top-left): Person 1 / Person 2 by default; add,
   rename or delete profiles in Settings. Each profile has its own dock apps.
 - **Date and clock**: centred. The clock uses Roboto Flex tuned (width 72,
   weight 480) to match the tall numerals of Apple's SF Pro Condensed, which
   can't be bundled: Apple's licence only allows SF fonts in mock-ups of
   Apple-platform software. Follows the TV's 12/24-hour setting.
-- **Night mode** (moon, top-right): dims the wallpaper.
+- **Night mode** (moon, top-right): fades the wallpaper darker and back.
+- **Quick settings** (toggle button, top-right): a Google-TV-style panel
+  with Wi-Fi, sound, screensaver, next wallpaper, night mode, Claude,
+  Govee lights, search/apps/display/settings shortcuts, and free RAM and
+  storage.
+- **Claude**: ask Claude (Opus 5.5) questions by typing or by voice, from
+  quick settings or Settings → Claude. Uses the official Anthropic Java SDK
+  with your own API key from console.anthropic.com (billed per question),
+  with server-side fallbacks on, so a request declined by the safety
+  filters is retried on another Claude model.
 - **Keep watching**: the two apps you most recently opened, with their TV
   banner as the thumbnail. It can't show real episode progress: Android
   doesn't let third-party launchers read other apps' playback state.

@@ -34,6 +34,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var autoStatus: TextView
     private lateinit var autoDiag: TextView
     private lateinit var keyRow: Row
+    private lateinit var claudeKeyRow: Row
     private lateinit var devicesRow: Row
     private lateinit var devicesNote: TextView
 
@@ -67,6 +68,13 @@ class SettingsActivity : AppCompatActivity() {
         }
         autoStatus = footnote("")
         autoDiag = footnote("", mono = true)
+
+        section("Claude")
+        group {
+            claudeKeyRow = row("API Key") { showClaudeKeyDialog() }
+            row("Open Claude", chevron = true) { startActivity(Intent(this, ClaudeActivity::class.java)) }
+        }
+        footnote("Ask Claude questions on your TV with the remote or your voice. Uses your own Anthropic API key, billed per question.")
 
         section("Govee Lights")
         group {
@@ -125,9 +133,29 @@ class SettingsActivity : AppCompatActivity() {
         }
         autoDiag.text = RedirectDiag.summary(this)
         keyRow.value.text = if (GoveeHelper.getApiKey(this) != null) "Set" else "Not Set"
+        claudeKeyRow.value.text = if (ClaudeChat.getApiKey(this) != null) "Set" else "Not Set"
     }
 
     // ---------- Dialogs ----------
+
+    private fun showClaudeKeyDialog() {
+        val d = GlassDialog(this)
+            .title("Claude API Key")
+            .message("Create a key at console.anthropic.com › API Keys and enter it here. It stays on this TV.")
+            .input("sk-ant-…", ClaudeChat.getApiKey(this).orEmpty(), secret = true)
+        d.button("Save", GlassDialog.Style.BOLD) {
+            ClaudeChat.setApiKey(this, d.inputText)
+            refreshValues()
+        }
+        if (ClaudeChat.getApiKey(this) != null) {
+            d.button("Remove Key", GlassDialog.Style.DESTRUCTIVE) {
+                ClaudeChat.setApiKey(this, null)
+                refreshValues()
+            }
+        }
+        d.button("Cancel")
+        d.show()
+    }
 
     private fun showProfilePicker() {
         val profiles = ProfileManager.getProfiles(this)
