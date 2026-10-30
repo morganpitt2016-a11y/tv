@@ -1,0 +1,52 @@
+name: Probe APIs
+on:
+  push:
+    branches: [probe]
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - shell: python
+        run: |
+          import json, urllib.request, urllib.parse
+          UA = "MinimalTVLauncher/1.0 (personal)"
+          def post(url, body):
+              req = urllib.request.Request(url, data=json.dumps(body).encode(), headers={"User-Agent": UA, "Content-Type": "application/json"})
+              return json.loads(urllib.request.urlopen(req, timeout=30).read())
+          def get(url):
+              return json.loads(urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": UA}), timeout=30).read())
+          Q = """query P($country: Country!, $language: Language!, $first: Int!, $filter: TitleFilter, $sortBy: PopularTitlesSorting!) {
+            popularTitles(country: $country, first: $first, filter: $filter, sortBy: $sortBy) {
+              edges { node { id objectType
+                content(country: $country, language: $language) { title originalReleaseYear posterUrl shortDescription backdrops { backdropUrl } scoring { imdbScore } genres { shortName } }
+                offers(country: $country, platform: WEB) { monetizationType presentationType standardWebURL retailPrice(language: $language) package { packageId clearName technicalName shortName } }
+              } }
+            } }"""
+          for name, filt, sort in [("netflix films", {"packages": ["nfx"], "objectTypes": ["MOVIE"]}, "POPULAR"),
+                                    ("trending", {}, "TRENDING"),
+                                    ("search", {"searchQuery": "stranger things"}, "POPULAR")]:
+              try:
+                  r = post("https://apis.justwatch.com/graphql", {"query": Q, "variables": {"country": "GB", "language": "en", "first": 3, "filter": filt, "sortBy": sort}})
+                  print("==", name, json.dumps(r)[:2500])
+              except Exception as e:
+                  print("==", name, "FAILED", e, getattr(e, 'read', lambda: b'')()[:800])
+          try:
+              r = post("https://apis.justwatch.com/graphql", {"query": "query { packages(country: GB, platform: WEB) { packageId clearName technicalName shortName } }"})
+              print("== packages", json.dumps(r)[:4000])
+          except Exception as e:
+              print("== packages FAILED", e, getattr(e, 'read', lambda: b'')()[:800])
+          p = {"action": "query", "format": "json", "generator": "search", "gsrnamespace": "6", "gsrlimit": "50",
+               "gsrsearch": "incategory:Featured_pictures_on_Wikimedia_Commons mountain landscape filetype:bitmap",
+               "prop": "imageinfo", "iiprop": "url|size|extmetadata", "iiurlwidth": "1920"}
+          try:
+              d = get("https://commons.wikimedia.org/w/api.php?" + urllib.parse.urlencode(p))
+              pages = d.get("query", {}).get("pages", {})
+              ok = [x for x in pages.values() if x.get("imageinfo") and x["imageinfo"][0].get("width", 0) >= 1920 and 1.35 <= x["imageinfo"][0]["width"] / max(1, x["imageinfo"][0]["height"]) <= 2.3]
+              print("== commons", len(pages), "pages,", len(ok), "usable")
+          except Exception as e:
+              print("== commons FAILED", e)
+          try:
+              d = get("https://api.artic.edu/api/v1/artworks/search?q=landscape&query%5Bterm%5D%5Bis_public_domain%5D=true&limit=60&fields=id,title,image_id,thumbnail")
+              print("== artic", len(d.get("data", [])))
+          except Exception as e:
+              print("== artic FAILED", e)
