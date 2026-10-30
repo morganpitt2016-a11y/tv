@@ -136,6 +136,18 @@ stage (the 1920x1080 reference at 2x) that scales to fit any screen:
   Every request needs the pairing key in the QR code. Controlling other
   apps uses the accessibility service (Android 13+ for the arrows).
 
+### Watch (all your apps in one place)
+
+`WatchActivity` (play tile in the dock; also listed as its own app,
+"Watch"): big artwork for the selected title, then rails for Live TV apps
+(TiviMate first), Continue Watching (titles opened from here, per
+profile), Trending on Your Apps, Popular on each installed service, Films
+and Shows, plus search by typing or voice. Data comes from JustWatch's
+public catalogue (`WatchCatalog`), which says which service has each title
+and gives a link that opens it straight in that app (falling back to the
+app itself, then Google TV search). Netflix, TiviMate etc. don't let other
+apps read their own history or channel lists.
+
 Fonts: Roboto Flex, Oswald and Inter (SIL Open Font License). Icons: Lucide (ISC).
 
 ## Photo credits

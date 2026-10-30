@@ -381,7 +381,7 @@ class MainActivity : AppCompatActivity() {
         dock.removeAllViews()
         val order = ProfileManager.getDockOrder(this)
         val byPkg = allApps.associateBy { it.packageName }
-        val apps = (if (order.isEmpty()) allApps else order.mapNotNull { byPkg[it] }).take(10)
+        val apps = (if (order.isEmpty()) allApps else order.mapNotNull { byPkg[it] }).take(9)
         dockPackages = apps.map { it.packageName }
 
         val tileSize = dp(56)
@@ -396,6 +396,9 @@ class MainActivity : AppCompatActivity() {
                 AppActions.menu(this, app, tile, dockPackages) { refreshAll() }
                 true
             }
+        }
+        addDockTile(glyph(R.drawable.ic_lucide_play, 20), SYSTEM_TILE, "Watch: films and shows on all your apps") {
+            startActivity(Intent(this, WatchActivity::class.java))
         }
         addDockTile(glyph(R.drawable.ic_lucide_settings, 22), SYSTEM_TILE, getString(R.string.settings)) {
             startActivity(Intent(this, SettingsActivity::class.java))

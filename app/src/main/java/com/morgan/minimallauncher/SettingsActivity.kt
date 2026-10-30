@@ -316,7 +316,7 @@ class SettingsActivity : AppCompatActivity() {
         val active = ProfileManager.getActiveProfile(this)
         val pinned = ProfileManager.getPinnedApps(this, active).toMutableSet()
         val d = GlassDialog(this).title("Dock Apps")
-            .message("Choose the apps for $active’s dock. Up to 10 fit; with none chosen, the dock shows your first 10 apps.")
+            .message("Choose the apps for $active’s dock. Up to 9 fit; with none chosen, the dock shows your first 9 apps.")
             .scrolling()
         for (app in AppListHelper.loadLaunchableTvApps(this)) {
             d.toggle(app.label, app.packageName in pinned) {

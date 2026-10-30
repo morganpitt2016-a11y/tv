@@ -72,6 +72,10 @@ class AmbientScreen(private val c: Context, mode: String) {
         view.addView(scrim, FrameLayout.LayoutParams(-1, -1))
         view.addView(overlay, FrameLayout.LayoutParams(-1, -1))
         listOf(clock, date, weather, place, credit).forEach { it.setShadowLayer(dp(c, 10f).toFloat(), 0f, 0f, 0x66000000) }
+        // Big numerals: never wrap, and keep the font's full height so nothing is clipped.
+        clock.setSingleLine(true)
+        clock.includeFontPadding = true
+        clock.setPadding(dp(c, 6f), dp(c, 4f), dp(c, 12f), 0)
     }
 
     // ---------- Lifecycle ----------
@@ -115,13 +119,20 @@ class AmbientScreen(private val c: Context, mode: String) {
 
     private fun layout() {
         overlay.removeAllViews()
+        // Reset anything the sleep clock changed.
+        clock.animate().cancel()
+        clock.alpha = 1f
+        clock.translationX = 0f
+        clock.translationY = 0f
+        clock.setTextColor(0xFFFFFFFF.toInt())
         listOf(clock, date, weather, place, credit, music).forEach { (it.parent as? android.view.ViewGroup)?.removeView(it) }
         when (mode) {
             AMBIENT -> {
                 scrim.background = GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP, intArrayOf(0x8C000000.toInt(), 0x1A000000, 0x00000000))
-                clock.textSize = 112f
-                GlassUi.flex(clock, 250, 82)
-                val col = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL }
+                clock.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 104f)
+                clock.typeface = GlassUi.font(c, R.font.roboto_flex)
+                clock.setFontVariationSettings("'wdth' 72, 'wght' 320, 'opsz' 144, 'YTFI' 788")
+                val col = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL; clipChildren = false; clipToPadding = false }
                 col.addView(clock)
                 col.addView(date, lp(top = 2f))
                 col.addView(weather, lp(top = 6f))
@@ -138,7 +149,7 @@ class AmbientScreen(private val c: Context, mode: String) {
             }
             AERIAL -> {
                 scrim.background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(0x59000000, 0x00000000, 0x00000000, 0x66000000))
-                clock.textSize = 46f
+                clock.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 46f)
                 GlassUi.flex(clock, 380, 90)
                 val col = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.END }
                 col.addView(clock)
@@ -155,7 +166,7 @@ class AmbientScreen(private val c: Context, mode: String) {
             }
             else -> { // SLEEP
                 scrim.background = null
-                clock.textSize = 150f
+                clock.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 150f)
                 GlassUi.flex(clock, 200, 80)
                 clock.setTextColor(0xFFFFFFFF.toInt())
                 clock.alpha = 0f
