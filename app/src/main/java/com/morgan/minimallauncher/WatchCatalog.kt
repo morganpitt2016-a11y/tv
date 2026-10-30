@@ -193,6 +193,54 @@ object WatchCatalog {
         }
     }
 
+    private val PAGE_QUERY = """
+        query P(${'$'}country: Country!, ${'$'}language: Language!, ${'$'}first: Int!, ${'$'}after: String, ${'$'}filter: TitleFilter, ${'$'}sortBy: PopularTitlesSorting!) {
+          popularTitles(country: ${'$'}country, first: ${'$'}first, after: ${'$'}after, filter: ${'$'}filter, sortBy: ${'$'}sortBy) {
+            totalCount
+            pageInfo { endCursor hasNextPage }
+            edges { node { id objectType
+              content(country: ${'$'}country, language: ${'$'}language) {
+                title originalReleaseYear posterUrl shortDescription backdrops { backdropUrl } scoring { imdbScore } genres { shortName }
+              }
+              offers(country: ${'$'}country, platform: WEB) { monetizationType standardWebURL package { shortName technicalName clearName } }
+            } }
+          }
+        }
+    """.trimIndent()
+
+    /**
+     * One page of a service's whole library (100 at a time). [done] gets the titles,
+     * the cursor for the next page (null at the end) and the total number available.
+     */
+    fun page(
+        c: Context, packages: List<String>, types: List<String> = emptyList(), genres: List<String> = emptyList(),
+        sort: String = "POPULAR", after: String? = null, first: Int = 100, done: (List<Title>?, String?, Int) -> Unit,
+    ) {
+        val app = c.applicationContext
+        val filter = JSONObject()
+        if (packages.isNotEmpty()) filter.put("packages", JSONArray(packages))
+        if (types.isNotEmpty()) filter.put("objectTypes", JSONArray(types))
+        if (genres.isNotEmpty()) filter.put("genres", JSONArray(genres))
+        val vars = JSONObject().put("country", country()).put("language", "en").put("first", first)
+            .put("filter", filter).put("sortBy", sort)
+        if (after != null) vars.put("after", after)
+        val key = "pg_" + (vars.toString().hashCode().toLong() and 0xffffffffL)
+        pool.execute {
+            var list: List<Title>? = null
+            var next: String? = null
+            var total = 0
+            try {
+                val json = cached(app, key, 12 * 3600_000L) { post(PAGE_QUERY, vars) }
+                val pt = json.optJSONObject("data")?.optJSONObject("popularTitles")
+                list = parse(app, json)
+                total = pt?.optInt("totalCount") ?: 0
+                val info = pt?.optJSONObject("pageInfo")
+                if (info?.optBoolean("hasNextPage") == true) next = info.optString("endCursor").takeIf { it.isNotBlank() && it != "null" }
+            } catch (e: Exception) {}
+            main.post { done(list, next, total) }
+        }
+    }
+
     private fun parse(c: Context, json: JSONObject): List<Title> {
         val byShort = providers(c).associateBy { it.short }
         val edges = json.optJSONObject("data")?.optJSONObject("popularTitles")?.optJSONArray("edges") ?: return emptyList()

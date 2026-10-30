@@ -275,6 +275,7 @@ class WatchActivity : AppCompatActivity() {
                 done(list)
             }
         }
+        appsRow()
         WatchCatalog.history(this).firstOrNull()?.let { last ->
             val row = titleRow(token, "because", "Because You Watched ${last.name}") { done ->
                 WatchCatalog.detail(this, last) { d -> done(d?.similar) }
@@ -284,7 +285,7 @@ class WatchActivity : AppCompatActivity() {
         for (p in providers) {
             val title = if (p.installed != null) "Popular on ${p.displayName}" else "${p.displayName} · Get the App"
             titleRow(token, "p_${p.short}", title, icon = p.icon,
-                more = { openCollection(p.displayName, catalogue(listOf(p.short))) }) { done ->
+                more = { openProviderPage(p) }) { done ->
                 WatchCatalog.titles(this, packages = listOf(p.short), done = done)
             }
         }
@@ -363,6 +364,108 @@ class WatchActivity : AppCompatActivity() {
         val back = collectionFrom ?: return
         collectionFrom = null
         showTab(back, focusContent = true)
+    }
+
+    // ---------- Your Apps: each service's whole library ----------
+
+    /** Every service as a tile; opens that service's page. */
+    private fun appsRow() {
+        val list = installed + providers.filter { it.installed == null }
+        if (list.isEmpty()) return
+        val r = row("apps", "Your Apps", height = 120f)
+        r.list.adapter = CardAdapter(list, { p -> serviceCard(p) }) { h, p ->
+            h.label.text = p.displayName
+            h.root.contentDescription = p.displayName
+            ImageLoader.load(h.image, p.icon, ImageLoader.ICON)
+            h.root.setOnClickListener { openProviderPage(p) }
+            focusEffect(h.root) { showPlainHero(if (p.installed != null) "YOUR APP" else "GET THE APP", p.displayName, "Every film and series on ${p.displayName}, by category.") }
+        }
+        rows.addView(r.view)
+    }
+
+    /** A service tile: its logo on a dark glass card, name underneath. */
+    private fun serviceCard(parent: ViewGroup): Holder {
+        val c = parent.context
+        val h = card(parent, 150f, 90f)
+        (h.root.background as? GradientDrawable)?.setColor(0xFF1C1C1E.toInt())
+        h.image.scaleType = ImageView.ScaleType.FIT_CENTER
+        (h.image.layoutParams as FrameLayout.LayoutParams).apply { width = dp(c, 46f); height = dp(c, 46f); gravity = Gravity.CENTER; topMargin = -dp(c, 10f) }
+        h.image.clipToOutline = true
+        h.image.outlineProvider = object : ViewOutlineProvider() {
+            override fun getOutline(v: View, o: android.graphics.Outline) { o.setRoundRect(0, 0, v.width, v.height, dp(c, 10f).toFloat()) }
+        }
+        h.label.apply {
+            (layoutParams as FrameLayout.LayoutParams).apply { width = -1; height = -2; gravity = Gravity.BOTTOM; bottomMargin = dp(c, 8f) }
+            textSize = 11f; maxLines = 1; setTextColor(0xD9FFFFFF.toInt())
+        }
+        h.root.removeView(h.label); h.root.addView(h.label)
+        return h
+    }
+
+    private var providerType = "MOVIE"
+
+    /**
+     * A service's own page: Films / Series at the top, then everything it has of that
+     * type - all of it, then by category. Rows keep loading as you move along them.
+     */
+    private fun openProviderPage(p: WatchCatalog.Provider, type: String = providerType) {
+        if (collectionFrom == null) collectionFrom = tab
+        tab = "collection"
+        providerType = type
+        rows.removeAllViews()
+        scroll.scrollTo(0, 0)
+        val token = ++buildToken
+        showPlainHero(if (p.installed != null) "YOUR APP" else "GET THE APP", p.displayName,
+            "Everything on ${p.displayName}" + if (p.installed == null) ". Choose a title to get the app." else ", by category.")
+        // Films | Series
+        val heads = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; clipChildren = false; clipToPadding = false; tag = "heads" }
+        var selected: View? = null
+        for ((id, label) in listOf("MOVIE" to "Films", "SHOW" to "Series")) {
+            val b = pillButton(label, primary = id == type) { if (id != providerType) openProviderPage(p, id) }
+            heads.addView(b, LinearLayout.LayoutParams(-2, dp(this, 38f)).apply { marginEnd = dp(this@WatchActivity, 12f) })
+            if (id == type) selected = b
+        }
+        rows.addView(heads, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(this@WatchActivity, 56f); topMargin = dp(this@WatchActivity, 8f) })
+        selected?.requestFocus()
+        val what = if (type == "MOVIE") "Films" else "Series"
+        pagedRow(token, "all", "All $what", listOf(p.short), listOf(type), emptyList())
+        for ((code, name) in allGenres) pagedRow(token, "g_$code", name, listOf(p.short), listOf(type), listOf(code))
+    }
+
+    /** A row of a whole library that fetches the next 100 as you near its end. */
+    private fun pagedRow(token: Int, key: String, title: String, packages: List<String>, types: List<String>, genres: List<String>) {
+        val r = row(key, title, height = 196f)
+        val items = mutableListOf<WatchCatalog.Title>()
+        val adapter = CardAdapter(items.toList(), { p -> posterCard(p) }) { h, t -> bindTitle(h, t) }
+        r.list.adapter = adapter
+        rows.addView(r.view)
+        var cursor: String? = null
+        var loading = false
+        var finished = false
+        fun load() {
+            if (loading || finished) return
+            loading = true
+            WatchCatalog.page(this, packages, types, genres, after = cursor) { list, next, total ->
+                loading = false
+                if (token != buildToken || isDestroyed) return@page
+                if (list == null) { if (items.isEmpty()) rows.removeView(r.view); finished = true; return@page }
+                if (list.isEmpty() && items.isEmpty()) { rows.removeView(r.view); finished = true; return@page }
+                items += list
+                adapter.update(items.toList())
+                cursor = next
+                if (next == null) finished = true
+                // Show how much there is: "Comedy · 412".
+                ((r.view.getChildAt(0) as? LinearLayout)?.let { hdr -> (0 until hdr.childCount).map { hdr.getChildAt(it) }.lastOrNull { it is TextView } } as? TextView)
+                    ?.text = if (total > 0) "$title  ·  $total" else title
+            }
+        }
+        r.list.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            override fun onScrolled(rv: RecyclerView, dx: Int, dy: Int) {
+                val last = (rv.layoutManager as? LinearLayoutManager)?.findLastVisibleItemPosition() ?: return
+                if (last >= items.size - 12) load()
+            }
+        })
+        load()
     }
 
     private fun buildCategory(token: Int, type: String) {
