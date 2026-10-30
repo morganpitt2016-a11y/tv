@@ -158,6 +158,14 @@ class RemoteServer(private val context: Context) {
                 .put("photos", WallpaperLibrary.album(context).size)
                 .put("ip", ip(context) ?: "")
                 .put("selfEnable", SelfEnable.canSelfEnable(context)))
+            "/api/tunelog" -> send(out, 200, "text/plain; charset=utf-8", TiviTuner.logText().toByteArray())
+            "/api/screen" -> {
+                var dump = "Accessibility service isn't running."
+                val latch = java.util.concurrent.CountDownLatch(1)
+                main.post { dump = try { TiviTuner.dumpScreen() } catch (e: Exception) { "Error: ${e.javaClass.simpleName}" }; latch.countDown() }
+                latch.await(3, java.util.concurrent.TimeUnit.SECONDS)
+                send(out, 200, "text/plain; charset=utf-8", dump.toByteArray())
+            }
             "/api/key" -> json(out, JSONObject().put("ok", press(body.optString("key"))))
             "/api/text" -> json(out, JSONObject().put("ok", type(body.optString("text"), body.optBoolean("replace", false), body.optBoolean("enter", false))))
             "/api/apps" -> {
