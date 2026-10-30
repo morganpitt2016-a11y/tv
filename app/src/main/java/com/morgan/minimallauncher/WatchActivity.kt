@@ -403,7 +403,8 @@ class WatchActivity : AppCompatActivity() {
             block.addView(bar, FrameLayout.LayoutParams((dp(c, if (first) 290f else 205f) * p.progress()).toInt(), dp(c, 2f), Gravity.BOTTOM))
         }
         block.setOnFocusChangeListener { v, has ->
-            v.animate().scaleX(if (has) 1.04f else 1f).scaleY(if (has) 1.04f else 1f).setDuration(200).start()
+            v.animate().scaleX(if (has) 1.04f else 1f).scaleY(if (has) 1.04f else 1f)
+                .setInterpolator(Motion.focusEase).setDuration(Motion.FOCUS).start()
             if (has) showProgrammeHero(ch, p)
         }
         return block
@@ -754,8 +755,8 @@ class WatchActivity : AppCompatActivity() {
             incoming.bringToFront()
             incoming.alpha = 0f
             incoming.scaleX = 1.05f; incoming.scaleY = 1.05f
-            incoming.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(800).setInterpolator(DecelerateInterpolator()).start()
-            outgoing.animate().alpha(0f).setDuration(800).start()
+            incoming.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(Motion.HERO).setInterpolator(Motion.enter).start()
+            outgoing.animate().alpha(0f).setDuration(Motion.HERO).setInterpolator(Motion.standard).start()
         }
     }
 
