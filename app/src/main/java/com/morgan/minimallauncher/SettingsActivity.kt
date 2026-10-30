@@ -229,7 +229,7 @@ class SettingsActivity : AppCompatActivity() {
     private fun openAccessibilitySwitch() {
         val me = android.content.ComponentName(this, HomeRedirectService::class.java).flattenToString()
         if (android.os.Build.VERSION.SDK_INT >= 31 &&
-            tryOpen(Intent(Settings.ACTION_ACCESSIBILITY_DETAILS_SETTINGS).putExtra(Intent.EXTRA_COMPONENT_NAME, me))) return
+            tryOpen(Intent("android.settings.ACCESSIBILITY_DETAILS_SETTINGS").putExtra(Intent.EXTRA_COMPONENT_NAME, me))) return
         open(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS), "Accessibility settings")
     }
 
