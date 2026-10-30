@@ -242,7 +242,11 @@ class SettingsActivity : AppCompatActivity() {
         bootRow.value.text = onOff(AutoLaunch.onBoot(this))
         wakeRow.value.text = onOff(AutoLaunch.onWake(this))
         val serviceOn = HomeRedirectService.isServiceEnabled(this)
-        accessibilityRow.value.text = onOff(serviceOn)
+        accessibilityRow.value.text = when {
+            HomeRedirectService.instance != null -> "On"
+            serviceOn -> "On · Not Running"
+            else -> "Off"
+        }
         overlayRow.value.text = if (Settings.canDrawOverlays(this)) "Allowed" else "Not Allowed"
         usageRow.value.text = if (AppWatchService.hasUsageAccess(this)) "Allowed" else "Not Allowed"
         AppWatchService.startIfNeeded(this)
@@ -379,7 +383,11 @@ class SettingsActivity : AppCompatActivity() {
     /** Jumps straight to this app's switch, skipping the accessibility list page. */
     /** One press: switch it on directly if allowed, otherwise go straight to its on/off page. */
     private fun accessibilityPressed() {
-        if (HomeRedirectService.isServiceEnabled(this)) { openAccessibilitySwitch(); return }
+        if (HomeRedirectService.isServiceEnabled(this) || SelfEnable.canSelfEnable(this)) {
+            if (!HomeRedirectService.isServiceEnabled(this)) SelfEnable.enableAll(this)
+            handler.postDelayed({ refreshValues(); showAccessibilityCheck() }, 1500)
+            return
+        }
         if (SelfEnable.enableAll(this)) {
             GlassUi.toast(this, "Accessibility Service turned on")
             handler.postDelayed({ refreshValues() }, 800)
@@ -394,6 +402,25 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+
+    /** What Android actually has set, so a photo shows why it isn't working. */
+    private fun showAccessibilityCheck() {
+        val cr = contentResolver
+        val enabledList = Settings.Secure.getString(cr, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
+        val master = try { Settings.Secure.getInt(cr, Settings.Secure.ACCESSIBILITY_ENABLED) } catch (e: Exception) { -1 }
+        val running = HomeRedirectService.instance != null
+        val msg = buildString {
+            append(if (running) "✓ Running - Live TV can switch TiviMate channels.\n\n" else "✗ Not running.\n\n")
+            append("Switched on in Android: ").append(if (HomeRedirectService.isServiceEnabled(this@SettingsActivity)) "yes" else "no").append('\n')
+            append("Accessibility master switch: ").append(master).append('\n')
+            append("Can switch itself on (ADB permission): ").append(if (SelfEnable.canSelfEnable(this@SettingsActivity)) "yes" else "no").append('\n')
+            append("Android ").append(android.os.Build.VERSION.SDK_INT).append('\n')
+            append("Enabled services: ").append(enabledList ?: "none").append("\n\n")
+            append(RedirectDiag.summary(this@SettingsActivity))
+            if (!running) append("\n\nIf it says switched on but not running, Android may be blocking it as a “restricted setting”. Fix with ADB:\nadb shell appops set com.morgan.minimallauncher ACCESS_RESTRICTED_SETTINGS allow\nthen restart the TV.")
+        }
+        GlassDialog(this).title("Accessibility Check").message(msg).button("Done", GlassDialog.Style.BOLD).show()
+    }
 
     private fun showSelfEnableSteps() {
         val ip = RemoteServer.ip(this) ?: "TV-IP"
