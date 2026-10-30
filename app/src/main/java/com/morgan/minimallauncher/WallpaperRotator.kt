@@ -28,7 +28,7 @@ class WallpaperRotator(
 ) {
     companion object {
         private const val ROTATE_EVERY_MS = 5 * 60 * 1000L
-        private const val FADE_MS = 1800L
+        private const val FADE_MS = 2600L
         private const val ZOOM_TO = 1.06f
 
         /** The photo currently on the home screen; Settings/Apps blur it as their backdrop. */
@@ -36,6 +36,9 @@ class WallpaperRotator(
     }
 
     private val handler = Handler(Looper.getMainLooper())
+
+    /** Called with each new photo as it starts to show (the dock blurs it for its glass). */
+    var onNewPhoto: ((Bitmap) -> Unit)? = null
     private var photos: List<WallpaperLibrary.Photo> = WallpaperLibrary.forProfile(context)
     // The first photo in the list always shows first, then the rest shuffled.
     private var order = photos.take(1) + photos.drop(1).shuffled()
@@ -115,6 +118,7 @@ class WallpaperRotator(
         incoming.alpha = 0f
         incoming.bringToFront() // only reorders within the photo layer
         onPhotoShowing(true)
+        onNewPhoto?.invoke(bitmap)
 
         inFront.animate().cancel()
         if (front != null) {
@@ -132,7 +136,7 @@ class WallpaperRotator(
         for (v in layers) {
             v.scaleX = 1f
             v.scaleY = 1f
-            v.animate().alpha(1f).setDuration(FADE_MS).withEndAction {
+            v.animate().alpha(1f).setDuration(FADE_MS).setInterpolator(Motion.standard).withEndAction {
                 // Slow zoom across the photo's time on screen.
                 v.animate().scaleX(ZOOM_TO).scaleY(ZOOM_TO).setInterpolator(LinearInterpolator())
                     .setDuration(ROTATE_EVERY_MS).start()

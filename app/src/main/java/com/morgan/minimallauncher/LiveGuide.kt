@@ -277,9 +277,11 @@ object LiveGuide {
             return
         }
         try {
-            // Start TiviMate fresh, so it opens on live TV rather than whatever screen it was last left on.
-            val flags = if (channel != null) Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK else Intent.FLAG_ACTIVITY_NEW_TASK
-            activity.startActivity(intent.addFlags(flags))
+            // Once the picker knows the channel list, resume TiviMate (fast) - it restarts it only
+            // if TiviMate comes back on another screen. The first time, start it fresh on live TV.
+            val fresh = channel != null && !TiviTuner.hasLearned(activity)
+            val flags = if (fresh) Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK else Intent.FLAG_ACTIVITY_NEW_TASK
+            activity.startActivity(Intent(intent).addFlags(flags))
         } catch (e: Exception) { GlassUi.toast(activity, "TiviMate couldn’t be opened"); return }
         if (channel == null) return
         TiviTuner.returnToGuide = true
@@ -287,7 +289,10 @@ object LiveGuide {
         // A system toast, so it shows on top of TiviMate.
         fun say(t: String) = android.widget.Toast.makeText(app, t, android.widget.Toast.LENGTH_LONG).show()
         if (TiviTuner.canTune()) {
-            TiviTuner.tune(channel.name) { ok -> if (!ok) say("Couldn’t find ${channel.name} in TiviMate - choose it from the list") }
+            val restart = {
+                try { app.startActivity(Intent(intent).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)) } catch (e: Exception) {}
+            }
+            TiviTuner.tune(channel.name, restart) { ok -> if (!ok) say("Couldn’t find ${channel.name} in TiviMate - choose it from the list") }
         } else {
             say("Choose ${channel.name} in TiviMate")
         }

@@ -59,6 +59,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var dock: LinearLayout
     private lateinit var rails: LinearLayout
     private lateinit var dockLabel: TextView
+    private lateinit var dockBackdrop: ImageView
+    private lateinit var profilePill: View
+    private var pillPlaced = false
     private lateinit var wallpaperFront: View
     private lateinit var rotator: WallpaperRotator
     private lateinit var widgets: HomeWidgets
@@ -110,6 +113,10 @@ class MainActivity : AppCompatActivity() {
         ) { photoShowing ->
             wallpaperFront.visibility = if (photoShowing) View.GONE else View.VISIBLE
         }
+        setupProfilePill()
+        setupDockGlass()
+        rotator.onNewPhoto = { bmp -> updateDockBackdrop(bmp) }
+        dateText.letterSpacing = 0.02f
         widgets = HomeWidgets(this, findViewById(R.id.widgetLeft), findViewById(R.id.widgetRight),
             lights = { govDevices }, openLights = { openQuickSettings() })
 
@@ -232,7 +239,17 @@ class MainActivity : AppCompatActivity() {
     private fun updateClock() {
         val now = Calendar.getInstance()
         val pattern = if (DateFormat.is24HourFormat(this)) "H:mm" else "h:mm"
-        clockText.text = DateFormat.format(pattern, now)
+        val time = DateFormat.format(pattern, now).toString()
+        if (clockText.text.toString() != time) {
+            if (clockText.text.isNullOrEmpty() || clockText.text.toString() == "8:47") clockText.text = time
+            else {
+                // A soft dissolve as the minute turns over, rather than a hard jump.
+                clockText.animate().alpha(0.15f).setDuration(260).setInterpolator(Motion.standard).withEndAction {
+                    clockText.text = time
+                    clockText.animate().alpha(1f).setDuration(420).setInterpolator(Motion.standard).start()
+                }.start()
+            }
+        }
         dateText.text = DateFormat.format("EEEE d MMMM", now)
     }
 
@@ -344,10 +361,8 @@ class MainActivity : AppCompatActivity() {
                 gravity = Gravity.CENTER
                 setPadding(dp(13), 0, dp(13), 0)
                 setTextColor(if (isActive) 0xFF141414.toInt() else 0xBFFFFFFF.toInt())
-                background = ContextCompat.getDrawable(
-                    this@MainActivity,
-                    if (isActive) R.drawable.segment_active_bg else R.drawable.segment_bg
-                )
+                background = ContextCompat.getDrawable(this@MainActivity, R.drawable.segment_bg)
+                tag = if (isActive) "active" else null
                 isFocusable = true
                 isClickable = true
                 contentDescription = if (isActive) "$name, selected profile" else "Switch to $name"
@@ -356,10 +371,102 @@ class MainActivity : AppCompatActivity() {
                     ProfileManager.setActiveProfile(this@MainActivity, name)
                     rotator.reload()
                     refreshAll(focusActiveProfile = true)
+                    // The new person's dock and Continue Watching settle in.
+                    for (v in listOf<View>(dock, keepWatchingRow, keepWatchingLabel)) {
+                        v.alpha = 0f
+                        v.animate().alpha(1f).setDuration(Motion.PANEL).setInterpolator(Motion.standard).start()
+                    }
                 }
             }
             addFocusScale(seg, 1.04f)
             profileSwitch.addView(seg, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(21)))
+        }
+        profileSwitch.post { movePill(animate = pillPlaced) }
+    }
+
+    /** The profile selector: a glass capsule with one white pill that slides to the active person. */
+    private fun setupProfilePill() {
+        val parent = profileSwitch.parent as ViewGroup
+        val index = parent.indexOfChild(profileSwitch)
+        val lp = profileSwitch.layoutParams
+        parent.removeView(profileSwitch)
+        val box = FrameLayout(this).apply {
+            background = profileSwitch.background
+            setPadding(dp(2), dp(2), dp(2), dp(2))
+        }
+        profileSwitch.background = null
+        profileSwitch.setPadding(0, 0, 0, 0)
+        profilePill = View(this).apply {
+            background = ContextCompat.getDrawable(this@MainActivity, R.drawable.segment_active_bg)
+            alpha = 0f
+        }
+        box.addView(profilePill, FrameLayout.LayoutParams(0, dp(21)))
+        box.addView(profileSwitch, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, dp(21)))
+        parent.addView(box, index, lp)
+    }
+
+    private fun movePill(animate: Boolean) {
+        val seg = (0 until profileSwitch.childCount).map { profileSwitch.getChildAt(it) }.firstOrNull { it.tag == "active" } ?: return
+        if (seg.width == 0) return
+        val toX = seg.left.toFloat()
+        val toW = seg.width
+        if (!animate) {
+            profilePill.translationX = toX
+            profilePill.layoutParams = profilePill.layoutParams.apply { width = toW }
+            profilePill.alpha = 1f
+            pillPlaced = true
+            return
+        }
+        val fromX = profilePill.translationX
+        val fromW = profilePill.width
+        android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = Motion.PANEL
+            interpolator = Motion.focusEase
+            addUpdateListener {
+                val f = it.animatedValue as Float
+                profilePill.translationX = fromX + (toX - fromX) * f
+                profilePill.layoutParams = profilePill.layoutParams.apply { width = (fromW + (toW - fromW) * f).toInt() }
+            }
+            start()
+        }
+    }
+
+    // ---------- Dock glass ----------
+
+    /** A real blur of the wallpaper behind the dock (Android 12+), under its light glass tint. */
+    private fun setupDockGlass() {
+        val lp = FrameLayout.LayoutParams(dock.layoutParams as FrameLayout.LayoutParams)
+        dockBackdrop = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.MATRIX
+            outlineProvider = object : ViewOutlineProvider() {
+                override fun getOutline(v: View, o: android.graphics.Outline) {
+                    o.setRoundRect(0, 0, v.width, v.height, dp(24).toFloat())
+                }
+            }
+            clipToOutline = true
+            alpha = 0f
+            if (Build.VERSION.SDK_INT >= 31) {
+                setRenderEffect(RenderEffect.createBlurEffect(dp(16).toFloat(), dp(16).toFloat(), Shader.TileMode.CLAMP))
+            }
+        }
+        ui.addView(dockBackdrop, ui.indexOfChild(dock), lp)
+    }
+
+    private fun updateDockBackdrop(full: android.graphics.Bitmap) {
+        if (Build.VERSION.SDK_INT < 31) return
+        val w = 480
+        val small = android.graphics.Bitmap.createScaledBitmap(full, w, (w.toFloat() * full.height / full.width).toInt().coerceAtLeast(1), true)
+        dockBackdrop.post {
+            // Line the blurred photo up exactly with the wallpaper behind the dock.
+            val sw = stage.width.toFloat(); val sh = stage.height.toFloat()
+            if (sw == 0f) return@post
+            val s = maxOf(sw / small.width, sh / small.height)
+            val m = android.graphics.Matrix()
+            m.setScale(s, s)
+            m.postTranslate((sw - small.width * s) / 2f - dockBackdrop.left, (sh - small.height * s) / 2f - dockBackdrop.top)
+            dockBackdrop.imageMatrix = m
+            dockBackdrop.setImageBitmap(small)
+            dockBackdrop.animate().alpha(1f).setDuration(1200).setInterpolator(Motion.standard).start()
         }
     }
 
@@ -422,6 +529,11 @@ class MainActivity : AppCompatActivity() {
         val name = label.removePrefix("Open ").substringBefore(":")
         tile.setOnFocusChangeListener { v, has ->
             Motion.focus(v, has, 1.12f, 12f)
+            // A restrained glow under the selected icon.
+            if (Build.VERSION.SDK_INT >= 28) {
+                v.outlineSpotShadowColor = if (has) 0x8CFFFFFF.toInt() else 0xFF000000.toInt()
+                v.outlineAmbientShadowColor = if (has) 0x40FFFFFF else 0xFF000000.toInt()
+            }
             showDockLabel(if (has) v else null, name)
         }
         val lp = LinearLayout.LayoutParams(dp(56), dp(56))
@@ -558,10 +670,16 @@ class MainActivity : AppCompatActivity() {
             }
             val bulb = ImageView(this).apply {
                 setImageResource(R.drawable.ic_lucide_bulb)
-                imageTintList = ColorStateList.valueOf(if (device.isOn) 0xFFFFD27A.toInt() else 0xB3FFFFFF.toInt())
+                imageTintList = ColorStateList(arrayOf(intArrayOf(android.R.attr.state_focused), intArrayOf()),
+                    intArrayOf(if (device.isOn) 0xFFE0A100.toInt() else GlassUi.INK, if (device.isOn) 0xFFFFD27A.toInt() else 0xB3FFFFFF.toInt()))
+                isDuplicateParentStateEnabled = true
             }
             pill.addView(bulb, LinearLayout.LayoutParams(dp(15), dp(15)))
-            pill.addView(label(device.name, R.font.inter_medium, 11f, 0xFFFFFFFF.toInt()),
+            pill.addView(label(device.name, R.font.inter_medium, 11f, 0xFFFFFFFF.toInt()).apply {
+                setTextColor(GlassUi.primaryText(GlassUi.INK, 0xFFFFFFFF.toInt()))
+                isDuplicateParentStateEnabled = true
+                setShadowLayer(0f, 0f, 0f, 0)
+            },
                 LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(6) })
             addFocusScale(pill, 1.04f)
             deviceRow.addView(pill, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(32)).apply { marginEnd = dp(10) })

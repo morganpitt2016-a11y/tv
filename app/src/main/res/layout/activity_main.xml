@@ -124,6 +124,13 @@
             android:layout_gravity="bottom"
             android:background="@drawable/bottom_scrim" />
 
+        <!-- Gentle shade at the top, so the date, profiles and weather stay readable on bright skies -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="190dp"
+            android:layout_gravity="top"
+            android:background="@drawable/top_scrim" />
+
         <!-- Night mode / cinema mode dimming -->
         <View
             android:id="@+id/nightOverlay"
