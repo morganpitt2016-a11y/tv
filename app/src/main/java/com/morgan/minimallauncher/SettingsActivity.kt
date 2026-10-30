@@ -150,6 +150,7 @@ class SettingsActivity : AppCompatActivity() {
         section("Live TV")
         group {
             vrow("Dodgy Box Login", { if (Xtream.isSetUp(this)) "Signed In" else "Not Set Up" }) { editProviderLogin() }
+            vrow("Recordings", { Recordings.shown(this).size.let { if (it == 0) "" else "$it" } }, chevron = true) { manageRecordings() }
             vrow("TV Guide", { if (LiveGuide.customUrl(this) != null) "Your Guide Link" else "Freeview" }) { editGuide() }
             vrow("TiviMate Tuning Log", { "" }, chevron = true) {
                 GlassDialog(this).title("TiviMate Tuning Log")
@@ -604,6 +605,30 @@ class SettingsActivity : AppCompatActivity() {
             .input("Town or city", Weather.getCity(this).orEmpty())
         d.button("Save", GlassDialog.Style.BOLD) { Weather.setCity(this, d.inputText.ifBlank { null }); refreshValues() }
         d.button("Cancel").show()
+    }
+
+    /** Where recordings live and, if needed, permission to read TiviMate's folder. */
+    private fun manageRecordings() {
+        val d = GlassDialog(this).title("Recordings")
+        if (!Recordings.canReadExternal()) {
+            d.message("To show recordings made in TiviMate, allow this app to read files. Turn on “Allow access to manage all files”.")
+            d.button("Allow Access", GlassDialog.Style.BOLD) {
+                try { open(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:$packageName")), "All files access") }
+                catch (e: Exception) { try { open(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION), "All files access") } catch (e2: Exception) { GlassUi.toast(this, "Open Settings › Apps › this app › Permissions") } }
+            }
+        } else {
+            val n = Recordings.shown(this).size
+            d.message(if (n == 0) "No recordings yet. Hold OK on a programme in the TV guide and choose Record - it’ll appear in My List." else "$n recording${if (n == 1) "" else "s"} - open My List in Watch to play or delete them.")
+        }
+        d.button("Set TiviMate Folder") {
+            val e = GlassDialog(this).title("TiviMate Recordings Folder").message("Only needed if TiviMate saves to a custom folder. Example: /storage/emulated/0/Download/TiviMate/Recordings")
+                .input("Folder path", Prefs.string(this, "tivi_rec_dir").orEmpty())
+            e.button("Save", GlassDialog.Style.BOLD) { Prefs.setString(this, "tivi_rec_dir", e.inputText.ifBlank { null }); refreshValues() }
+            e.button("Cancel")
+            e.show()
+        }
+        d.button("Close")
+        d.show()
     }
 
     /** Provider login (Xtream Codes): three short steps, then a check with the provider. */

@@ -77,6 +77,51 @@ object Recordings {
     }
 
     fun isRecording(r: Rec) = !r.done && System.currentTimeMillis() < r.stop
+
+    // ---------- TiviMate's own recordings ----------
+    // When recording goes through TiviMate (no provider login), TiviMate saves the file
+    // to its Recordings folder. These are read and shown in My List alongside app recordings.
+
+    private val VIDEO = setOf("ts", "mp4", "mkv", "avi", "m4v", "mov")
+
+    /** True once the app can read other apps' files (All files access). */
+    fun canReadExternal(): Boolean =
+        Build.VERSION.SDK_INT < 30 || android.os.Environment.isExternalStorageManager()
+
+    /** Folders TiviMate may save recordings in (a custom one first, if set). */
+    private fun tiviFolders(c: Context): List<File> {
+        val ext = android.os.Environment.getExternalStorageDirectory()
+        return buildList {
+            Prefs.string(c, "tivi_rec_dir")?.takeIf { it.isNotBlank() }?.let { add(File(it)) }
+            add(File(ext, "Download/TiviMate/Recordings"))
+            add(File(ext, "TiviMate/Recordings"))
+            add(File(ext, "Movies/TiviMate"))
+            add(File(ext, "Recordings"))
+        }.distinct()
+    }
+
+    /** Video files TiviMate (or another recorder) has saved, newest first. */
+    fun tiviMate(c: Context): List<Rec> {
+        if (!canReadExternal()) return emptyList()
+        val out = mutableListOf<Rec>()
+        for (dir in tiviFolders(c)) {
+            val files = try { dir.listFiles() } catch (e: Exception) { null } ?: continue
+            for (f in files) {
+                if (!f.isFile || f.extension.lowercase() !in VIDEO || f.length() < 512 * 1024) continue
+                val base = f.nameWithoutExtension
+                // TiviMate names files like "Channel - Programme - 2026-10-30".
+                val parts = base.split(" - ", " _ ", "_-_").map { it.trim() }.filter { it.isNotBlank() }
+                val channel = if (parts.size >= 2) parts[0] else "Recording"
+                val title = if (parts.size >= 2) parts.drop(1).joinToString(" · ").removeSuffix(".") else base
+                out += Rec("tm_" + (f.path.hashCode().toUInt().toString(16)), title.take(80), channel,
+                    f.lastModified(), f.lastModified(), f.path, null, true)
+            }
+        }
+        return out.sortedByDescending { it.start }
+    }
+
+    /** Everything to show in My List: app recordings and TiviMate's, newest first. */
+    fun shown(c: Context): List<Rec> = (list(c) + tiviMate(c)).distinctBy { it.file }.sortedByDescending { it.start }
 }
 
 /** Saves live channels to the TV's storage, one stream per recording, until each ends. */

@@ -627,7 +627,7 @@ class WatchActivity : AppCompatActivity() {
 
     /** Programmes the app recorded: newest first; OK plays, hold OK to delete. */
     private fun recordingsRow(key: String): View? {
-        val recs = Recordings.list(this)
+        val recs = Recordings.shown(this)
         if (recs.isEmpty()) return null
         val r = row(key, "Recordings", height = 150f)
         val f = DateFormat.getMediumDateFormat(this)
@@ -658,7 +658,7 @@ class WatchActivity : AppCompatActivity() {
     private fun buildList() {
         recordingsRow("recordings")?.let { rows.addView(it) }
         val list = WatchCatalog.myList(this)
-        if (list.isEmpty() && Recordings.list(this).isNotEmpty()) return
+        if (list.isEmpty() && Recordings.shown(this).isNotEmpty()) return
         if (list.isEmpty()) {
             showPlainHero("MY LIST", "Nothing saved yet", "Open any film or show and choose “Add to My List”.")
             rows.addView(GlassUi.text(this, "Your saved films and shows appear here.", 13f, R.font.inter_medium, 0x99FFFFFF.toInt()),
