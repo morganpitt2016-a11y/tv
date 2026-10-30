@@ -171,16 +171,16 @@ object TiviTuner {
             }
             val seen = texts(list).joinToString("|")
             if (seen == lastSeen) {
-                if (++sameCount >= 2) {
+                if (++sameCount >= 3) {
                     if (goingDown) { goingDown = false; sameCount = 0; note("Reached the bottom - searching upwards") }
                     else { note("Not in this channel group. Last names seen: ${texts(list).take(20)}"); done(false); return }
                 }
             } else sameCount = 0
             lastSeen = seen
-            if (attempts % 4 == 1) note("Searching ${if (goingDown) "down" else "up"}: ${texts(list).take(8)}")
+            if (attempts % 3 == 1) note("Searching ${if (goingDown) "down" else "up"} (highlight on ${rowNames(focusRowIn(service, list))}): ${texts(list).take(6)}")
             val key = if (goingDown) AccessibilityService.GLOBAL_ACTION_DPAD_DOWN else AccessibilityService.GLOBAL_ACTION_DPAD_UP
-            for (i in 0 until 8) main.postDelayed({ service.performGlobalAction(key) }, i * 40L)
-            main.postDelayed({ step() }, 8 * 40L + 200)
+            for (i in 0 until 6) main.postDelayed({ service.performGlobalAction(key) }, i * 90L)
+            main.postDelayed({ step() }, 6 * 90L + 350)
         }
         main.postDelayed({ step() }, 400)
     }
@@ -388,6 +388,9 @@ object TiviTuner {
 
     /** Roots of every TiviMate window on screen (its channel list can be a separate pop-up window). */
     private fun tiviRoots(service: AccessibilityService): List<AccessibilityNodeInfo> {
+        // TiviMate's guide doesn't announce when it scrolls, so Android would keep serving an
+        // old copy of the screen. Throw that copy away and read what's really there.
+        if (Build.VERSION.SDK_INT >= 33) try { service.clearCache() } catch (e: Exception) {}
         val out = mutableListOf<AccessibilityNodeInfo>()
         try {
             service.windows?.forEach { w -> w.root?.takeIf { it.packageName?.toString() == PKG }?.let { out += it } }
