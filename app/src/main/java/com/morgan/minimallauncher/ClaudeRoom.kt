@@ -11,6 +11,9 @@ import android.graphics.RectF
 import android.graphics.Shader
 import android.view.Choreographer
 import android.view.View
+import kotlin.math.hypot
+import kotlin.math.abs
+import kotlin.math.sign
 import java.util.Calendar
 import kotlin.math.PI
 import kotlin.math.cos
@@ -37,6 +40,24 @@ class ClaudeRoomView(context: Context) : View(context) {
     private var nextBlink = 2.5f
     private val fm = FloatArray(2)
 
+    // Claude's position on the floor grid, and where he's heading.
+    private var cx = 2.9f; private var cy = 2.9f
+    private var tx = 2.9f; private var ty = 2.9f
+    private var facing = 1f               // +1 faces right-front, -1 left-front
+    private var walkPhase = 0f
+    private var idleTimer = 1.5f
+    private var state = "idle"            // idle | walk | sleep | dance
+    private var zzz = 0f
+    private val notes = ArrayList<Note>()
+    private var musicPlaying = false
+    private var musicCheck = 0f
+    private var steam = 0f
+
+    private class Note(var gx: Float, var gy: Float, var life: Float, val kind: Int)
+
+    private val waypoints = listOf(
+        2.1f to 2.2f, 3.9f to 2.3f, 3.0f to 3.4f, 2.3f to 4.0f, 4.3f to 2.0f, 1.9f to 3.0f)
+
     /** 0 unit = this many px; the room is laid out in a small grid then scaled. */
     private var unit = 1f
     private var ox = 0f
@@ -53,6 +74,7 @@ class ClaudeRoomView(context: Context) : View(context) {
                 if (selected && waveT > 0f) waveT -= dt
                 blink -= dt
                 if (blink < -0.12f) { blink = nextBlink; nextBlink = 2f + Math.random().toFloat() * 4f }
+                update(dt)
                 invalidate()
             }
             last = now
@@ -70,6 +92,61 @@ class ClaudeRoomView(context: Context) : View(context) {
 
     /** OK / tap selects Claude. */
     fun poke() { waveT = 1.3f; onSelect?.invoke() }
+
+    private fun update(dt: Float) {
+        steam = (steam + dt) % 100f
+        // Check what's playing now and then (cheap enough every ~1.5s).
+        musicCheck -= dt
+        if (musicCheck <= 0f) { musicCheck = 1.5f; musicPlaying = try { NowPlaying.current(context)?.playing == true } catch (e: Exception) { false } }
+
+        val deepNight = timeTint() > 0.9f
+        // Decide mood.
+        val want = when {
+            musicPlaying -> "dance"
+            deepNight && !selected -> "sleep"
+            else -> if (state == "sleep" || state == "dance") "idle" else state
+        }
+        if (want == "sleep" && state != "sleep") { state = "sleep"; tx = 4.1f; ty = 4.3f }
+        if (want == "dance" && state != "dance") { state = "dance" }
+        if (want == "idle" && (state == "sleep" || state == "dance")) { state = "idle"; idleTimer = 0.4f }
+
+        when (state) {
+            "dance" -> { zzz = 0f; moveToward(3.0f, 3.2f, dt, 1.0f) }
+            "sleep" -> { moveToward(tx, ty, dt, 1.0f); if (reached()) zzz += dt }
+            else -> {
+                zzz = 0f
+                if (!reached()) { state = "walk"; moveToward(tx, ty, dt, 1.3f) }
+                else {
+                    state = "idle"
+                    idleTimer -= dt
+                    if (idleTimer <= 0f) {
+                        val wp = waypoints[(Math.random() * waypoints.size).toInt()]
+                        tx = wp.first; ty = wp.second
+                        idleTimer = 2f + Math.random().toFloat() * 3f
+                    }
+                }
+            }
+        }
+
+        // Music notes drift up from Claude while something plays.
+        if (musicPlaying) {
+            if (Math.random() < dt * 3.0) notes += Note(cx + (Math.random().toFloat() - 0.5f), cy, 1.6f, (Math.random() * 3).toInt())
+        }
+        val it = notes.iterator()
+        while (it.hasNext()) { val n = it.next(); n.life -= dt; n.gy -= dt * 0.1f; if (n.life <= 0f) it.remove() }
+    }
+
+    private fun moveToward(gx: Float, gy: Float, dt: Float, speed: Float) {
+        val dx = gx - cx; val dy = gy - cy
+        val d = hypot(dx, dy)
+        if (d < 0.02f) return
+        val step = (speed * dt).coerceAtMost(d)
+        cx += dx / d * step; cy += dy / d * step
+        walkPhase += step * 6f
+        if (abs(dx) > 0.01f) facing = sign(dx - dy)
+    }
+
+    private fun reached() = hypot(tx - cx, ty - cy) < 0.06f
 
     // ---------- Isometric helpers ----------
     // A point (gx, gy, gz) in the little room grid -> screen. x runs right-back,
@@ -130,6 +207,7 @@ class ClaudeRoomView(context: Context) : View(context) {
         drawPlant(canvas, night)
         drawLamp(canvas, night)
         drawClaude(canvas, night)
+        drawNotes(canvas)
 
         // Night overlay dims everything a touch for mood.
         if (night > 0.05f) { p.color = (((night * 90).toInt()) shl 24); canvas.drawRect(0f, 0f, w, h, p) }
@@ -175,6 +253,26 @@ class ClaudeRoomView(context: Context) : View(context) {
         shade.lineTo(base[0] + unit * 0.4f, base[1] - unit * 1.5f)
         shade.lineTo(base[0] - unit * 0.4f, base[1] - unit * 1.5f); shade.close()
         p.color = blend(0xFFEAD8B0.toInt(), 0xFFFFE9A6.toInt(), night); canvas.drawPath(shade, p)
+
+        // A little mug of tea on the table, with rising steam.
+        val mug = pt(gx - 0.45f, gy + 0.3f, 1.1f)
+        p.color = blend(0xFFE7E1D4.toInt(), 0xFF9A9486.toInt(), night)
+        val mr = unit * 0.2f
+        canvas.drawRoundRect(RectF(mug[0] - mr, mug[1] - mr * 1.4f, mug[0] + mr, mug[1] + mr * 0.4f), mr * 0.3f, mr * 0.3f, p)
+        p.style = Paint.Style.STROKE; p.strokeWidth = unit * 0.06f
+        canvas.drawArc(RectF(mug[0] + mr * 0.4f, mug[1] - mr * 1.1f, mug[0] + mr * 1.3f, mug[1] - mr * 0.1f), -70f, 180f, false, p)
+        p.style = Paint.Style.FILL
+        p.color = blend(0xFF7A4A33.toInt(), 0xFF5A3726.toInt(), night)
+        canvas.drawOval(RectF(mug[0] - mr * 0.75f, mug[1] - mr * 1.5f, mug[0] + mr * 0.75f, mug[1] - mr * 1.1f), p)
+        p.color = 0x33FFFFFF; p.style = Paint.Style.STROKE; p.strokeWidth = unit * 0.05f; p.strokeCap = Paint.Cap.ROUND
+        for (i in 0 until 2) {
+            val sp = Path(); val sx0 = mug[0] + (i - 0.5f) * mr * 0.7f
+            val wob = sin(steam * 2.2f + i * 1.7f) * unit * 0.1f
+            sp.moveTo(sx0, mug[1] - mr * 1.5f)
+            sp.quadTo(sx0 + wob, mug[1] - mr * 2.4f, sx0 - wob * 0.5f, mug[1] - mr * 3.3f)
+            canvas.drawPath(sp, p)
+        }
+        p.style = Paint.Style.FILL; p.strokeCap = Paint.Cap.BUTT
     }
 
     private fun drawPlant(canvas: Canvas, night: Float) {
@@ -251,63 +349,94 @@ class ClaudeRoomView(context: Context) : View(context) {
     // ---------- Claude ----------
 
     private fun drawClaude(canvas: Canvas, night: Float) {
-        // Stands on the rug, a bit forward.
-        val breathe = sin(t * 1.6f) * 0.02f
-        val base = pt(2.9f, 2.9f, 0f)
+        val base = pt(cx, cy, 0f)
         val bx = base[0]; val by = base[1]
         val bodyR = unit * 1.0f
-        val bob = sin(t * 1.6f) * unit * 0.04f
-        val cy = by - bodyR - bob
+        val sleeping = state == "sleep" && reached()
+        val dancing = state == "dance"
+        val walking = state == "walk"
+        val breathe = sin(t * (if (sleeping) 0.9f else 1.6f)) * (if (sleeping) 0.03f else 0.02f)
+        val walkBob = if (walking) abs(sin(walkPhase)) * unit * 0.14f else 0f
+        val danceBob = if (dancing) abs(sin(t * 6f)) * unit * 0.18f else 0f
+        val sway = if (dancing) sin(t * 6f) * unit * 0.18f else 0f
+        val bob = sin(t * 1.6f) * unit * 0.04f + walkBob + danceBob
+        val cyTop = by - bodyR - (if (sleeping) unit * 0.35f else bob)
+        // 'cy' here is the character's head height on screen; keep the old name for the body maths.
+        val chy = cyTop
 
         // Soft shadow.
         p.color = 0x44000000
-        canvas.drawOval(RectF(bx - bodyR * 0.9f, by - unit * 0.2f, bx + bodyR * 0.9f, by + unit * 0.2f), p)
+        canvas.drawOval(RectF(dx - bodyR * 0.9f, by - unit * 0.2f, dx + bodyR * 0.9f, by + unit * 0.2f), p)
 
         // Glow when selected.
         if (selected) {
-            p.shader = RadialGradient(bx, cy, bodyR * 2.4f, 0x55D97757, 0x00D97757, Shader.TileMode.CLAMP)
-            canvas.drawCircle(bx, cy, bodyR * 2.4f, p); p.shader = null
+            p.shader = RadialGradient(dx, chy, bodyR * 2.4f, 0x55D97757, 0x00D97757, Shader.TileMode.CLAMP)
+            canvas.drawCircle(dx, chy, bodyR * 2.4f, p); p.shader = null
         }
 
         // Body: a rounded, friendly blob.
         p.color = CLAUDE
-        val body = RectF(bx - bodyR, cy - bodyR * (1.1f + breathe), bx + bodyR, by)
+        val body = RectF(dx - bodyR, chy - bodyR * (1.1f + breathe), dx + bodyR, by)
         canvas.drawRoundRect(body, bodyR, bodyR, p)
         // Belly highlight.
         p.color = 0x22FFFFFF
-        canvas.drawOval(RectF(bx - bodyR * 0.5f, cy - bodyR * 0.3f, bx + bodyR * 0.4f, by - unit * 0.2f), p)
+        canvas.drawOval(RectF(dx - bodyR * 0.5f, chy - bodyR * 0.3f, dx + bodyR * 0.4f, by - unit * 0.2f), p)
 
         // Little antenna spark on top, slowly spinning.
-        drawSpark(canvas, bx, cy - bodyR * (1.15f + breathe) - unit * 0.1f, unit * 0.3f, 0xFFFFC9A8.toInt(), t * 0.8f)
+        drawSpark(canvas, dx, chy - bodyR * (1.15f + breathe) - unit * 0.1f, unit * 0.3f, 0xFFFFC9A8.toInt(), t * 0.8f)
 
         // Eyes (blink) + smile.
-        val eyeY = cy - bodyR * 0.15f
-        val open = if (blink > 0f || blink < -0.12f) 1f else (0.12f + blink) / 0.12f  // quick blink dip
+        val eyeY = chy - bodyR * 0.15f
+        val open = if (sleeping) 0.05f else if (blink > 0f || blink < -0.12f) 1f else (0.12f + blink) / 0.12f
         p.color = 0xFF2A1C14.toInt()
         val ew = unit * 0.12f; val eh = unit * 0.2f * open.coerceIn(0.1f, 1f)
-        canvas.drawOval(RectF(bx - unit * 0.42f - ew, eyeY - eh, bx - unit * 0.42f + ew, eyeY + eh), p)
-        canvas.drawOval(RectF(bx + unit * 0.42f - ew, eyeY - eh, bx + unit * 0.42f + ew, eyeY + eh), p)
+        canvas.drawOval(RectF(dx - unit * 0.42f - ew, eyeY - eh, dx - unit * 0.42f + ew, eyeY + eh), p)
+        canvas.drawOval(RectF(dx + unit * 0.42f - ew, eyeY - eh, dx + unit * 0.42f + ew, eyeY + eh), p)
         // Eye sparkles.
-        if (open > 0.6f) { p.color = 0xCCFFFFFF.toInt(); canvas.drawCircle(bx - unit * 0.4f, eyeY - eh * 0.4f, unit * 0.04f, p); canvas.drawCircle(bx + unit * 0.44f, eyeY - eh * 0.4f, unit * 0.04f, p) }
+        if (open > 0.6f) { p.color = 0xCCFFFFFF.toInt(); canvas.drawCircle(dx - unit * 0.4f, eyeY - eh * 0.4f, unit * 0.04f, p); canvas.drawCircle(dx + unit * 0.44f, eyeY - eh * 0.4f, unit * 0.04f, p) }
         // Smile - bigger when selected.
         p.style = Paint.Style.STROKE; p.strokeWidth = unit * 0.07f; p.strokeCap = Paint.Cap.ROUND; p.color = 0xFF2A1C14.toInt()
-        val smile = Path(); val smY = cy + bodyR * 0.2f; val sw = unit * (if (selected) 0.4f else 0.3f)
-        smile.moveTo(bx - sw, smY); smile.quadTo(bx, smY + unit * (if (selected) 0.4f else 0.26f), bx + sw, smY)
+        val smile = Path(); val smY = chy + bodyR * 0.2f; val sw = unit * (if (selected) 0.4f else 0.3f)
+        smile.moveTo(dx - sw, smY); smile.quadTo(dx, smY + unit * (if (selected) 0.4f else 0.26f), dx + sw, smY)
         canvas.drawPath(smile, p); p.style = Paint.Style.FILL
 
         // Cheeks.
         p.color = 0x33C45A3B
-        canvas.drawCircle(bx - unit * 0.6f, smY, unit * 0.14f, p); canvas.drawCircle(bx + unit * 0.6f, smY, unit * 0.14f, p)
+        canvas.drawCircle(dx - unit * 0.6f, smY, unit * 0.14f, p); canvas.drawCircle(dx + unit * 0.6f, smY, unit * 0.14f, p)
 
         // Arm wave when selected.
         if (waveT > 0f) {
             val swing = sin((1.3f - waveT) * 18f) * 0.5f
             p.color = CLAUDE_DARK; p.style = Paint.Style.STROKE; p.strokeWidth = unit * 0.22f; p.strokeCap = Paint.Cap.ROUND
-            val sx = bx + bodyR * 0.9f; val sy = cy + bodyR * 0.1f
+            val sx = dx + bodyR * 0.9f; val sy = chy + bodyR * 0.1f
             canvas.drawLine(sx, sy, sx + unit * (0.5f + swing * 0.2f), sy - unit * (0.7f + swing), p)
             p.style = Paint.Style.FILL; canvas.drawCircle(sx + unit * (0.5f + swing * 0.2f), sy - unit * (0.7f + swing), unit * 0.18f, p)
         }
+        // Sleepy Zzz float up at night.
+        if (sleeping) {
+            p.textAlign = Paint.Align.LEFT
+            p.typeface = GlassUi.font(context, R.font.inter_semibold)
+            for (i in 0 until 3) {
+                val ph = (zzz * 0.6f + i * 0.4f) % 1.2f
+                p.color = ((1f - ph / 1.2f) * 200).toInt().coerceIn(0, 255) shl 24 or 0xFFFFFF
+                p.textSize = unit * (0.3f + i * 0.12f)
+                canvas.drawText("z", dx + bodyR * 0.6f + ph * unit * 0.8f, chy - bodyR * (1.2f + breathe) - ph * unit * 1.4f, p)
+            }
+        }
         p.strokeCap = Paint.Cap.BUTT
+    }
+
+    /** Floating music notes while something plays. */
+    private fun drawNotes(canvas: Canvas) {
+        p.typeface = GlassUi.font(context, R.font.inter_semibold); p.textAlign = Paint.Align.CENTER
+        for (n in notes) {
+            val a = pt(n.gx, n.gy, 1.6f + (1.6f - n.life) * 0.9f)
+            val al = (n.life.coerceIn(0f, 1f) * 220).toInt()
+            p.color = (al shl 24) or (0xFFD1A3 and 0xFFFFFF) or 0xD97757 and 0xFFFFFF
+            p.color = (al shl 24) or 0xD97757
+            p.textSize = unit * 0.5f
+            canvas.drawText(if (n.kind == 0) "♪" else if (n.kind == 1) "♫" else "♩", a[0], a[1], p)
+        }
     }
 
     // ---------- Blocks & time ----------
