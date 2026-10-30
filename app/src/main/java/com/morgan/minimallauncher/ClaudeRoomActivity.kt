@@ -25,7 +25,7 @@ class ClaudeRoomActivity : AppCompatActivity() {
         root.addView(room, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         setContentView(root)
         UiSounds.attach(this)
-        room.setSelected(true)   // he notices you've come in, and waves
+        room.wake(true)   // he notices you've come in, and waves
     }
 
     private fun openChat() {

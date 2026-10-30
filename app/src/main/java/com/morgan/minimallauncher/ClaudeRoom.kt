@@ -85,7 +85,7 @@ class ClaudeRoomView(context: Context) : View(context) {
     override fun onAttachedToWindow() { super.onAttachedToWindow(); Choreographer.getInstance().postFrameCallback(callback) }
     override fun onDetachedFromWindow() { super.onDetachedFromWindow(); Choreographer.getInstance().removeFrameCallback(callback) }
 
-    fun setSelected(on: Boolean) {
+    fun wake(on: Boolean) {
         if (on && !selected) waveT = 1.3f
         selected = on
     }
@@ -432,7 +432,6 @@ class ClaudeRoomView(context: Context) : View(context) {
         for (n in notes) {
             val a = pt(n.gx, n.gy, 1.6f + (1.6f - n.life) * 0.9f)
             val al = (n.life.coerceIn(0f, 1f) * 220).toInt()
-            p.color = (al shl 24) or (0xFFD1A3 and 0xFFFFFF) or 0xD97757 and 0xFFFFFF
             p.color = (al shl 24) or 0xD97757
             p.textSize = unit * 0.5f
             canvas.drawText(if (n.kind == 0) "♪" else if (n.kind == 1) "♫" else "♩", a[0], a[1], p)
