@@ -34,8 +34,9 @@ import kotlin.random.Random
  *  - AMBIENT: a digital picture frame - full-screen photos, artwork or
  *    your own album, a large minimalist clock, weather, and what's playing
  *    with a music visualiser.
- *  - AERIAL: slowly drifting landscapes (by category) with the time,
- *    weather and the location of each picture.
+ *  - AERIAL: real drone films flying over landscapes (by category, free
+ *    footage from Wikimedia Commons) with the time, weather and place;
+ *    drifting photos only until the first film is ready or with no internet.
  *  - SLEEP: a dark screen with a dim clock that drifts to protect the panel.
  */
 class AmbientScreen(private val c: Context, mode: String) {
@@ -48,6 +49,12 @@ class AmbientScreen(private val c: Context, mode: String) {
     private val handler = Handler(Looper.getMainLooper())
     private val photoA = photoView()
     private val photoB = photoView()
+    private val video = android.view.TextureView(c).apply { alpha = 0f }
+    private var player: android.media.MediaPlayer? = null
+    private var videos: List<PhotoSources.Video> = emptyList()
+    private var videoIndex = 0
+    private var videoFailures = 0
+    private var playingVideo = false
     private val scrim = View(c)
     private val overlay = FrameLayout(c)
     private val clock = GlassUi.text(c, "", 120f, R.font.inter_regular)
@@ -69,6 +76,7 @@ class AmbientScreen(private val c: Context, mode: String) {
     init {
         view.addView(photoA, FrameLayout.LayoutParams(-1, -1))
         view.addView(photoB, FrameLayout.LayoutParams(-1, -1))
+        view.addView(video, FrameLayout.LayoutParams(-1, -1))
         view.addView(scrim, FrameLayout.LayoutParams(-1, -1))
         view.addView(overlay, FrameLayout.LayoutParams(-1, -1))
         listOf(clock, date, weather, place, credit).forEach { it.setShadowLayer(dp(c, 10f).toFloat(), 0f, 0f, 0x66000000) }
@@ -89,18 +97,23 @@ class AmbientScreen(private val c: Context, mode: String) {
             loadPictures()
             handler.post(slideTick)
         }
+        if (mode == AERIAL) startVideos()
     }
 
     fun stop() {
         running = false
         handler.removeCallbacksAndMessages(null)
-        listOf(photoA, photoB, clock, place).forEach { it.animate().cancel() }
+        listOf(photoA, photoB, clock, place, video).forEach { it.animate().cancel() }
         releaseVisualizer()
+        releasePlayer()
+        playingVideo = false
+        video.alpha = 0f
     }
 
     /** Next picture now (Left/Right on the remote). */
     fun next() {
         if (!running || mode == SLEEP) return
+        if (playingVideo) { nextVideo(); return }
         handler.removeCallbacks(slideTick)
         handler.post(slideTick)
     }
@@ -309,12 +322,12 @@ class AmbientScreen(private val c: Context, mode: String) {
     }
 
     private fun showNext() {
-        if (pics.isEmpty()) return
+        if (pics.isEmpty() || playingVideo) return
         if (index >= pics.size) index = 0
         val slide = pics[index++]
         Thread {
             val bmp = try { slide.load() } catch (e: OutOfMemoryError) { null }
-            handler.post { if (running && bmp != null) crossfade(bmp, slide) }
+            handler.post { if (running && bmp != null && !playingVideo) crossfade(bmp, slide) }
         }.start()
     }
 
@@ -361,6 +374,118 @@ class AmbientScreen(private val c: Context, mode: String) {
             t.alpha = 0f
             t.animate().alpha(1f).setStartDelay(FADE_MS).setDuration(1200).withEndAction {
                 if (mode == AERIAL) t.animate().alpha(0f).setStartDelay(12_000).setDuration(1500).start()
+            }.start()
+        }
+    }
+
+    // ---------- Aerial films ----------
+
+    private fun startVideos() {
+        val category = Prefs.aerialCategory(c)
+        Thread {
+            val list = try { PhotoSources.aerialVideos(c, category).shuffled() } catch (e: Exception) { emptyList() }
+            handler.post {
+                if (!running || mode != AERIAL || list.isEmpty()) return@post
+                videos = list
+                videoIndex = 0
+                videoFailures = 0
+                if (video.isAvailable) playVideo() else video.surfaceTextureListener = object : android.view.TextureView.SurfaceTextureListener {
+                    override fun onSurfaceTextureAvailable(st: android.graphics.SurfaceTexture, w: Int, h: Int) { if (running && player == null) playVideo() }
+                    override fun onSurfaceTextureSizeChanged(st: android.graphics.SurfaceTexture, w: Int, h: Int) = fitVideo()
+                    override fun onSurfaceTextureDestroyed(st: android.graphics.SurfaceTexture) = true.also { releasePlayer() }
+                    override fun onSurfaceTextureUpdated(st: android.graphics.SurfaceTexture) {}
+                }
+            }
+        }.start()
+    }
+
+    private fun playVideo() {
+        if (!running || videos.isEmpty() || !video.isAvailable) return
+        releasePlayer()
+        val clip = videos[videoIndex % videos.size]
+        videoIndex++
+        val mp = android.media.MediaPlayer()
+        player = mp
+        try {
+            mp.setSurface(android.view.Surface(video.surfaceTexture))
+            mp.setDataSource(c, android.net.Uri.parse(clip.url), mapOf("User-Agent" to Net.USER_AGENT))
+            mp.setVolume(0f, 0f)
+            mp.setOnPreparedListener {
+                if (player !== mp || !running) return@setOnPreparedListener
+                videoFailures = 0
+                fitVideo()
+                mp.start()
+                playingVideo = true
+                handler.removeCallbacks(slideTick)
+                video.bringToFront(); scrim.bringToFront(); overlay.bringToFront()
+                video.animate().alpha(1f).setDuration(1600).setInterpolator(DecelerateInterpolator()).start()
+                showCaption(clip.place, clip.credit)
+                // Long films move on after a while, like Apple's aerials.
+                handler.removeCallbacks(videoTimeout)
+                handler.postDelayed(videoTimeout, VIDEO_MAX_MS)
+            }
+            mp.setOnCompletionListener { if (player === mp) nextVideo() }
+            mp.setOnErrorListener { _, _, _ ->
+                if (player === mp) failed()
+                true
+            }
+            mp.prepareAsync()
+        } catch (e: Exception) {
+            failed()
+        }
+    }
+
+    private val videoTimeout = Runnable { if (playingVideo) nextVideo() }
+
+    /** Fade out, then the next film. */
+    private fun nextVideo() {
+        handler.removeCallbacks(videoTimeout)
+        video.animate().cancel()
+        video.animate().alpha(0f).setDuration(900).withEndAction { if (running) playVideo() }.start()
+    }
+
+    /** A film that won't play is skipped; if none will, the photos carry on. */
+    private fun failed() {
+        releasePlayer()
+        videoFailures++
+        if (videoFailures >= 3 || videoFailures >= videos.size) {
+            playingVideo = false
+            video.animate().alpha(0f).setDuration(900).start()
+            handler.removeCallbacks(slideTick)
+            handler.post(slideTick)
+        } else handler.postDelayed({ if (running) playVideo() }, 500)
+    }
+
+    /** Fill the screen without stretching (centre crop). */
+    private fun fitVideo() {
+        val mp = player ?: return
+        val vw = try { mp.videoWidth } catch (e: Exception) { 0 }
+        val vh = try { mp.videoHeight } catch (e: Exception) { 0 }
+        val w = video.width.toFloat(); val h = video.height.toFloat()
+        if (vw == 0 || vh == 0 || w == 0f || h == 0f) return
+        val scale = maxOf(w / vw, h / vh)
+        val m = android.graphics.Matrix()
+        m.setScale(vw * scale / w, vh * scale / h, w / 2f, h / 2f)
+        video.setTransform(m)
+    }
+
+    private fun releasePlayer() {
+        handler.removeCallbacks(videoTimeout)
+        val mp = player ?: return
+        player = null
+        try { mp.stop() } catch (e: Exception) {}
+        try { mp.release() } catch (e: Exception) {}
+    }
+
+    private fun showCaption(where: String, by: String) {
+        val show = Prefs.showLocation(c) && where.isNotBlank()
+        place.text = if (show) where else ""
+        credit.text = if (show) by else ""
+        for (t in listOf(place, credit)) {
+            t.animate().cancel()
+            t.alpha = 0f
+            t.animate().alpha(1f).setStartDelay(1200).setDuration(1200).withEndAction {
+                t.animate().alpha(0f).setStartDelay(12_000).setDuration(1500).start()
             }.start()
         }
     }
@@ -412,6 +537,7 @@ class AmbientScreen(private val c: Context, mode: String) {
         const val SLEEP = "sleep"
         private const val AMBIENT_MS = 60_000L
         private const val AERIAL_MS = 40_000L
+        private const val VIDEO_MAX_MS = 150_000L
         private const val FADE_MS = 2500L
     }
 }

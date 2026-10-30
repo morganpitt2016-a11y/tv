@@ -123,8 +123,12 @@ class MainActivity : AppCompatActivity() {
         root.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> fitStage() }
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() = Unit
+            // Back from the app grid returns to the dock; otherwise home stays put.
+            override fun handleOnBackPressed() {
+                if (inGrid) dock.getChildAt(0)?.requestFocus()
+            }
         })
+        ui.viewTreeObserver.addOnGlobalFocusChangeListener { _, now -> gridFocusMoved(now) }
 
         for ((button, scale) in listOf(nightModeButton to 1.08f, quickSettingsButton to 1.08f, cinemaButton to 1.08f)) {
             addFocusScale(button, scale)
@@ -191,6 +195,7 @@ class MainActivity : AppCompatActivity() {
         buildProfileSwitch()
         buildDock(allApps)
         buildKeepWatching(allApps)
+        buildAppGrid(allApps)
         buildDeviceRow()
         fetchDevicesIfNeeded()
         if (focusActiveProfile) {
@@ -246,7 +251,7 @@ class MainActivity : AppCompatActivity() {
                 // A soft dissolve as the minute turns over, rather than a hard jump.
                 clockText.animate().alpha(0.15f).setDuration(260).setInterpolator(Motion.standard).withEndAction {
                     clockText.text = time
-                    clockText.animate().alpha(1f).setDuration(420).setInterpolator(Motion.standard).start()
+                    clockText.animate().alpha(if (inGrid) 0f else 1f).setDuration(420).setInterpolator(Motion.standard).start()
                 }.start()
             }
         }
@@ -270,6 +275,9 @@ class MainActivity : AppCompatActivity() {
         // Cinema mode: a thin, warm, cinema-style clock.
         clockText.setFontVariationSettings(if (cinema) "'wdth' 60, 'wght' 170, 'opsz' 144, 'YTFI' 788" else "'wdth' 72, 'wght' 480, 'opsz' 144, 'YTFI' 788")
         clockText.setTextColor(if (cinema) 0xE6F2E6D0.toInt() else 0xEDFFFFFF.toInt())
+        // The thin cinema digits change the clock's width: measure it again so no digit is cut off.
+        clockText.text = clockText.text
+        clockText.requestLayout()
         val target = when {
             cinema -> 0.72f
             isNightMode() -> 0.55f
@@ -450,41 +458,66 @@ class MainActivity : AppCompatActivity() {
             }
         }
         ui.addView(dockBackdrop, ui.indexOfChild(dock), lp)
+        dock.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> dockBackdrop.post { alignDockBackdrop() } }
     }
+
+    private var backdropBitmap: android.graphics.Bitmap? = null
 
     private fun updateDockBackdrop(full: android.graphics.Bitmap) {
         if (Build.VERSION.SDK_INT < 31) return
         val w = 480
-        val small = android.graphics.Bitmap.createScaledBitmap(full, w, (w.toFloat() * full.height / full.width).toInt().coerceAtLeast(1), true)
+        backdropBitmap = android.graphics.Bitmap.createScaledBitmap(full, w, (w.toFloat() * full.height / full.width).toInt().coerceAtLeast(1), true)
         dockBackdrop.post {
-            // Line the blurred photo up exactly with the wallpaper behind the dock.
-            val sw = stage.width.toFloat(); val sh = stage.height.toFloat()
-            if (sw == 0f) return@post
-            val s = maxOf(sw / small.width, sh / small.height)
-            val m = android.graphics.Matrix()
-            m.setScale(s, s)
-            m.postTranslate((sw - small.width * s) / 2f - dockBackdrop.left, (sh - small.height * s) / 2f - dockBackdrop.top)
-            dockBackdrop.imageMatrix = m
-            dockBackdrop.setImageBitmap(small)
+            alignDockBackdrop()
             dockBackdrop.animate().alpha(1f).setDuration(1200).setInterpolator(Motion.standard).start()
         }
     }
 
+    /** Keep the blurred glass the same size as the dock and lined up with the wallpaper behind it. */
+    private fun alignDockBackdrop() {
+        val lp = dockBackdrop.layoutParams as FrameLayout.LayoutParams
+        if (dock.width > 0 && (lp.width != dock.width || lp.height != dock.height)) {
+            lp.width = dock.width; lp.height = dock.height
+            dockBackdrop.layoutParams = lp
+            dockBackdrop.post { alignDockBackdrop() }
+            return
+        }
+        val small = backdropBitmap ?: return
+        val sw = stage.width.toFloat(); val sh = stage.height.toFloat()
+        if (sw == 0f) return
+        val s = maxOf(sw / small.width, sh / small.height)
+        val m = android.graphics.Matrix()
+        m.setScale(s, s)
+        m.postTranslate((sw - small.width * s) / 2f - dock.left, (sh - small.height * s) / 2f - dock.top)
+        dockBackdrop.imageMatrix = m
+        if (dockBackdrop.drawable == null || (dockBackdrop.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap !== small) dockBackdrop.setImageBitmap(small)
+    }
+
     // ---------- App dock ----------
 
-    /** Up to 10 of the active profile's apps in their chosen order, then Settings and More. */
+    /**
+     * The active profile's apps as wide tvOS-style tiles, then Watch and
+     * Settings. The dock is only as wide as its tiles, so a few apps make
+     * a small dock.
+     */
     private fun buildDock(allApps: List<AppEntry>) {
         dock.removeAllViews()
         val order = ProfileManager.getDockOrder(this)
         val byPkg = allApps.associateBy { it.packageName }
-        val apps = (if (order.isEmpty()) allApps else order.mapNotNull { byPkg[it] }).take(9)
+        val apps = (if (order.isEmpty()) allApps.take(6) else order.mapNotNull { byPkg[it] }).take(9)
         dockPackages = apps.map { it.packageName }
 
-        val tileSize = dp(56)
+        // Tiles shrink only when there are too many to fit the screen.
+        val count = apps.size + 2
+        val maxWidth = 900 - 28 - DOCK_GAP * (count - 1)
+        dockTileW = minOf(92, maxWidth / count)
+        dockTileH = (dockTileW / AppTiles.RATIO).toInt()
+        val w = dp(dockTileW); val h = dp(dockTileH)
+
         for (app in apps) {
             val image = ImageView(this).apply {
                 scaleType = ImageView.ScaleType.FIT_XY
-                setImageBitmap(TileRenderer.forApp(app, tileSize))
+                setImageBitmap(AppTiles.forApp(this@MainActivity, app, w, h))
             }
             val tile = addDockTile(image, 0, "Open ${app.label}") { v -> AppActions.launch(this, app, v) }
             tile.isLongClickable = true
@@ -493,29 +526,44 @@ class MainActivity : AppCompatActivity() {
                 true
             }
         }
-        addDockTile(glyph(R.drawable.ic_lucide_play, 20), SYSTEM_TILE, "Watch: films and shows on all your apps") {
+        addDockTile(systemTile(R.drawable.ic_lucide_play, "Watch"), 0xFF000000.toInt(), "Watch: films and shows on all your apps") {
             startActivity(Intent(this, WatchActivity::class.java))
         }
-        addDockTile(glyph(R.drawable.ic_lucide_settings, 22), SYSTEM_TILE, getString(R.string.settings)) {
+        addDockTile(glyph(R.drawable.ic_lucide_settings, (dockTileH * 0.42f).toInt()), 0, getString(R.string.settings), SETTINGS_GRADIENT) {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
-        addDockTile(glyph(R.drawable.ic_lucide_more, 22), SYSTEM_TILE, getString(R.string.more_apps)) {
-            startActivity(Intent(this, AllAppsActivity::class.java))
-        }
     }
+
+    private var dockTileW = 92
+    private var dockTileH = 55
 
     private fun glyph(res: Int, sizeDp: Int) = ImageView(this).apply {
         setImageResource(res)
-        scaleType = ImageView.ScaleType.CENTER_INSIDE
-        val pad = (dp(56) - dp(sizeDp)) / 2
-        setPadding(pad, pad, pad, pad)
+        imageTintList = ColorStateList.valueOf(0xFFFFFFFF.toInt())
+        scaleType = ImageView.ScaleType.FIT_CENTER
+        val padV = (dp(dockTileH) - dp(sizeDp)) / 2
+        val padH = (dp(dockTileW) - dp(sizeDp)) / 2
+        setPadding(padH, padV, padH, padV)
     }
 
-    private fun addDockTile(content: View, background: Int, label: String, onClick: (View) -> Unit): View {
+    /** Glyph and name, like the Apple TV app's own tile. */
+    private fun systemTile(res: Int, name: String) = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER
+        val size = (dockTileH * 0.3f).toInt()
+        addView(ImageView(this@MainActivity).apply {
+            setImageResource(res)
+            imageTintList = ColorStateList.valueOf(0xFFFFFFFF.toInt())
+        }, LinearLayout.LayoutParams(dp(size), dp(size)))
+        addView(label(name, R.font.inter_semibold, dockTileH * 0.25f, 0xFFFFFFFF.toInt()).apply { setShadowLayer(0f, 0f, 0f, 0) },
+            LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(4) })
+    }
+
+    private fun addDockTile(content: View, background: Int, label: String, gradient: IntArray? = null, onClick: (View) -> Unit): View {
         val tile = FrameLayout(this).apply {
             this.background = GradientDrawable().apply {
-                cornerRadius = dp(12).toFloat()
-                setColor(background)
+                cornerRadius = dp(10).toFloat()
+                if (gradient != null) { colors = gradient; orientation = GradientDrawable.Orientation.TOP_BOTTOM } else setColor(background)
             }
             clipToOutline = true
             outlineProvider = ViewOutlineProvider.BACKGROUND
@@ -529,15 +577,10 @@ class MainActivity : AppCompatActivity() {
         val name = label.removePrefix("Open ").substringBefore(":")
         tile.setOnFocusChangeListener { v, has ->
             Motion.focus(v, has, 1.12f, 12f)
-            // A restrained glow under the selected icon.
-            if (Build.VERSION.SDK_INT >= 28) {
-                v.outlineSpotShadowColor = if (has) 0x8CFFFFFF.toInt() else 0xFF000000.toInt()
-                v.outlineAmbientShadowColor = if (has) 0x40FFFFFF else 0xFF000000.toInt()
-            }
             showDockLabel(if (has) v else null, name)
         }
-        val lp = LinearLayout.LayoutParams(dp(56), dp(56))
-        if (dock.childCount > 0) lp.marginStart = dp(13)
+        val lp = LinearLayout.LayoutParams(dp(dockTileW), dp(dockTileH))
+        if (dock.childCount > 0) lp.marginStart = dp(DOCK_GAP)
         dock.addView(tile, lp)
         return tile
     }
@@ -554,6 +597,122 @@ class MainActivity : AppCompatActivity() {
             dockLabel.translationX = centre - dockLabel.width / 2f
             dockLabel.animate().alpha(1f).setInterpolator(Motion.standard).setDuration(Motion.FADE).start()
         }
+    }
+
+    // ---------- App grid (below the dock, like tvOS) ----------
+
+    private val gridExec = java.util.concurrent.Executors.newSingleThreadExecutor()
+    private var gridKey = ""
+    private var inGrid = false
+    private var storeLogos: Map<String, String>? = null
+
+    /** Every installed app, then the popular TV apps you don't have yet (choosing one offers the download). */
+    private fun buildAppGrid(allApps: List<AppEntry>) {
+        val installed = allApps.map { it.packageName }.toSet()
+        val missing = AppTiles.STORE.filter { AppTiles.installedPackage(installed, it) == null }
+        val key = allApps.joinToString(",") { it.packageName }
+        if (key == gridKey && rails.childCount > 0) return
+        gridKey = key
+        rails.removeAllViews()
+        val items: List<Any> = allApps + missing
+        val w = dp(GRID_W); val h = dp(GRID_H)
+        val side = dp((960 - GRID_COLS * GRID_W - (GRID_COLS - 1) * GRID_GAP) / 2)
+        rails.setPadding(side, 0, side, dp(60))
+        var row: LinearLayout? = null
+        items.forEachIndexed { i, item ->
+            if (i % GRID_COLS == 0) {
+                row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; clipChildren = false; clipToPadding = false }
+                rails.addView(row, LinearLayout.LayoutParams(-1, -2).apply { if (i > 0) topMargin = dp(4) })
+            }
+            row?.addView(gridCell(item, w, h), LinearLayout.LayoutParams(w, -2).apply { if (i % GRID_COLS > 0) marginStart = dp(GRID_GAP) })
+        }
+    }
+
+    private fun gridCell(item: Any, w: Int, h: Int): View {
+        val name = when (item) { is AppEntry -> item.label; is AppTiles.StoreApp -> item.name; else -> "" }
+        val image = ImageView(this).apply { scaleType = ImageView.ScaleType.FIT_XY }
+        val tile = FrameLayout(this).apply {
+            background = GradientDrawable().apply { cornerRadius = dp(10).toFloat(); setColor(0xFF1C1C1E.toInt()) }
+            clipToOutline = true
+            outlineProvider = ViewOutlineProvider.BACKGROUND
+            foreground = ContextCompat.getDrawable(this@MainActivity, R.drawable.tile_light)
+            isFocusable = true
+            isClickable = true
+            contentDescription = if (item is AppTiles.StoreApp) "Get $name" else "Open $name"
+            addView(image, FrameLayout.LayoutParams(-1, -1))
+        }
+        val caption = label(name, R.font.inter_medium, 11f, 0xF2FFFFFF.toInt()).apply {
+            gravity = Gravity.CENTER
+            alpha = 0f
+        }
+        val cell = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            clipChildren = false
+            addView(tile, LinearLayout.LayoutParams(w, h))
+            addView(caption, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(9) })
+        }
+        tile.setOnFocusChangeListener { v, has ->
+            Motion.focus(v, has, 1.1f, 12f)
+            caption.animate().alpha(if (has) 1f else 0f).setDuration(Motion.FADE).setInterpolator(Motion.standard).start()
+        }
+        when (item) {
+            is AppEntry -> {
+                tile.setOnClickListener { AppActions.launch(this, item, it) }
+                tile.isLongClickable = true
+                tile.setOnLongClickListener { AppActions.menu(this, item, tile, dockPackages) { refreshAll() }; true }
+            }
+            is AppTiles.StoreApp -> {
+                tile.setOnClickListener { AppTiles.offerDownload(this, item) }
+                image.alpha = 0.92f
+            }
+        }
+        // Artwork is drawn off the main thread so the home screen never stutters.
+        val app = applicationContext
+        gridExec.execute(Runnable {
+            val bmp = try {
+                when (item) {
+                    is AppEntry -> AppTiles.forApp(app, item, w, h)
+                    is AppTiles.StoreApp -> AppTiles.forStore(app, item, storeLogo(item), w, h)
+                    else -> null
+                }
+            } catch (e: Throwable) { null }
+            if (bmp != null) handler.post { image.setImageBitmap(bmp) }
+        })
+    }
+
+    /** The service's own logo from JustWatch, when there is one (runs on the grid thread). */
+    private fun storeLogo(app: AppTiles.StoreApp): android.graphics.Bitmap? {
+        val service = app.service ?: return null
+        val logos = storeLogos ?: (try {
+            WatchCatalog.providers(this).mapNotNull { p -> p.icon?.let { p.technical to it } }.toMap()
+        } catch (e: Exception) { emptyMap() }).also { storeLogos = it }
+        val url = logos[service] ?: return null
+        return try { ImageLoader.fetch(applicationContext, url, ImageLoader.ICON) } catch (e: Exception) { null }
+    }
+
+    /** Moving into the grid glides the home screen up; moving back to the dock brings it down again. */
+    private fun gridFocusMoved(now: View?) {
+        var v: View? = now
+        var gridRow: View? = null
+        while (v != null && v !== ui) {
+            val parent = v.parent as? View
+            if (parent === rails) { gridRow = v; break }
+            v = parent
+        }
+        val nowInGrid = gridRow != null
+        if (nowInGrid) {
+            val index = rails.indexOfChild(gridRow)
+            val rowTop = rails.top + gridRow!!.top
+            val target = -(rowTop - dp(if (index == 0) 165 else 200)).toFloat()
+            ui.animate().translationY(target).setDuration(450).setInterpolator(Motion.standard).start()
+        }
+        if (nowInGrid == inGrid) return
+        inGrid = nowInGrid
+        if (!nowInGrid) ui.animate().translationY(0f).setDuration(450).setInterpolator(Motion.standard).start()
+        val fade = if (nowInGrid) 0f else 1f
+        clockText.animate().alpha(fade).setDuration(Motion.PANEL).setInterpolator(Motion.standard).start()
+        railScrim.animate().alpha(1f - fade).setDuration(Motion.PANEL).setInterpolator(Motion.standard).start()
     }
 
     // ---------- Continue watching (artwork + text, no cards) ----------
@@ -742,7 +901,12 @@ class MainActivity : AppCompatActivity() {
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density + 0.5f).toInt()
 
     companion object {
-        private const val SYSTEM_TILE = 0xFF3A383E.toInt()
+        private const val DOCK_GAP = 12
+        private const val GRID_COLS = 6
+        private const val GRID_W = 124
+        private const val GRID_H = 74
+        private const val GRID_GAP = 20
+        private val SETTINGS_GRADIENT = intArrayOf(0xFF9A9AA0.toInt(), 0xFF6E6E73.toInt())
         private const val NIGHT_FADE_MS = 900L
         private const val AMBIENT_STEP_MS = 60_000L
     }

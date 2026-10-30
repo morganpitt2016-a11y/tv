@@ -118,6 +118,75 @@ object PhotoSources {
         return out
     }
 
+    // ---------- Aerial video (Wikimedia Commons drone footage) ----------
+
+    data class Video(val url: String, val place: String, val credit: String)
+
+    private val videoWords = mapOf(
+        "mountains" to "mountains", "coast" to "coast", "forests" to "forest", "lakes" to "lake",
+        "ice" to "glacier", "deserts" to "desert", "cities" to "city", "skies" to "clouds",
+    )
+
+    /** Freely licensed drone films for a category (blocking; cached for a week). */
+    fun aerialVideos(c: Context, categoryId: String): List<Video> {
+        val file = File(dir(c, "video"), "$categoryId.json")
+        fun read(): List<Video> = try {
+            val a = JSONArray(file.readText())
+            (0 until a.length()).map { a.getJSONObject(it) }.map { Video(it.getString("u"), it.getString("p"), it.getString("c")) }
+        } catch (e: Exception) { emptyList() }
+        if (file.exists() && System.currentTimeMillis() - file.lastModified() < MAX_AGE) read().takeIf { it.size >= 2 }?.let { return it }
+        val word = videoWords[categoryId] ?: "landscape"
+        val found = LinkedHashMap<String, Video>()
+        for (q in listOf("drone $word", "aerial $word", "drone footage landscape", "aerial view")) {
+            if (found.size >= 10) break
+            try { fetchVideos(q).forEach { found.putIfAbsent(it.url, it) } } catch (e: Exception) {}
+        }
+        val list = found.values.toList()
+        if (list.isEmpty()) return read()
+        val json = JSONArray()
+        list.forEach { json.put(JSONObject().put("u", it.url).put("p", it.place).put("c", it.credit)) }
+        try { file.writeText(json.toString()) } catch (e: Exception) {}
+        return list
+    }
+
+    private fun fetchVideos(query: String): List<Video> {
+        val params = mapOf(
+            "action" to "query", "format" to "json", "generator" to "search",
+            "gsrnamespace" to "6", "gsrlimit" to "40",
+            "gsrsearch" to "filetype:video $query",
+            "prop" to "videoinfo", "viprop" to "url|size|mime|derivatives|extmetadata",
+        )
+        val url = "https://commons.wikimedia.org/w/api.php?" + params.entries.joinToString("&") {
+            it.key + "=" + URLEncoder.encode(it.value, "UTF-8")
+        }
+        val pages = JSONObject(Net.get(url)).optJSONObject("query")?.optJSONObject("pages") ?: return emptyList()
+        val out = mutableListOf<Video>()
+        for (p in pages.keys().asSequence().map { pages.getJSONObject(it) }.sortedBy { it.optInt("index") }) {
+            val vi = p.optJSONArray("videoinfo")?.optJSONObject(0) ?: continue
+            val w = vi.optInt("width"); val h = vi.optInt("height")
+            val seconds = vi.optDouble("duration", 0.0)
+            // Wide, sharp clips long enough to settle into.
+            if (h < 720 || w.toFloat() / h !in 1.6f..2.0f || seconds < 15) continue
+            val ders = vi.optJSONArray("derivatives")
+            val byKey = HashMap<String, String>()
+            if (ders != null) for (i in 0 until ders.length()) {
+                val d = ders.optJSONObject(i) ?: continue
+                byKey[d.optString("transcodekey")] = d.optString("src")
+            }
+            val src = byKey["1080p.vp9.webm"] ?: byKey["720p.vp9.webm"] ?: byKey["1080p.webm"] ?: byKey["720p.webm"]
+                ?: vi.optString("url").takeIf { vi.optString("mime").startsWith("video/webm") && w <= 1920 }
+                ?: continue
+            if (src.isBlank()) continue
+            val meta = vi.optJSONObject("extmetadata")
+            val name = meta?.optJSONObject("ObjectName")?.optString("value")?.let(::plain)?.takeIf { it.isNotBlank() }
+                ?: p.optString("title").removePrefix("File:").substringBeforeLast('.').replace('_', ' ')
+            val artist = meta?.optJSONObject("Artist")?.optString("value")?.let(::plain).orEmpty()
+            val licence = meta?.optJSONObject("LicenseShortName")?.optString("value").orEmpty()
+            out += Video(src, name.take(80), listOf(artist.take(60), licence, "Wikimedia Commons").filter { it.isNotBlank() }.joinToString(" · "))
+        }
+        return out
+    }
+
     // ---------- Art Institute of Chicago (public domain) ----------
 
     private fun fetchArt(d: File): List<Pic> {

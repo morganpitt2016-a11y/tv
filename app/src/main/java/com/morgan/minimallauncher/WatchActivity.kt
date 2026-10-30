@@ -305,7 +305,7 @@ class WatchActivity : AppCompatActivity() {
     private fun categoryLoads(type: String): List<Triple<String, String, TitleLoader>> {
         val what = if (type == "MOVIE") "Films" else "Shows"
         val list = mutableListOf<Triple<String, String, TitleLoader>>()
-        list += Triple<String, String, TitleLoader>("pop", "Popular $what") { d -> WatchCatalog.titles(this, packages = shorts(), types = listOf(type), done = d) }
+        list += Triple<String, String, TitleLoader>("pop", "All $what") { d -> WatchCatalog.titles(this, packages = shorts(), types = listOf(type), first = 60, done = d) }
         list += Triple<String, String, TitleLoader>("trend", "Trending $what") { d -> WatchCatalog.titles(this, sort = "TRENDING", packages = shorts(), types = listOf(type), done = d) }
         for ((g, name) in genreList) {
             list += Triple<String, String, TitleLoader>("g_$g", name) { d -> WatchCatalog.titles(this, packages = shorts(), types = listOf(type), genres = listOf(g), done = d) }

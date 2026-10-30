@@ -124,7 +124,6 @@ class SettingsActivity : AppCompatActivity() {
 
         section("Cinema Mode")
         group {
-            vrow("Cinema App", { CinemaMode.appLabel(this) }) { CinemaMode.chooseApp(this) { refreshValues() } }
             vrow("Do Not Disturb", {
                 when {
                     !Prefs.cinemaDnd(this) -> "Off"
@@ -140,7 +139,7 @@ class SettingsActivity : AppCompatActivity() {
             }
             vrow("Dim Govee Lights", { onOff(Prefs.cinemaLights(this)) }) { Prefs.setBool(this, "cinema_lights", !Prefs.cinemaLights(this)); refreshValues() }
         }
-        footnote("The film button on the home screen dims everything, silences notifications, dims your lights to 12%, shows a cinema clock and opens your app. Press it again to undo.")
+        footnote("The film button on the home screen dims everything, silences notifications, dims your lights to 12%, shows a cinema clock and opens Watch on All Films. Press it again to undo.")
 
         section("Live TV")
         group {

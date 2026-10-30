@@ -15,7 +15,7 @@ import java.util.Calendar
 /**
  * One button for movie night: dims the home screen, turns on Do Not
  * Disturb, dims the Govee lights (optional), shows a cinema-style clock,
- * then opens your streaming app. Press it again to undo everything.
+ * then opens Watch on All Films. Press it again to undo everything.
  */
 object CinemaMode {
 
@@ -24,19 +24,16 @@ object CinemaMode {
     }
 
     private fun turnOn(activity: MainActivity) {
-        val app = Prefs.cinemaApp(activity)
-        if (app == null) {
-            chooseApp(activity) { turnOn(activity) }
-            return
-        }
         Prefs.setBool(activity, "cinema_on", true)
         activity.applyDimming(animate = true)
         if (Prefs.cinemaDnd(activity)) setDnd(activity, true)
         if (Prefs.cinemaLights(activity)) dimLights(activity)
         intro(activity) {
-            val entry = AppListHelper.loadLaunchableTvApps(activity).firstOrNull { it.packageName == app }
-            if (entry != null) AppActions.launch(activity, entry, null)
-            else GlassUi.toast(activity, "Your cinema app isn’t installed. Choose another in Settings.")
+            // Straight into Watch → Films (All Films), ready to pick something.
+            activity.startActivity(android.content.Intent(activity, WatchActivity::class.java)
+                .putExtra(WatchActivity.EXTRA_TAB, "films")
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+            activity.overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
         }
     }
 
@@ -127,7 +124,11 @@ object CinemaMode {
         val col = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; alpha = 0f }
         val clock = GlassUi.text(c, DateFormat.format(if (DateFormat.is24HourFormat(c)) "H:mm" else "h:mm", Calendar.getInstance()), 150f, R.font.inter_regular, 0xFFF2E6D0.toInt())
         GlassUi.flex(clock, 160, 60)
-        col.addView(clock)
+        // Room for the tall digits and side bearings, so the time is never cut off.
+        clock.setSingleLine(true)
+        clock.includeFontPadding = true
+        clock.setPadding(dp(c, 24f), dp(c, 8f), dp(c, 24f), dp(c, 8f))
+        col.addView(clock, LinearLayout.LayoutParams(-2, -2))
         col.addView(GlassUi.text(c, "CINEMA", 13f, R.font.inter_semibold, 0x99F2E6D0.toInt()).apply { letterSpacing = 0.6f },
             LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(c, 6f) })
         root.addView(col, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))

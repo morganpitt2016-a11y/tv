@@ -29,6 +29,7 @@ object AppListHelper {
     fun invalidate() {
         cache = null
         TileRenderer.clear()
+        AppTiles.clear()
     }
 
     /**

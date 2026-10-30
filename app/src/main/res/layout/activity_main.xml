@@ -151,7 +151,7 @@
         <FrameLayout
             android:id="@+id/ui"
             android:layout_width="match_parent"
-            android:layout_height="1100dp"
+            android:layout_height="2600dp"
             android:clipChildren="false"
             android:clipToPadding="false">
 
@@ -312,8 +312,13 @@
             <!-- App dock -->
             <LinearLayout
                 android:id="@+id/dock"
-                android:layout_width="837dp"
-                android:layout_height="75dp"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:paddingTop="10dp"
+                android:paddingBottom="10dp"
+                android:minHeight="75dp"
                 android:layout_gravity="top|center_horizontal"
                 android:layout_marginTop="440dp"
                 android:background="@drawable/glass_dock_bg"
