@@ -633,6 +633,14 @@ class MainActivity : AppCompatActivity() {
             }
             row?.addView(gridCell(item, w, h), LinearLayout.LayoutParams(w, -2).apply { if (i % GRID_COLS > 0) marginStart = dp(GRID_GAP) })
         }
+        // Left/Right stop at the ends of each grid row instead of wrapping to another row.
+        for (r in 0 until rails.childCount) {
+            val rowView = rails.getChildAt(r) as? LinearLayout ?: continue
+            val first = (rowView.getChildAt(0) as? ViewGroup)?.getChildAt(0)
+            val last = (rowView.getChildAt(rowView.childCount - 1) as? ViewGroup)?.getChildAt(0)
+            first?.let { it.id = View.generateViewId(); it.nextFocusLeftId = it.id }
+            last?.let { it.id = View.generateViewId(); it.nextFocusRightId = it.id }
+        }
     }
 
     private fun gridCell(item: Any, w: Int, h: Int): View {

@@ -864,7 +864,7 @@ class WatchActivity : AppCompatActivity() {
             header.addView(GlassUi.text(c, title, 15f, R.font.inter_semibold))
             box.addView(header, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(c, 56f); topMargin = dp(c, 10f) })
         }
-        val list = RecyclerView(c).apply {
+        val list = EdgeStopRecyclerView(c).apply {
             layoutManager = object : LinearLayoutManager(c, HORIZONTAL, false) {
                 override fun requestChildRectangleOnScreen(parent: RecyclerView, child: View, rect: Rect, immediate: Boolean, focusedChildVisible: Boolean): Boolean {
                     val dx = child.left - dp(c, 56f)
@@ -934,6 +934,17 @@ class WatchActivity : AppCompatActivity() {
             list.getChildAt(0)?.let { return it }
         }
         return null
+    }
+
+    /** A row that stops at its first and last card: Left/Right never jumps to another row. */
+    private class EdgeStopRecyclerView(c: Context) : RecyclerView(c) {
+        override fun focusSearch(focused: View, direction: Int): View? {
+            val found = super.focusSearch(focused, direction)
+            if (direction != View.FOCUS_LEFT && direction != View.FOCUS_RIGHT) return found
+            var p: View? = found
+            while (p != null) { if (p === this) return found; p = p.parent as? View }
+            return focused
+        }
     }
 
     /** ScrollView that leaves scrolling to us (smooth row-by-row glide). */
