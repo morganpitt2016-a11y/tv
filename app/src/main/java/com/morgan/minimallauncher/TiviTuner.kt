@@ -1,6 +1,7 @@
 package com.morgan.minimallauncher
 
 import android.accessibilityservice.AccessibilityService
+import android.content.Intent
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -159,6 +160,8 @@ object TiviTuner {
 
     /** Set when Live TV sent you to TiviMate: Back while watching then returns to the guide. */
     @Volatile var returnToGuide = false
+    /** Set when a film or show page sent you to TiviMate: Back returns to that page. */
+    @Volatile var returnToWatch = false
 
     /** True while TiviMate is in front showing only the picture (no channel list, guide or menu). */
     fun isWatchingFullScreen(service: AccessibilityService): Boolean {
@@ -514,7 +517,7 @@ object TiviTuner {
         hideCover()
     }
 
-    fun showCover(channel: String) {
+    fun showCover(channel: String, subtitle: String = "Tuning…") {
         val service = HomeRedirectService.instance ?: return
         main.post {
             cover?.let { (it.findViewWithTag<android.widget.TextView>("name"))?.text = channel; return@post }
@@ -527,7 +530,7 @@ object TiviTuner {
                 alpha = 0f
             }
             box.addView(GlassUi.text(c, channel, 44f, R.font.inter_semibold).apply { tag = "name" })
-            box.addView(GlassUi.text(c, "Tuning…", 15f, R.font.inter_medium, 0x99FFFFFF.toInt()).apply {
+            box.addView(GlassUi.text(c, subtitle, 15f, R.font.inter_medium, 0x99FFFFFF.toInt()).apply {
                 setPadding(0, GlassUi.dp(c, 10f), 0, 0)
             })
             box.addView(android.widget.ProgressBar(c).apply {
@@ -559,6 +562,153 @@ object TiviTuner {
                 try { (v.context.getSystemService(android.view.WindowManager::class.java)).removeView(v) } catch (e: Exception) {}
             }.start()
         }
+    }
+
+    // ---------- Films and shows in TiviMate ----------
+    // TiviMate (with a provider that has films and series) has its own search. This opens
+    // it, types the title, picks the matching film or show and presses Play - behind the
+    // cover, like tuning a channel.
+
+    private val vodNoise = Regex("\\b(4k|uhd|fhd|hd|sd|hevc|multi|sub|subs|dub|dubbed|vod)\\b")
+
+    /** "EN - The Batman (2022) 4K" -> "the batman". */
+    fun vodKey(s: String): String = s.lowercase()
+        .replace(Regex("^\\s*(\\[[^\\]]*\\]|\\|[^|]*\\||[a-z]{2,3}\\s*[-|])\\s*"), "")
+        .replace(Regex("\\(?\\b(19|20)\\d{2}\\b\\)?"), " ")
+        .replace("&", "and")
+        .replace(Regex("[^a-z0-9 ]+"), " ")
+        .replace(vodNoise, " ")
+        .replace(Regex("\\s+"), " ").trim()
+
+    private val playLabels = listOf("play", "watch", "resume", "continue", "watch now", "play now", "start")
+
+    private fun isPlayLabel(t: String): Boolean {
+        val s = t.lowercase().trim()
+        if (s.length > 30 || "trailer" in s) return false
+        return playLabels.any { s == it || s.startsWith("$it ") }
+    }
+
+    private fun findNode(service: AccessibilityService, test: (AccessibilityNodeInfo) -> Boolean): AccessibilityNodeInfo? {
+        fun walk(n: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+            if (test(n)) return n
+            for (i in 0 until n.childCount) n.getChild(i)?.let { c -> walk(c)?.let { return it } }
+            return null
+        }
+        return tiviRoots(service).firstNotNullOfOrNull { walk(it) }
+    }
+
+    fun playVod(c: android.content.Context, title: String, year: Int, show: Boolean) {
+        val app = c.applicationContext
+        fun say(t: String) = android.widget.Toast.makeText(app, t, android.widget.Toast.LENGTH_LONG).show()
+        val intent = LiveGuide.launchIntent(app, PKG) ?: return say("TiviMate isn’t installed")
+        if (!canTune()) return say("Turn on the accessibility service in Settings to open films in TiviMate")
+        val service = HomeRedirectService.instance ?: return
+        val wanted = vodKey(title)
+        cancelled = false
+        busy = true
+        returnToWatch = true
+        showCover(title, "Opening in TiviMate…")
+        note("---- Find ${if (show) "show" else "film"} \"$title\" ($year) in TiviMate (looking for \"$wanted\")")
+        try { app.startActivity(Intent(intent).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {}
+
+        var stage = 0          // 0 find search, 1 wait for results, 2 press Play
+        var attempts = 0
+        var stageTries = 0
+        var lefts = 0
+        var backs = 0
+        var typed = false
+        var finished = false
+        fun finish(ok: Boolean, why: String) {
+            if (finished) return
+            finished = true
+            busy = false
+            if (cancelled) { cancelled = false; note("Cancelled"); hideCover(); return }
+            note(why)
+            if (ok) main.postDelayed({ hideCover() }, 1200)
+            else {
+                note("What TiviMate showed:\n" + compactScreen())
+                // Back to the film's page rather than leaving you in TiviMate's search.
+                returnToWatch = false
+                try {
+                    app.startActivity(Intent(app, WatchActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP))
+                } catch (e: Exception) {}
+                hideCover()
+                say("Couldn’t find $title in TiviMate")
+            }
+        }
+        fun step() {
+            if (cancelled) return finish(false, "Cancelled")
+            if (++attempts > 90) return finish(false, "Gave up")
+            if (tiviRoots(service).isEmpty()) { main.postDelayed({ step() }, 200); return }
+            when (stage) {
+                0 -> {
+                    val field = findNode(service) { it.isEditable || it.className?.toString()?.endsWith("EditText") == true }
+                    if (field != null) {
+                        val args = android.os.Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, title) }
+                        field.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+                        typed = field.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+                        if (Build.VERSION.SDK_INT >= 30) field.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)
+                        note("Typed \"$title\" into TiviMate's search ($typed)")
+                        stage = 1; stageTries = 0
+                        main.postDelayed({ step() }, 1200); return
+                    }
+                    val search = findNode(service) { n ->
+                        val t = (n.text ?: n.contentDescription)?.toString()?.lowercase()?.trim()
+                        t == "search" || t == "search…" || t == "search..."
+                    }
+                    when {
+                        search != null -> { note("Opening Search"); pressNode(service, search); main.postDelayed({ step() }, 900) }
+                        lefts < 2 -> { lefts++; service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_DPAD_LEFT); main.postDelayed({ step() }, 450) }
+                        backs < 2 -> { backs++; lefts = 0; note("Looking for TiviMate's menu (Back)"); service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK); main.postDelayed({ step() }, 700) }
+                        else -> finish(false, "Couldn't find TiviMate's Search")
+                    }
+                }
+                1 -> {
+                    // A result with the same title (the year decides between remakes), not the search box itself.
+                    var best: AccessibilityNodeInfo? = null
+                    var bestScore = 0
+                    fun walk(n: AccessibilityNodeInfo) {
+                        val t = (n.text ?: n.contentDescription)?.toString()
+                        if (t != null && !n.isEditable && t.length < 90) {
+                            val k = vodKey(t)
+                            val score = when {
+                                k == wanted && year > 0 && t.contains(year.toString()) -> 3
+                                k == wanted -> 2
+                                k.startsWith("$wanted ") && k.length <= wanted.length + 12 -> 1
+                                else -> 0
+                            }
+                            if (score > bestScore) { best = n; bestScore = score }
+                        }
+                        for (i in 0 until n.childCount) n.getChild(i)?.let { walk(it) }
+                    }
+                    tiviRoots(service).forEach { walk(it) }
+                    val hit = best
+                    if (hit != null) {
+                        note("Found \"${hit.text ?: hit.contentDescription}\" - opening it")
+                        pressNode(service, hit)
+                        stage = 2; stageTries = 0
+                        main.postDelayed({ step() }, 1500); return
+                    }
+                    if (++stageTries > 14) return finish(false, "Not found in TiviMate's films and series")
+                    main.postDelayed({ step() }, 400)
+                }
+                else -> {
+                    val play = findNode(service) { n -> (n.text ?: n.contentDescription)?.toString()?.let(::isPlayLabel) == true }
+                    if (play != null) {
+                        note("Pressing \"${play.text ?: play.contentDescription}\"")
+                        pressNode(service, play)
+                        main.postDelayed({ finish(true, "Playing") }, 1500)
+                        return
+                    }
+                    // Some films start straight away: nothing left but the picture.
+                    if (isWatchingFullScreen(service) && stageTries > 2) return finish(true, "Playing")
+                    if (++stageTries > 10) return finish(false, "No Play button on TiviMate's page")
+                    main.postDelayed({ step() }, 400)
+                }
+            }
+        }
+        main.postDelayed({ step() }, 900)
     }
 
     // ---------- Windows and nodes ----------

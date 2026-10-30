@@ -90,33 +90,41 @@ class HomeRedirectService : AccessibilityService() {
             if (event.keyCode == android.view.KeyEvent.KEYCODE_BACK && event.action == android.view.KeyEvent.ACTION_UP) {
                 TiviTuner.cancel()
                 TiviTuner.hideCover()
-                if (TiviTuner.returnToGuide) {
-                    TiviTuner.returnToGuide = false
-                    try {
-                        startActivity(Intent(this, WatchActivity::class.java)
-                            .putExtra(WatchActivity.EXTRA_TAB, "live")
-                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP))
-                    } catch (e: Exception) {}
-                }
+                leaveTiviMate()
             }
             return true
         }
-        if (event.keyCode != android.view.KeyEvent.KEYCODE_BACK || !TiviTuner.returnToGuide) return false
+        if (event.keyCode != android.view.KeyEvent.KEYCODE_BACK) return false
         val front = rootInActiveWindow?.packageName?.toString()
         if (front != LiveGuide.TIVIMATE) {
-            if (front != null && front != packageName) TiviTuner.returnToGuide = false
+            if (front != null && front != packageName) { TiviTuner.returnToGuide = false; TiviTuner.returnToWatch = false }
             return false
         }
+        // TiviMate's own menus and lists keep their Back; only the full-screen picture is taken over.
         if (!TiviTuner.isWatchingFullScreen(this)) return false
-        if (event.action == android.view.KeyEvent.ACTION_UP) {
-            TiviTuner.returnToGuide = false
-            try {
-                startActivity(Intent(this, WatchActivity::class.java)
-                    .putExtra(WatchActivity.EXTRA_TAB, "live")
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP))
-            } catch (e: Exception) {}
-        }
+        if (event.action == android.view.KeyEvent.ACTION_UP) leaveTiviMate()
         return true
+    }
+
+    /**
+     * Back while watching in TiviMate: out of TiviMate - to the Watch screen you came
+     * from (the TV guide, or the film/show page), otherwise to the home screen.
+     */
+    private fun leaveTiviMate() {
+        val live = TiviTuner.returnToGuide
+        val watch = TiviTuner.returnToWatch
+        TiviTuner.returnToGuide = false
+        TiviTuner.returnToWatch = false
+        try {
+            if (live || watch) {
+                val i = Intent(this, WatchActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                if (live) i.putExtra(WatchActivity.EXTRA_TAB, "live")
+                startActivity(i)
+            } else {
+                performGlobalAction(GLOBAL_ACTION_HOME)
+            }
+        } catch (e: Exception) { performGlobalAction(GLOBAL_ACTION_HOME) }
     }
 
     override fun onDestroy() {

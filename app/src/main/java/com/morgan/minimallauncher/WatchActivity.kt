@@ -580,6 +580,11 @@ class WatchActivity : AppCompatActivity() {
             buttons.addView(pillButton("Search Google TV", primary = true) { WatchCatalog.searchGoogleTv(this, t.name) },
                 LinearLayout.LayoutParams(-2, dp(c, 40f)).apply { marginEnd = dp(c, 10f) })
         }
+        // TiviMate's own films and series (from the TV provider), played the same way as live TV.
+        if (LiveGuide.hasTiviMate(c)) {
+            buttons.addView(pillButton("Watch in TiviMate") { TiviTuner.playVod(this, t.name, t.year, show = t.type == "SHOW") },
+                LinearLayout.LayoutParams(-2, dp(c, 40f)).apply { marginEnd = dp(c, 10f) })
+        }
         val trailerButton = pillButton("Trailer") {}
         trailerButton.visibility = View.GONE
         buttons.addView(trailerButton, LinearLayout.LayoutParams(-2, dp(c, 40f)).apply { marginEnd = dp(c, 10f) })
