@@ -201,7 +201,7 @@ class SettingsActivity : AppCompatActivity() {
         section("Claude")
         group {
             claudeKeyRow = row("API Key") { showClaudeKeyDialog() }
-            row("Open Claude", chevron = true) { startActivity(Intent(this, ClaudeActivity::class.java)) }
+            row("Open Claude", chevron = true) { startActivity(Intent(this, ClaudeRoomActivity::class.java)) }
         }
         footnote("Ask Claude questions on your TV with the remote or your voice. Uses your own Anthropic API key, billed per question.")
 

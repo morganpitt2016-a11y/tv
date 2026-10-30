@@ -109,6 +109,12 @@
             android:theme="@style/Theme.MinimalLauncher" />
 
         <activity
+            android:name=".ClaudeRoomActivity"
+            android:exported="false"
+            android:screenOrientation="landscape"
+            android:theme="@style/Theme.MinimalLauncher" />
+
+        <activity
             android:name=".ClaudeActivity"
             android:exported="false"
             android:screenOrientation="landscape"

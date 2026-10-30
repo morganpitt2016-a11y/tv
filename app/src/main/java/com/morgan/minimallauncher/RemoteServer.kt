@@ -195,7 +195,7 @@ class RemoteServer(private val context: Context) {
                         start(Intent(context, AmbientActivity::class.java).putExtra("mode", m))
                     "home" -> start(Intent(context, MainActivity::class.java))
                     "cinema" -> start(Intent(context, MainActivity::class.java).putExtra(EXTRA_CINEMA, true))
-                    "claude" -> start(Intent(context, ClaudeActivity::class.java))
+                    "claude" -> start(Intent(context, ClaudeRoomActivity::class.java))
                     else -> false
                 }
                 json(out, JSONObject().put("ok", ok))

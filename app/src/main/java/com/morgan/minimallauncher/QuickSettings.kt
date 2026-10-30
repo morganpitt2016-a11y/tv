@@ -143,7 +143,7 @@ class QuickSettings(private val activity: AppCompatActivity, private val host: H
             refocusAfterRebuild("Night mode")
         }
         tiles += tile(R.drawable.ic_lucide_sparkle, "Claude", "Ask anything") {
-            open(Intent(c, ClaudeActivity::class.java), inApp = true)
+            open(Intent(c, ClaudeRoomActivity::class.java), inApp = true)
         }
         for (light in host.lights()) {
             tiles += tile(R.drawable.ic_lucide_bulb, light.name, if (light.isOn) "On" else "Off", active = light.isOn) {
