@@ -1,0 +1,38 @@
+name: Probe APIs 2
+on:
+  push:
+    branches: [probe2]
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - shell: python
+        run: |
+          import json, urllib.request, re, gzip
+          UA = "MinimalTVLauncher/1.0 (personal)"
+          def post(q, v={}):
+              req = urllib.request.Request("https://apis.justwatch.com/graphql", data=json.dumps({"query": q, "variables": v}).encode(), headers={"User-Agent": UA, "Content-Type": "application/json"})
+              try: return json.loads(urllib.request.urlopen(req, timeout=30).read())
+              except Exception as e: return {"ERR": str(e), "body": getattr(e,'read',lambda:b'')()[:1500].decode('utf8','replace')}
+          print("== sort enum", json.dumps(post('{ __type(name:"PopularTitlesSorting"){ enumValues { name } } }'))[:800])
+          print("== filter fields", json.dumps(post('{ __type(name:"TitleFilter"){ inputFields { name } } }'))[:1500])
+          print("== package fields", json.dumps(post('{ __type(name:"Package"){ fields { name args { name } } } }'))[:2500])
+          print("== content fields", json.dumps(post('{ __type(name:"MovieOrShowOrSeasonContent"){ fields { name } } }'))[:2500])
+          print("== show fields", json.dumps(post('{ __type(name:"Show"){ fields { name } } }'))[:2500])
+          q = """query { node(id: "ts38796") { ... on Show { id
+               content(country: GB, language: "en") { title clips { externalId provider name } credits { name role characterName } runtime ageCertification }
+               similarTitlesV2(country: GB, first: 5) { edges { node { id content(country: GB, language: "en") { title } } } }
+               totalSeasonCount
+               seasons { id content(country: GB, language: "en") { title seasonNumber } }
+          } } }"""
+          print("== detail", json.dumps(post(q))[:3000])
+          print("== icons", json.dumps(post('query { packages(country: GB, platform: WEB) { shortName clearName icon(profile: S100, format: PNG) } }'))[:1200])
+          req = urllib.request.Request("https://raw.githubusercontent.com/dp247/Freeview-EPG/master/epg.xml", headers={"User-Agent": UA})
+          data = urllib.request.urlopen(req, timeout=60).read()
+          print("== epg bytes", len(data))
+          t = data.decode('utf8', 'replace')
+          chans = re.findall(r'<channel id="([^"]+)">\s*<display-name[^>]*>([^<]+)</display-name>', t)
+          print("== epg channels", len(chans), chans[:60])
+          print("== epg sample channel block", t[t.find('<channel '):t.find('<channel ')+600])
+          i = t.find('<programme ')
+          print("== epg sample programme", t[i:i+900])
