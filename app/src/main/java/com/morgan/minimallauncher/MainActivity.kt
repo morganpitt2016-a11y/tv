@@ -61,7 +61,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var dockLabel: TextView
     private lateinit var dockBackdrop: ImageView
     private lateinit var claudePet: ClaudePet
-    private val claudePetId = View.generateViewId()
+    private lateinit var claudePanel: FrameLayout
     private lateinit var profilePill: View
     private var pillPlaced = false
     private lateinit var wallpaperFront: View
@@ -144,20 +144,27 @@ class MainActivity : AppCompatActivity() {
         setupClaudePet()
     }
 
-    /** The little pixel Claude who lives on the home screen; OK on him opens the chat. */
+    /** Claude's bedroom: a picture of the room with pixel Claude living in it. OK on him opens the chat. */
     private fun setupClaudePet() {
         claudePet = ClaudePet(this).apply {
-            id = claudePetId
-            nextFocusDownId = R.id.dock
             onChat = {
                 UiSounds.select(this@MainActivity)
                 startActivity(Intent(this@MainActivity, ClaudeActivity::class.java))
             }
         }
-        // A band across the lower home screen, behind the controls so he strolls over the scene.
-        val lp = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, dp(190))
-        lp.topMargin = dp(250)
-        ui.addView(claudePet, 0, lp)
+        val image = ImageView(this).apply {
+            setImageResource(R.drawable.claude_room)
+            scaleType = ImageView.ScaleType.FIT_XY
+            contentDescription = "Claude’s room"
+        }
+        claudePanel = FrameLayout(this).apply {
+            clipToOutline = true
+            outlineProvider = object : ViewOutlineProvider() {
+                override fun getOutline(v: View, o: android.graphics.Outline) { o.setRoundRect(0, 0, v.width, v.height, dp(22).toFloat()) }
+            }
+            addView(image, FrameLayout.LayoutParams(-1, -1))
+            addView(claudePet, FrameLayout.LayoutParams(-1, -1))
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -560,8 +567,6 @@ class MainActivity : AppCompatActivity() {
         addDockTile(glyph(R.drawable.ic_lucide_settings, (dockTileH * 0.42f).toInt()), 0, getString(R.string.settings), SETTINGS_GRADIENT) {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
-        // Press Up from the dock to go and say hi to Claude.
-        if (::claudePet.isInitialized) for (i in 0 until dock.childCount) dock.getChildAt(i).nextFocusUpId = claudePetId
     }
 
     private var dockTileW = 92
@@ -664,6 +669,9 @@ class MainActivity : AppCompatActivity() {
             first?.let { it.id = View.generateViewId(); it.nextFocusLeftId = it.id }
             last?.let { it.id = View.generateViewId(); it.nextFocusRightId = it.id }
         }
+        // Claude's room, at the end of the page.
+        (claudePanel.parent as? ViewGroup)?.removeView(claudePanel)
+        rails.addView(claudePanel, LinearLayout.LayoutParams(dp(800), dp(436)).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = dp(26) })
     }
 
     private fun gridCell(item: Any, w: Int, h: Int): View {
@@ -743,7 +751,8 @@ class MainActivity : AppCompatActivity() {
         if (nowInGrid) {
             val index = rails.indexOfChild(gridRow)
             val rowTop = rails.top + gridRow!!.top
-            val target = -(rowTop - dp(if (index == 0) 165 else 200)).toFloat()
+            val target = if (gridRow === claudePanel) -(rowTop - dp(48)).toFloat()
+                else -(rowTop - dp(if (index == 0) 165 else 200)).toFloat()
             ui.animate().translationY(target).setDuration(450).setInterpolator(Motion.standard).start()
         }
         if (nowInGrid == inGrid) return
