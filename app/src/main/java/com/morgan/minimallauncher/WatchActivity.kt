@@ -452,8 +452,9 @@ class WatchActivity : AppCompatActivity() {
                 if (token != buildToken || isDestroyed) return@page
                 if (list == null) { if (items.isEmpty()) rows.removeView(r.view); finished = true; return@page }
                 if (list.isEmpty() && items.isEmpty()) { rows.removeView(r.view); finished = true; return@page }
+                val first = items.isEmpty()
                 items += list
-                adapter.update(items.toList())
+                if (first) adapter.update(items.toList()) else adapter.append(list)
                 cursor = next
                 if (next == null) finished = true
                 // Show how much there is: "Comedy · 412".
@@ -1148,6 +1149,13 @@ class WatchActivity : AppCompatActivity() {
         private val bind: (Holder, T) -> Unit,
     ) : RecyclerView.Adapter<Holder>() {
         fun update(list: List<T>) { items = list; notifyDataSetChanged() }
+        /** Adds to the end without disturbing what's on screen (keeps the highlight where it is). */
+        fun append(more: List<T>) {
+            if (more.isEmpty()) return
+            val at = items.size
+            items = items + more
+            notifyItemRangeInserted(at, more.size)
+        }
         private fun hasMore() = more != null && moreCard != null && items.isNotEmpty()
         override fun getItemCount() = items.size + if (hasMore()) 1 else 0
         override fun getItemViewType(position: Int) = if (position >= items.size) 1 else 0

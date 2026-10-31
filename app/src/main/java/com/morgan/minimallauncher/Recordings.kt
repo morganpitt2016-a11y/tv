@@ -63,9 +63,16 @@ object Recordings {
         val safe = title.replace(Regex("[^A-Za-z0-9 ]"), "").trim().take(40).ifBlank { "Recording" }
         val file = File(dir(app), "$safe-$id.ts").path
         upsert(app, Rec(id, title, channel, System.currentTimeMillis(), stop + 2 * 60_000, file, image, false))
-        ContextCompat.startForegroundService(app, Intent(app, RecordService::class.java)
-            .putExtra("id", id).putExtra("channel", channel))
-        return true
+        return try {
+            ContextCompat.startForegroundService(app, Intent(app, RecordService::class.java)
+                .putExtra("id", id).putExtra("channel", channel))
+            true
+        } catch (e: Exception) {
+            // Android refused to start a background recording (e.g. no exact-alarm permission).
+            save(app, list(app).filter { it.id != id })
+            android.widget.Toast.makeText(app, "Couldn’t start recording $title - allow exact alarms for this app", android.widget.Toast.LENGTH_LONG).show()
+            false
+        }
     }
 
     internal fun finished(c: Context, id: String) {

@@ -186,7 +186,7 @@ object LiveGuide {
                                 "episode-num" -> if (xp.getAttributeValue(null, "system") == "onscreen") ep = xp.nextText().trim()
                             }
                         }
-                        if (keep && title.isNotBlank()) progs.getOrPut(ch) { mutableListOf() } += Programme(title, desc, start, stop, image, ep)
+                        if (keep && title.isNotBlank()) progs.getOrPut(ch) { mutableListOf() } += Programme(title, if (start > now + 16 * 3600_000L) "" else desc, start, stop, if (start > now + 16 * 3600_000L) null else image, ep)
                     }
                 }
             }

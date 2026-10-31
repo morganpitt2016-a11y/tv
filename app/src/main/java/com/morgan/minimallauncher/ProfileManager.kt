@@ -61,6 +61,11 @@ object ProfileManager {
         for (prefix in listOf(KEY_PINNED_PREFIX, "fav_", "wall_")) prefs.getString(prefix + old, null)?.let { e.putString(prefix + name, it).remove(prefix + old) }
         if (prefs.getString(KEY_ACTIVE, null) == old) e.putString(KEY_ACTIVE, name)
         e.apply()
+        // History and My List are stored by name too: move them across.
+        val from = Accounts.scoped(context, old); val to = Accounts.scoped(context, name)
+        for (prefix in listOf("watch_history_", "watch_list_")) Prefs.string(context, prefix + from)?.let {
+            Prefs.setString(context, prefix + to, it); Prefs.setString(context, prefix + from, null)
+        }
     }
 
     fun setActiveProfile(context: Context, name: String) {

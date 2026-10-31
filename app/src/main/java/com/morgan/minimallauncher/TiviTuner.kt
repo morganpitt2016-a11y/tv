@@ -190,7 +190,7 @@ object TiviTuner {
         val done: (Boolean) -> Unit = done@{ ok ->
             if (finished) return@done
             finished = true
-            busy = false
+            setBusy(false)
             if (cancelled) {
                 cancelled = false
                 note("Cancelled - stopped searching")
@@ -203,7 +203,7 @@ object TiviTuner {
             doneOuter(ok)
         }
         cancelled = false
-        busy = true
+        setBusy(true)
         showCover(channel)
         val service = HomeRedirectService.instance ?: run { note("Accessibility service not running"); return done(false) }
         val wanted = normalise(channel)
@@ -228,7 +228,7 @@ object TiviTuner {
             val roots = tiviRoots(service)
             if (roots.isEmpty()) {
                 if (attempts % 4 == 1) note("Waiting for TiviMate (front: ${frontPackages(service)})")
-                main.postDelayed({ step() }, 60); return
+                later(60, { done(false) }) { step() }; return
             }
             val lists = roots.flatMap { scrollables(it) }
             val texts = roots.flatMap { texts(it) }
@@ -237,13 +237,13 @@ object TiviTuner {
             if (lists.isNotEmpty()) hushNow(service)
             if (lists.isEmpty()) {
                 // Playing full screen: let playback settle, then press OK to bring up the channel list.
-                if (settle++ < 1) { main.postDelayed({ step() }, 100); return }
+                if (settle++ < 1) { later(100, { done(false) }) { step() }; return }
                 if (okPresses >= 2) { note("No channel list appeared. On screen: ${texts.take(15)}"); done(false); return }
                 okPresses++
                 note("No list showing - pressing OK (#$okPresses). On screen: ${texts.take(10)}")
                 service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_DPAD_CENTER)
                 settle = 0
-                main.postDelayed({ step() }, 250); return
+                later(250, { done(false) }) { step() }; return
             }
             // The channel list (or TV guide grid) is the biggest list on screen - not the group list beside it.
             val list = lists.maxByOrNull { descendants(it) }!!
@@ -261,7 +261,7 @@ object TiviTuner {
                 nudged = true
                 note("Highlight isn't in the channel list - pressing Right")
                 service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_DPAD_RIGHT)
-                main.postDelayed({ step() }, 150); return
+                later(150, { done(false) }) { step() }; return
             }
             // Head straight for its number when we know (or can guess) it.
             val range = harvest(service, list)
@@ -278,7 +278,7 @@ object TiviTuner {
                     note("Channel ${if (learned) "is" else "is probably around"} $num, guide shows ${range.first}-${range.last} - ${if (up) "up" else "down"} $presses")
                     val key = if (up) AccessibilityService.GLOBAL_ACTION_DPAD_UP else AccessibilityService.GLOBAL_ACTION_DPAD_DOWN
                     for (i in 0 until presses) main.postDelayed({ service.performGlobalAction(key) }, i * 25L)
-                    main.postDelayed({ step() }, presses * 25L + 120)
+                    later(presses * 25L + 120, { done(false) }) { step() }
                     return
                 }
                 // It should be on screen but isn't (a guess was off): search outwards from here.
@@ -295,9 +295,9 @@ object TiviTuner {
             if (attempts % 3 == 1) note("Searching ${if (goingDown) "down" else "up"} (highlight on ${rowNames(focusRowIn(service, list))}): ${texts(list).take(6)}")
             val key = if (goingDown) AccessibilityService.GLOBAL_ACTION_DPAD_DOWN else AccessibilityService.GLOBAL_ACTION_DPAD_UP
             for (i in 0 until 8) main.postDelayed({ service.performGlobalAction(key) }, i * 35L)
-            main.postDelayed({ step() }, 8 * 35L + 130)
+            later(8 * 35L + 130, { done(false) }) { step() }
         }
-        main.postDelayed({ step() }, 80)
+        later(80, { done(false) }) { step() }
     }
 
     /** After selecting: if the list is still open over the picture, close it so it's full screen. */
@@ -378,13 +378,13 @@ object TiviTuner {
                 val back = if (lastKey == AccessibilityService.GLOBAL_ACTION_DPAD_UP) AccessibilityService.GLOBAL_ACTION_DPAD_DOWN else AccessibilityService.GLOBAL_ACTION_DPAD_UP
                 if (lost == 1) note("Went past it - stepping back")
                 service.performGlobalAction(back)
-                main.postDelayed({ check() }, 120); return
+                later(120, { done(false) }) { check() }; return
             }
             lost = 0
             if (focused == null) {
                 if (++rounds > 3) { note("TiviMate's highlight isn't in the list"); done(false); return }
                 service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_DPAD_RIGHT)
-                main.postDelayed({ check() }, 120); return
+                later(120, { done(false) }) { check() }; return
             }
             if (focused == target) {
                 main.postDelayed({
@@ -413,9 +413,9 @@ object TiviTuner {
             lastKey = key
             if (rounds == 1) note("Highlight is on ${rowNames(focused)} - moving ${if (dy > 0) "down" else "up"} to it")
             for (i in 0 until steps) main.postDelayed({ service.performGlobalAction(key) }, i * 25L)
-            main.postDelayed({ check() }, steps * 25L + 100)
+            later(steps * 25L + 100, { done(false) }) { check() }
         }
-        main.postDelayed({ check() }, 40)
+        later(40, { done(false) }) { check() }
     }
 
     // ---------- Recording ----------
@@ -510,8 +510,18 @@ object TiviTuner {
     @Volatile var cancelled = false
     val covering get() = cover != null
     /** True from the start of a search until it finishes (found, failed or cancelled). */
-    @Volatile var busy = false
-        private set
+    @Volatile private var busyFlag = false
+    @Volatile private var busySince = 0L
+    /** True while a search runs - but never for more than 30s, so a hang can't lock the remote. */
+    val busy: Boolean get() = busyFlag && android.os.SystemClock.uptimeMillis() - busySince < 30_000L
+    private fun setBusy(on: Boolean) { busyFlag = on; if (on) busySince = android.os.SystemClock.uptimeMillis() }
+
+    /** Runs [block] later; an exception ends the search cleanly instead of crashing the app. */
+    private fun later(ms: Long, onError: () -> Unit, block: () -> Unit) {
+        main.postDelayed({
+            try { block() } catch (e: Exception) { note("Error: ${e.javaClass.simpleName} ${e.message ?: ""}"); try { onError() } catch (e2: Exception) {} }
+        }, ms)
+    }
 
     /** Back pressed mid-search: stop everything now. */
     fun cancel() {
@@ -658,7 +668,7 @@ object TiviTuner {
         val service = HomeRedirectService.instance ?: return
         val wanted = vodKey(title)
         cancelled = false
-        busy = true
+        setBusy(true)
         returnToWatch = true
         showCover(title, "Opening Dodgy Box…")
         note("---- Find ${if (show) "show" else "film"} \"$title\" ($year) in TiviMate (looking for \"$wanted\")")
@@ -674,7 +684,7 @@ object TiviTuner {
         fun finish(ok: Boolean, why: String) {
             if (finished) return
             finished = true
-            busy = false
+            setBusy(false)
             if (cancelled) { cancelled = false; note("Cancelled"); hideCover(); return }
             note(why)
             if (ok) main.postDelayed({ hideCover() }, 500)
@@ -693,7 +703,7 @@ object TiviTuner {
         fun step() {
             if (cancelled) return finish(false, "Cancelled")
             if (++attempts > 90) return finish(false, "Gave up")
-            if (tiviRoots(service).isEmpty()) { main.postDelayed({ step() }, 100); return }
+            if (tiviRoots(service).isEmpty()) { later(100, { finish(false, "Error") }) { step() }; return }
             // Keep TiviMate's live channel quiet until the film itself is started.
             if (stage < 2) hushNow(service)
             when (stage) {
@@ -706,16 +716,16 @@ object TiviTuner {
                         if (Build.VERSION.SDK_INT >= 30) field.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)
                         note("Typed \"$title\" into TiviMate's search ($typed)")
                         stage = 1; stageTries = 0
-                        main.postDelayed({ step() }, 700); return
+                        later(700, { finish(false, "Error") }) { step() }; return
                     }
                     val search = findNode(service) { n ->
                         val t = (n.text ?: n.contentDescription)?.toString()?.lowercase()?.trim()
                         t == "search" || t == "search…" || t == "search..."
                     }
                     when {
-                        search != null -> { note("Opening Search"); pressNode(service, search); main.postDelayed({ step() }, 500) }
-                        lefts < 2 -> { lefts++; service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_DPAD_LEFT); main.postDelayed({ step() }, 250) }
-                        backs < 2 -> { backs++; lefts = 0; note("Looking for TiviMate's menu (Back)"); service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK); main.postDelayed({ step() }, 400) }
+                        search != null -> { note("Opening Search"); pressNode(service, search); later(500, { finish(false, "Error") }) { step() } }
+                        lefts < 2 -> { lefts++; service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_DPAD_LEFT); later(250, { finish(false, "Error") }) { step() } }
+                        backs < 2 -> { backs++; lefts = 0; note("Looking for TiviMate's menu (Back)"); service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK); later(400, { finish(false, "Error") }) { step() } }
                         else -> finish(false, "Couldn't find TiviMate's Search")
                     }
                 }
@@ -743,10 +753,10 @@ object TiviTuner {
                         note("Found \"${hit.text ?: hit.contentDescription}\" - opening it")
                         pressNode(service, hit)
                         stage = 2; stageTries = 0
-                        main.postDelayed({ step() }, 900); return
+                        later(900, { finish(false, "Error") }) { step() }; return
                     }
                     if (++stageTries > 14) return finish(false, "Not found in TiviMate's films and series")
-                    main.postDelayed({ step() }, 200)
+                    later(200, { finish(false, "Error") }) { step() }
                 }
                 else -> {
                     val play = findNode(service) { n -> (n.text ?: n.contentDescription)?.toString()?.let(::isPlayLabel) == true }
@@ -759,11 +769,11 @@ object TiviTuner {
                     // Some films start straight away: nothing left but the picture.
                     if (isWatchingFullScreen(service) && stageTries > 2) return finish(true, "Playing")
                     if (++stageTries > 10) return finish(false, "No Play button on TiviMate's page")
-                    main.postDelayed({ step() }, 200)
+                    later(200, { finish(false, "Error") }) { step() }
                 }
             }
         }
-        main.postDelayed({ step() }, 400)
+        later(400, { finish(false, "Error") }) { step() }
     }
 
     // ---------- Windows and nodes ----------

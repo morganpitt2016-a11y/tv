@@ -92,11 +92,12 @@ object Xtream {
         }
         val out = ArrayList<T>()
         JsonReader(InputStreamReader(f.inputStream(), Charsets.UTF_8)).use { r ->
-            if (r.peek() != JsonToken.BEGIN_ARRAY) return out
+            if (r.peek() != JsonToken.BEGIN_ARRAY) { f.delete(); return out }
             r.beginArray()
             while (r.hasNext()) parse(r)?.let { out += it }
             r.endArray()
         }
+        if (out.isEmpty()) f.delete()   // an empty answer is probably an error - ask again next time
         return out
     }
 
