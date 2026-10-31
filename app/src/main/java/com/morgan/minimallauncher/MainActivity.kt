@@ -60,6 +60,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var rails: LinearLayout
     private lateinit var dockLabel: TextView
     private lateinit var dockBackdrop: ImageView
+    private lateinit var claudePet: ClaudePet
+    private val claudePetId = View.generateViewId()
     private lateinit var profilePill: View
     private var pillPlaced = false
     private lateinit var wallpaperFront: View
@@ -139,6 +141,23 @@ class MainActivity : AppCompatActivity() {
         applyDimming(animate = false)
 
         UiSounds.attach(this)
+        setupClaudePet()
+    }
+
+    /** The little pixel Claude who lives on the home screen; OK on him opens the chat. */
+    private fun setupClaudePet() {
+        claudePet = ClaudePet(this).apply {
+            id = claudePetId
+            nextFocusDownId = R.id.dock
+            onChat = {
+                UiSounds.select(this@MainActivity)
+                startActivity(Intent(this@MainActivity, ClaudeActivity::class.java))
+            }
+        }
+        // A band across the lower home screen, behind the controls so he strolls over the scene.
+        val lp = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, dp(190))
+        lp.topMargin = dp(250)
+        ui.addView(claudePet, 0, lp)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -168,6 +187,7 @@ class MainActivity : AppCompatActivity() {
         refreshAll()
         applyDimming(animate = false)
         handler.post(ambientTick)
+        if (::claudePet.isInitialized) claudePet.resume()
         wake()
     }
 
@@ -179,6 +199,7 @@ class MainActivity : AppCompatActivity() {
         handler.removeCallbacks(startIdleScreen)
         rotator.stop()
         widgets.stop()
+        if (::claudePet.isInitialized) claudePet.pause()
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
@@ -539,6 +560,8 @@ class MainActivity : AppCompatActivity() {
         addDockTile(glyph(R.drawable.ic_lucide_settings, (dockTileH * 0.42f).toInt()), 0, getString(R.string.settings), SETTINGS_GRADIENT) {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
+        // Press Up from the dock to go and say hi to Claude.
+        if (::claudePet.isInitialized) for (i in 0 until dock.childCount) dock.getChildAt(i).nextFocusUpId = claudePetId
     }
 
     private var dockTileW = 92
