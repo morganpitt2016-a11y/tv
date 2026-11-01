@@ -219,6 +219,7 @@ object TiviTuner {
         var rangeSame = 0
         var attempts = 0
         var okPresses = 0
+        var emptyWaits = 0
         var settle = 0
         var lastSeen = ""
         var sameCount = 0
@@ -246,7 +247,7 @@ object TiviTuner {
                 note("No list showing - pressing OK (#$okPresses). On screen: ${texts.take(10)}")
                 service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_DPAD_CENTER)
                 settle = 0
-                later(250, { done(false) }) { step() }; return
+                later(700, { done(false) }) { step() }; return
             }
             // The channel list (or TV guide grid) is the biggest list on screen - not the group list beside it.
             val list = lists.maxByOrNull { descendants(it) }!!
@@ -265,6 +266,13 @@ object TiviTuner {
                 return
             }
             // Not on screen yet: move TiviMate's highlight down the list (then back up), like the remote.
+            // TiviMate draws the group list first and fills the channel rows a moment later:
+            // don't press anything until rows exist, or a stray Right/OK closes the guide.
+            if (rowNumbers(list).isEmpty() && emptyWaits < 15) {
+                emptyWaits++
+                if (emptyWaits == 1) note("Channel rows not drawn yet - waiting")
+                later(200, { done(false) }) { step() }; return
+            }
             val inList = focusRowIn(service, list) != null
             if (!inList && !nudged) {
                 nudged = true
