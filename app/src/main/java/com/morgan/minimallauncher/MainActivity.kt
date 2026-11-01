@@ -226,6 +226,7 @@ class MainActivity : AppCompatActivity() {
      */
     private fun refreshAll(focusActiveProfile: Boolean = false) {
         val saved = savedFocus()
+        applyProfileStyle()
         val allApps = AppListHelper.loadLaunchableTvApps(this)
         buildProfileSwitch()
         buildDock(allApps)
@@ -261,6 +262,22 @@ class MainActivity : AppCompatActivity() {
         val scale = min(root.width / stage.width.toFloat(), root.height / stage.height.toFloat())
         stage.scaleX = scale
         stage.scaleY = scale
+    }
+
+    // ---------- Profile style ----------
+
+    /** The clock wears the person's highlight colour if they chose that. */
+    private fun clockColour(): Int {
+        val st = ProfileStyle.of(this)
+        return if (st.clockAccent && st.accent != 0) (0xED shl 24) or (st.accent and 0x00FFFFFF) else 0xEDFFFFFF.toInt()
+    }
+
+    /** This person's colours: top icons and clock. (Tiles pick theirs up as they're focused.) */
+    private fun applyProfileStyle() {
+        val st = ProfileStyle.of(this)
+        val tint = if (st.iconAccent && st.accent != 0) ColorStateList.valueOf(st.accent) else ContextCompat.getColorStateList(this, R.color.icon_on_glass)
+        for (b in listOf(quickSettingsButton, cinemaButton, nightModeButton)) ((b as? ViewGroup)?.getChildAt(0) as? ImageView)?.imageTintList = tint
+        applyDimming(animate = false)
     }
 
     // ---------- Clock ----------
@@ -309,7 +326,7 @@ class MainActivity : AppCompatActivity() {
         cinemaButton.isActivated = cinema
         // Cinema mode: a thin, warm, cinema-style clock.
         clockText.setFontVariationSettings(if (cinema) "'wdth' 60, 'wght' 170, 'opsz' 144, 'YTFI' 788" else "'wdth' 72, 'wght' 480, 'opsz' 144, 'YTFI' 788")
-        clockText.setTextColor(if (cinema) 0xE6F2E6D0.toInt() else 0xEDFFFFFF.toInt())
+        clockText.setTextColor(if (cinema) 0xE6F2E6D0.toInt() else clockColour())
         // The thin cinema digits change the clock's width: measure it again so no digit is cut off.
         clockText.text = clockText.text
         clockText.requestLayout()
@@ -595,6 +612,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun addDockTile(content: View, background: Int, label: String, gradient: IntArray? = null, onClick: (View) -> Unit): View {
+        val ring = ProfileStyle.Ring(this, 10f)
         val tile = FrameLayout(this).apply {
             this.background = GradientDrawable().apply {
                 cornerRadius = dp(10).toFloat()
@@ -602,7 +620,7 @@ class MainActivity : AppCompatActivity() {
             }
             clipToOutline = true
             outlineProvider = ViewOutlineProvider.BACKGROUND
-            foreground = ContextCompat.getDrawable(this@MainActivity, R.drawable.tile_light)
+            foreground = ring.drawable
             isFocusable = true
             isClickable = true
             contentDescription = label
@@ -612,6 +630,7 @@ class MainActivity : AppCompatActivity() {
         val name = label.removePrefix("Open ").substringBefore(":")
         tile.setOnFocusChangeListener { v, has ->
             Motion.focus(v, has, 1.12f, 12f)
+            ring.focus(v, has)
             showDockLabel(if (has) v else null, name)
         }
         val lp = LinearLayout.LayoutParams(dp(dockTileW), dp(dockTileH))
@@ -677,11 +696,12 @@ class MainActivity : AppCompatActivity() {
     private fun gridCell(item: Any, w: Int, h: Int): View {
         val name = when (item) { is AppEntry -> item.label; is AppTiles.StoreApp -> item.name; else -> "" }
         val image = ImageView(this).apply { scaleType = ImageView.ScaleType.FIT_XY }
+        val ring = ProfileStyle.Ring(this, 10f)
         val tile = FrameLayout(this).apply {
             background = GradientDrawable().apply { cornerRadius = dp(10).toFloat(); setColor(0xFF1C1C1E.toInt()) }
             clipToOutline = true
             outlineProvider = ViewOutlineProvider.BACKGROUND
-            foreground = ContextCompat.getDrawable(this@MainActivity, R.drawable.tile_light)
+            foreground = ring.drawable
             isFocusable = true
             isClickable = true
             contentDescription = if (item is AppTiles.StoreApp) "Get $name" else "Open $name"
@@ -700,6 +720,7 @@ class MainActivity : AppCompatActivity() {
         }
         tile.setOnFocusChangeListener { v, has ->
             Motion.focus(v, has, 1.1f, 12f)
+            ring.focus(v, has)
             caption.animate().alpha(if (has) 1f else 0f).setDuration(Motion.FADE).setInterpolator(Motion.standard).start()
         }
         when (item) {

@@ -53,6 +53,7 @@ class SettingsActivity : AppCompatActivity() {
             vrow("Account", { Accounts.active(this)?.name ?: "Not Set Up" }) {
                 startActivity(Intent(this, WhoActivity::class.java).putExtra(WhoActivity.EXTRA_MODE, WhoActivity.ACCOUNTS))
             }
+            vrow("Profile Style", { "" }, chevron = true) { startActivity(Intent(this, ProfileStyleActivity::class.java)) }
             vrow("Who’s Watching at Start", { if (Prefs.bool(this, "who_at_start", true)) "On" else "Off" }) {
                 Prefs.setBool(this, "who_at_start", !Prefs.bool(this, "who_at_start", true)); refreshValues()
             }
@@ -719,7 +720,7 @@ class SettingsActivity : AppCompatActivity() {
             return
         }
         GlassDialog(this).title("Connect Your iPhone")
-            .message("Join the same Wi-Fi, then point the iPhone camera at this code. Or open:\n$url")
+            .message("Join the same Wi-Fi, then point the iPhone camera at this code. Or open ${RemoteServer.ip(this)}:${RemoteServer.PORT} in Safari and enter the 4-digit code that pops up on the TV.")
             .image(RemoteService.qr(url, 480))
             .button("Done", GlassDialog.Style.BOLD)
             .show()

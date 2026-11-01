@@ -135,10 +135,21 @@ class RemoteServer(private val context: Context) {
     private fun route(req: Request, out: OutputStream) {
         val key = key(context)
         val authorised = req.query["k"] == key || req.headers["x-key"] == key
+        // Pairing needs no key: the code on the TV is the proof you're in the room.
+        if (req.path == "/api/pair/request") {
+            Pairing.request()
+            main.post { start(Intent(context, PairActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)) }
+            json(out, JSONObject().put("ok", true)); return
+        }
+        if (req.path == "/api/pair/confirm") {
+            val entered = try { JSONObject(String(req.body, Charsets.UTF_8)).optString("code") } catch (e: Exception) { "" }
+            val r = Pairing.confirm(entered)
+            json(out, if (r == -1) JSONObject().put("ok", true).put("key", key) else JSONObject().put("ok", false).put("left", r))
+            return
+        }
         if (req.path == "/" || req.path == "/index.html") {
             if (!authorised) {
-                send(out, 401, "text/html; charset=utf-8", ("<html><body style='font:17px -apple-system;background:#000;color:#fff;padding:40px'>" +
-                    "Scan the QR code in Minimal Launcher › Settings › iPhone Remote to connect.</body></html>").toByteArray())
+                send(out, 200, "text/html; charset=utf-8", context.assets.open("pair.html").use { it.readBytes() })
                 return
             }
             send(out, 200, "text/html; charset=utf-8", context.assets.open("remote.html").use { it.readBytes() })
@@ -213,6 +224,13 @@ class RemoteServer(private val context: Context) {
                 // Keep only real pictures.
                 if (WallpaperLibrary.decodeFile(file, 64) == null) { file.delete(); json(out, JSONObject().put("ok", false)); return }
                 json(out, JSONObject().put("ok", true).put("count", WallpaperLibrary.album(context).size))
+            }
+            "/api/profiles" -> json(out, JSONObject()
+                .put("profiles", JSONArray(ProfileManager.getProfiles(context)))
+                .put("active", ProfileManager.getActiveProfile(context)))
+            "/api/avatar" -> {
+                val who = req.query["p"]?.takeIf { it in ProfileManager.getProfiles(context) } ?: ProfileManager.getActiveProfile(context)
+                json(out, JSONObject().put("ok", Avatars.savePhoto(context, who, req.body)))
             }
             "/api/photos/clear" -> {
                 WallpaperLibrary.albumDir(context).listFiles()?.forEach { it.delete() }

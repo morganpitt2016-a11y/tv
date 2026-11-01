@@ -1,12 +1,14 @@
 package com.morgan.minimallauncher
 
 import android.app.Activity
+import android.content.Intent
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.morgan.minimallauncher.GlassUi.dp
@@ -36,6 +38,15 @@ class WhoActivity : Activity() {
             intent.getStringExtra(EXTRA_MODE) == ACCOUNTS -> ACCOUNTS
             else -> WHO
         })
+    }
+
+    private var resumedOnce = false
+
+    /** Coming back from Customise: show the new picture and colours. */
+    override fun onResume() {
+        super.onResume()
+        if (resumedOnce && mode == WHO && !Accounts.needsSetup(this)) show(WHO)
+        resumedOnce = true
     }
 
     @Deprecated("TV back handling")
@@ -158,6 +169,8 @@ class WhoActivity : Activity() {
         val switch = capsule("${account.name}  ·  Switch Account") { show(ACCOUNTS) }
         switch.textSize = 13f
         content.addView(switch, LinearLayout.LayoutParams(-2, dp(this, 36f)).apply { topMargin = dp(this@WhoActivity, 48f) })
+        content.addView(GlassUi.text(this, "Hold OK on a person to change their picture and colours", 12f, R.font.inter_regular, 0x80FFFFFF.toInt()).apply { gravity = Gravity.CENTER },
+            LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(this@WhoActivity, 14f) })
         (focus ?: row.getChildAt(0))?.requestFocus()
     }
 
@@ -166,7 +179,9 @@ class WhoActivity : Activity() {
     /** A round avatar (initial on a soft gradient) with the name under it. */
     private fun avatarCell(name: String, gradient: IntArray?, onClick: () -> Unit): View {
         val size = dp(this, 108f)
-        val circle = TextView(this).apply {
+        val circle: View = if (gradient != null) ImageView(this).apply {
+            setImageBitmap(Avatars.render(this@WhoActivity, name, size)); scaleType = ImageView.ScaleType.FIT_XY
+        } else TextView(this).apply {
             text = if (gradient == null) "+" else name.trim().take(1).uppercase()
             typeface = GlassUi.font(context, R.font.inter_semibold)
             textSize = if (gradient == null) 44f else 46f
@@ -191,7 +206,7 @@ class WhoActivity : Activity() {
             addView(label, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(this@WhoActivity, 14f) })
             setOnClickListener { onClick() }
         }
-        val ring = GradientDrawable().apply { shape = GradientDrawable.OVAL; setStroke(dp(this@WhoActivity, 3f), 0xFFFFFFFF.toInt()) }
+        val ring = GradientDrawable().apply { shape = GradientDrawable.OVAL; setStroke(dp(this@WhoActivity, 3f), ProfileStyle.of(this@WhoActivity, name).accent.let { if (it == 0) 0xFFFFFFFF.toInt() else it }) }
         cell.setOnFocusChangeListener { _, has ->
             Motion.focus(circle, has, 1.12f, 16f)
             circle.foreground = if (has) ring else null
@@ -216,6 +231,9 @@ class WhoActivity : Activity() {
 
     private fun personMenu(name: String) {
         val d = GlassDialog(this).title(name)
+        d.button("Customise…", GlassDialog.Style.BOLD) {
+            startActivity(Intent(this, ProfileStyleActivity::class.java).putExtra(ProfileStyleActivity.EXTRA_NAME, name))
+        }
         d.button("Rename") {
             val r = GlassDialog(this).title("Rename $name").input("Name", name)
             r.button("Save", GlassDialog.Style.BOLD) { ProfileManager.renameProfile(this, name, r.inputText); show(WHO) }

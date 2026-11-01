@@ -89,6 +89,19 @@
             android:theme="@style/Theme.MinimalLauncher" />
 
         <activity
+            android:name=".PairActivity"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:screenOrientation="landscape"
+            android:theme="@style/Theme.MinimalLauncher" />
+
+        <activity
+            android:name=".ProfileStyleActivity"
+            android:exported="false"
+            android:screenOrientation="landscape"
+            android:theme="@style/Theme.MinimalLauncher" />
+
+        <activity
             android:name=".PlayerActivity"
             android:exported="false"
             android:screenOrientation="landscape"

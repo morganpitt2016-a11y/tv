@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Pair TV Remote</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: #000; color: #fff;
+    font: 17px/1.3 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; }
+  body { display: grid; place-items: center; padding: env(safe-area-inset-top) 24px env(safe-area-inset-bottom); }
+  main { width: 100%; max-width: 360px; text-align: center; }
+  .icon { width: 74px; height: 74px; margin: 0 auto 22px; border-radius: 20px; display: grid; place-items: center;
+    background: linear-gradient(135deg, #5e5ce6, #0a84ff); }
+  .icon svg { width: 38px; height: 38px; fill: none; stroke: #fff; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  h1 { font-size: 28px; font-weight: 700; letter-spacing: -.02em; margin: 0 0 8px; }
+  p { color: rgba(235,235,245,.6); font-size: 16px; margin: 0 0 30px; }
+  .boxes { display: flex; gap: 12px; justify-content: center; position: relative; }
+  .box { width: 64px; height: 80px; border-radius: 16px; background: rgba(255,255,255,.1); display: grid; place-items: center;
+    font-size: 38px; font-weight: 600; border: 2px solid transparent; transition: border-color .15s; }
+  .box.cur { border-color: #0a84ff; }
+  #code { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; font-size: 16px; border: 0; background: none; }
+  #msg { height: 24px; margin: 22px 0 0; font-size: 15px; color: rgba(235,235,245,.6); }
+  #msg.bad { color: #ff453a; } #msg.ok { color: #30d158; }
+  button { margin-top: 26px; border: 0; border-radius: 14px; padding: 13px 22px; font-size: 16px; font-weight: 600;
+    background: rgba(255,255,255,.12); color: #0a84ff; }
+  .shake { animation: shake .35s; }
+  @keyframes shake { 20% { transform: translateX(-9px); } 40% { transform: translateX(8px); } 60% { transform: translateX(-5px); } 80% { transform: translateX(3px); } }
+</style>
+</head>
+<body>
+<main>
+  <div class="icon"><svg viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="3"/><circle cx="12" cy="8" r="1.6"/><path d="M10 15h4M10 18h4"/></svg></div>
+  <h1>Pair with your TV</h1>
+  <p id="sub">Enter the code shown on your TV.</p>
+  <div class="boxes" id="boxes">
+    <div class="box"></div><div class="box"></div><div class="box"></div><div class="box"></div>
+    <input id="code" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="one-time-code" autofocus>
+  </div>
+  <div id="msg"></div>
+  <button id="again" hidden>Show a New Code</button>
+</main>
+<script>
+(() => {
+  const $ = s => document.querySelector(s);
+  const boxes = [...document.querySelectorAll('.box')], input = $('#code'), msg = $('#msg'), again = $('#again');
+  let busy = false;
+  const say = (t, c) => { msg.textContent = t; msg.className = c || ''; };
+  const draw = () => { boxes.forEach((b, i) => { b.textContent = input.value[i] || ''; b.classList.toggle('cur', i === Math.min(input.value.length, 3)); }); };
+
+  async function ask() {
+    again.hidden = true; input.value = ''; draw(); input.disabled = false; input.focus();
+    say('Look at your TV…');
+    try { await fetch('/api/pair/request', { method: 'POST' }); say('A code is on your TV.'); }
+    catch (_) { say('Can’t reach the TV. Is it on this Wi-Fi?', 'bad'); }
+  }
+
+  async function submit() {
+    if (busy) return; busy = true;
+    try {
+      const r = await (await fetch('/api/pair/confirm', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: input.value }) })).json();
+      if (r.ok) {
+        localStorage.setItem('tvkey', r.key); say('✓ Paired', 'ok');
+        setTimeout(() => location.replace('/?k=' + encodeURIComponent(r.key)), 500);
+      } else {
+        $('#boxes').classList.remove('shake'); void $('#boxes').offsetWidth; $('#boxes').classList.add('shake');
+        input.value = ''; draw();
+        if (r.left > 0) say('Wrong code. ' + r.left + (r.left === 1 ? ' try' : ' tries') + ' left.', 'bad');
+        else { say('That code has expired.', 'bad'); input.disabled = true; again.hidden = false; }
+      }
+    } catch (_) { say('Can’t reach the TV.', 'bad'); }
+    busy = false;
+  }
+
+  input.addEventListener('input', () => { input.value = input.value.replace(/\D/g, '').slice(0, 4); draw(); if (input.value.length === 4) submit(); });
+  $('#boxes').addEventListener('click', () => input.focus());
+  again.onclick = ask;
+
+  // Already paired before? Go straight in.
+  (async () => {
+    const k = localStorage.getItem('tvkey');
+    if (k) { try { const r = await fetch('/api/state', { headers: { 'X-Key': k } }); if (r.ok) { location.replace('/?k=' + encodeURIComponent(k)); return; } } catch (_) {} localStorage.removeItem('tvkey'); }
+    ask();
+  })();
+})();
+</script>
+</body>
+</html>

@@ -126,6 +126,15 @@
     <progress id="prog" value="0" max="1" hidden></progress>
   </div>
   <div class="field"><button class="btn grey" id="clearPhotos" style="flex:1">Remove All Photos from TV</button></div>
+
+  <h2>Profile Picture</h2>
+  <div class="note">Choose who it's for, then a picture from your iPhone. On the TV, pick the camera under Customise to use it.</div>
+  <div class="card">
+    <div class="field"><select id="profSel" style="flex:1;padding:12px;border-radius:12px;border:0;background:#2c2c2e;color:#fff;font-size:17px"></select></div>
+    <div class="field" style="margin-top:12px">
+      <label class="btn" style="display:grid;place-items:center;flex:1">Choose Picture…<input type="file" id="avatarFile" accept="image/*" hidden></label>
+    </div>
+  </div>
 </section>
 
 <section id="more">
@@ -183,7 +192,7 @@
     if (raw) { opt.body = raw; opt.headers['Content-Type'] = raw.type || 'application/octet-stream'; }
     else if (body !== undefined) { opt.body = JSON.stringify(body); opt.headers['Content-Type'] = 'application/json'; }
     const r = await fetch(path, opt);
-    if (r.status === 401) { $('#status').textContent = 'Not paired'; throw new Error('pair'); }
+    if (r.status === 401) { localStorage.removeItem('tvkey'); location.replace('/'); throw new Error('pair'); }
     return r.json();
   }
   const send = k => api('/api/key', { key: k }).then(r => { if (!r.ok) toast('Turn on the accessibility service on the TV'); }).catch(() => toast('TV not reachable'));
@@ -229,6 +238,7 @@
     document.querySelectorAll('section').forEach(s => s.classList.toggle('on', s.id === b.dataset.tab));
     $('#title').textContent = b.textContent.trim();
     if (b.dataset.tab === 'apps') loadApps();
+    if (b.dataset.tab === 'photos') loadProfiles();
   });
 
   // Buttons (hold volume to repeat)
@@ -307,6 +317,31 @@
     toast(ok + ' of ' + files.length + ' added'); refresh();
   };
   $('#clearPhotos').onclick = () => { if (confirm('Remove all your photos from the TV?')) api('/api/photos/clear', {}).then(() => { toast('Removed'); refresh(); }); };
+
+  // Profile pictures
+  async function loadProfiles() {
+    try {
+      const r = await api('/api/profiles'); const sel = $('#profSel'); sel.innerHTML = '';
+      r.profiles.forEach(n => { const o = document.createElement('option'); o.value = n; o.textContent = n; if (n === r.active) o.selected = true; sel.append(o); });
+    } catch (_) {}
+  }
+  function squareJpeg(file, size) {
+    return new Promise((res, rej) => {
+      const img = new Image();
+      img.onload = () => {
+        const s = Math.min(img.width, img.height), c = document.createElement('canvas'); c.width = c.height = size;
+        c.getContext('2d').drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, size, size);
+        URL.revokeObjectURL(img.src); c.toBlob(b => b ? res(b) : rej(), 'image/jpeg', .9);
+      };
+      img.onerror = rej; img.src = URL.createObjectURL(file);
+    });
+  }
+  $('#avatarFile').onchange = async e => {
+    const f = e.target.files[0]; if (!f) return;
+    try { const blob = await squareJpeg(f, 512); const r = await api('/api/avatar?p=' + encodeURIComponent($('#profSel').value), undefined, blob); toast(r.ok ? 'Picture sent to the TV' : 'Couldn’t use that picture'); }
+    catch (_) { toast('Couldn’t send that picture'); }
+    e.target.value = '';
+  };
 
   // TiviMate diagnostics
   async function fetchText(path) {
