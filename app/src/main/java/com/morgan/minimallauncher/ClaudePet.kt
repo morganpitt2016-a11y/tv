@@ -94,7 +94,16 @@ class ClaudePet(context: Context) : View(context) {
         isFocusable = true
         isClickable = true
         textP.typeface = GlassUi.font(context, R.font.inter_semibold)
-        setOnClickListener { onChat?.invoke() }
+        setOnClickListener { greet() }
+    }
+
+    private var talkT = 0f
+
+    /** OK pressed: he turns to you and says hi, then the chat opens. */
+    private fun greet() {
+        if (talkT > 0f) return
+        talkT = 1.0f
+        waveT = 1.0f
     }
 
     private var running = false
@@ -116,7 +125,6 @@ class ClaudePet(context: Context) : View(context) {
     override fun onFocusChanged(gainFocus: Boolean, direction: Int, previouslyFocusedRect: Rect?) {
         super.onFocusChanged(gainFocus, direction, previouslyFocusedRect)
         focused = gainFocus
-        if (gainFocus) waveT = 1.2f
     }
 
     // ---------- Update ----------
@@ -133,8 +141,12 @@ class ClaudePet(context: Context) : View(context) {
             musicPlaying = try { NowPlaying.current(context)?.playing == true } catch (e: Exception) { false }
         }
 
-        if (focused) { state = "talk"; return }
-        if (state == "talk") { state = "idle"; idleT = 1f }
+        if (talkT > 0f) {
+            talkT -= dt
+            state = "talk"
+            if (talkT <= 0f) { state = "idle"; idleT = 1.5f; onChat?.invoke() }
+            return
+        }
 
         val goal: Pair<Float, Float>? = when {
             musicPlaying -> danceFloor
@@ -211,14 +223,6 @@ class ClaudePet(context: Context) : View(context) {
         canvas.drawOval(RectF(fx - shw, fy - px * 0.9f, fx + shw, fy + px * 1.1f), p)
         p.isAntiAlias = false
 
-        // Glow when selected.
-        if (focused) {
-            p.isAntiAlias = true
-            p.shader = RadialGradient(fx, fy - bh * 0.5f, sw * 1.1f, 0x77D97757, 0x00D97757, Shader.TileMode.CLAMP)
-            canvas.drawCircle(fx, fy - bh * 0.5f, sw * 1.1f, p)
-            p.shader = null; p.isAntiAlias = false
-        }
-
         canvas.save()
         canvas.translate(fx + if (dancing) sin(t * 7f) * px * 0.8f else 0f, fy)
         if (sleeping) canvas.rotate(-90f, 0f, -bh * 0.5f)      // curled up on the bed
@@ -246,7 +250,7 @@ class ClaudePet(context: Context) : View(context) {
             canvas.drawRect(dst.left + 9 * px, top + 6f * px, dst.left + 11 * px, top + 7.2f * px, p)
         }
         // Rosy cheeks when happy.
-        if (focused || dancing) {
+        if (talkT > 0f || dancing) {
             p.color = 0x66C45A3B
             canvas.drawRect(dst.left + 3 * px, top + 8.5f * px, dst.left + 4.5f * px, top + 9.5f * px, p)
             canvas.drawRect(dst.left + 9.5f * px, top + 8.5f * px, dst.left + 11 * px, top + 9.5f * px, p)
@@ -284,7 +288,7 @@ class ClaudePet(context: Context) : View(context) {
                 textP.color = (((1f - ph) * 230).toInt() shl 24) or 0xD97757
                 canvas.drawText(if (i == 0) "♪" else "♫", fx + sw * (0.45f + i * 0.35f), bodyTopY - ph * 28f * d, textP)
             }
-        } else if (thought > 0f && !sleeping && !focused) {
+        } else if (thought > 0f && !sleeping && talkT <= 0f) {
             val a = (thought.coerceIn(0f, 1f) * 255).toInt()
             val bx = fx + sw * 0.6f; val by = bodyTopY - px * 3f
             p.isAntiAlias = true
@@ -298,26 +302,42 @@ class ClaudePet(context: Context) : View(context) {
             canvas.drawText(g, bx, by + 4.5f * d, textP)
         }
 
-        // "Chat with Claude" bubble when he's selected.
-        if (focused) {
-            val label = "Chat with Claude  ·  OK"
-            textP.textAlign = Paint.Align.CENTER
-            textP.textSize = 11.5f * d
-            textP.color = 0xFFFFFFFF.toInt()
-            val tw = textP.measureText(label)
-            val padX = 12f * d
-            val cxm = fx.coerceIn(tw / 2 + padX + 4f * d, w - tw / 2 - padX - 4f * d)
-            val bottom = (bodyTopY - 10f * d).coerceAtLeast(34f * d)
-            val r = RectF(cxm - tw / 2 - padX, bottom - 26f * d, cxm + tw / 2 + padX, bottom)
-            p.isAntiAlias = true
-            p.color = 0xF21C1C1E.toInt()
-            canvas.drawRoundRect(r, 13f * d, 13f * d, p)
-            val tail = Path()
-            tail.moveTo(fx - 5f * d, r.bottom - 0.5f * d); tail.lineTo(fx + 5f * d, r.bottom - 0.5f * d); tail.lineTo(fx, r.bottom + 7f * d); tail.close()
-            canvas.drawPath(tail, p)
-            p.isAntiAlias = false
-            canvas.drawText(label, cxm, r.centerY() + 4.2f * d, textP)
-        }
+        // A quick "Hi!" as he turns to you, just before the chat opens.
+        if (talkT > 0f) bubble(canvas, "Hi!", fx, bodyTopY - 10f * d, w)
+        // Otherwise only a quiet hint at the bottom - he carries on with his day.
+        else if (focused) hint(canvas, "Press OK to talk to Claude", w, h)
+    }
+
+    private fun bubble(canvas: Canvas, label: String, fx: Float, bottomY: Float, w: Float) {
+        textP.textAlign = Paint.Align.CENTER
+        textP.textSize = 12f * d
+        textP.color = 0xFFFFFFFF.toInt()
+        val tw = textP.measureText(label)
+        val padX = 12f * d
+        val cxm = fx.coerceIn(tw / 2 + padX + 4f * d, w - tw / 2 - padX - 4f * d)
+        val bottom = bottomY.coerceAtLeast(34f * d)
+        val r = RectF(cxm - tw / 2 - padX, bottom - 26f * d, cxm + tw / 2 + padX, bottom)
+        p.isAntiAlias = true
+        p.color = 0xF21C1C1E.toInt()
+        canvas.drawRoundRect(r, 13f * d, 13f * d, p)
+        val tail = Path()
+        tail.moveTo(fx - 5f * d, r.bottom - 0.5f * d); tail.lineTo(fx + 5f * d, r.bottom - 0.5f * d); tail.lineTo(fx, r.bottom + 7f * d); tail.close()
+        canvas.drawPath(tail, p)
+        p.isAntiAlias = false
+        canvas.drawText(label, cxm, r.centerY() + 4.2f * d, textP)
+    }
+
+    private fun hint(canvas: Canvas, label: String, w: Float, h: Float) {
+        textP.textAlign = Paint.Align.CENTER
+        textP.textSize = 11f * d
+        val tw = textP.measureText(label)
+        val r = RectF(w / 2 - tw / 2 - 12f * d, h - 38f * d, w / 2 + tw / 2 + 12f * d, h - 14f * d)
+        p.isAntiAlias = true
+        p.color = 0x991C1C1E.toInt()
+        canvas.drawRoundRect(r, 12f * d, 12f * d, p)
+        p.isAntiAlias = false
+        textP.color = 0xCCFFFFFF.toInt()
+        canvas.drawText(label, w / 2, r.centerY() + 4f * d, textP)
     }
 
     private fun drawSpark(canvas: Canvas, cx: Float, cy: Float, r: Float, colour: Int, spin: Float) {
