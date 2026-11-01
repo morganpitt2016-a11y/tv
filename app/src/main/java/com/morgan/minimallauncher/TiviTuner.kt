@@ -201,6 +201,7 @@ object TiviTuner {
             // Lift the cover once the picture is up (or straight away if it failed).
             main.postDelayed({ hideCover() }, if (ok) 300 else 0)
             doneOuter(ok)
+            HomeRedirectService.instance?.let { Diag.send(it, "tune", "Result: ${if (ok) "selected" else "FAILED"} for \"$channel\"\n" + logText().takeLast(60000)) }
         }
         cancelled = false
         setBusy(true)
@@ -840,11 +841,15 @@ object TiviTuner {
     }
 
     /** Short version of the screen: one line per piece of text, with list/clickable/focusable flags. */
-    private fun compactScreen(): String {
+    /** What TiviMate is showing (only TiviMate - used when Claude asks to see the screen). */
+    fun tiviScreen(): String = compactScreen(onlyTivi = true)
+
+    private fun compactScreen(onlyTivi: Boolean = false): String {
         val service = HomeRedirectService.instance ?: return "(service not running)"
         val lines = mutableListOf<String>()
         val windows = try { service.windows.orEmpty() } catch (e: Exception) { emptyList() }
         val roots = windows.mapNotNull { it.root }.ifEmpty { listOfNotNull(service.rootInActiveWindow) }
+            .filter { !onlyTivi || it.packageName?.toString() == PKG }
         for (root in roots) {
             lines += "[${root.packageName}]"
             fun walk(n: AccessibilityNodeInfo, inList: Boolean) {

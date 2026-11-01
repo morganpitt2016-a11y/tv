@@ -150,6 +150,10 @@ class SettingsActivity : AppCompatActivity() {
 
         section("Live TV")
         group {
+            vrow("Share with Claude", { onOff(Diag.enabled(this)) }) {
+                Diag.setEnabled(this, !Diag.enabled(this)); refreshValues()
+                if (Diag.enabled(this)) GlassUi.toast(this, "On - Claude can now see the tuning log and TiviMate’s screen")
+            }
             vrow("Speed Test", { "" }, chevron = true) { runSpeedTest() }
             vrow("Speed Log", { "" }, chevron = true) {
                 GlassDialog(this).title("Speed Log").message(Perf.text().takeLast(3500))
@@ -164,6 +168,7 @@ class SettingsActivity : AppCompatActivity() {
                     .button("Done", GlassDialog.Style.BOLD).show()
             }
         }
+        footnote("Share with Claude: while it’s on, the tuning log and a snapshot of TiviMate’s screen are sent to a private mailbox so Claude can see what’s going wrong and try channel picks for you. Nothing from other apps and never any passwords. Turn it off and nothing is sent.")
         footnote("Sign in with your TV provider’s login (server, username, password - the same as in TiviMate › Settings › Playlists) and channels, films and series play straight away in the app. The login stays on this TV. Without it, the app works through TiviMate.")
 
         section("iPhone Remote")
