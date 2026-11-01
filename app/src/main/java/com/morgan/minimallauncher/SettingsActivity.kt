@@ -150,6 +150,11 @@ class SettingsActivity : AppCompatActivity() {
 
         section("Live TV")
         group {
+            vrow("Speed Test", { "" }, chevron = true) { runSpeedTest() }
+            vrow("Speed Log", { "" }, chevron = true) {
+                GlassDialog(this).title("Speed Log").message(Perf.text().takeLast(3500))
+                    .button("Done", GlassDialog.Style.BOLD).show()
+            }
             vrow("Dodgy Box Login", { if (Xtream.isSetUp(this)) "Signed In" else "Not Set Up" }) { editProviderLogin() }
             vrow("Recordings", { Recordings.shown(this).size.let { if (it == 0) "" else "$it" } }, chevron = true) { manageRecordings() }
             vrow("TV Guide", { if (LiveGuide.customUrl(this) != null) "Your Guide Link" else "Freeview" }) { editGuide() }
@@ -598,6 +603,14 @@ class SettingsActivity : AppCompatActivity() {
             .input("Town or city", Weather.getCity(this).orEmpty())
         d.button("Save", GlassDialog.Style.BOLD) { Weather.setCity(this, d.inputText.ifBlank { null }); refreshValues() }
         d.button("Cancel").show()
+    }
+
+    private fun runSpeedTest() {
+        GlassUi.toast(this, "Testing for a few seconds - leave the TV alone")
+        Perf.runSpeedTest(this) { report ->
+            Perf.record("Speed test\n$report")
+            if (!isDestroyed) GlassDialog(this).title("Speed Test").message(report).button("Done", GlassDialog.Style.BOLD).show()
+        }
     }
 
     /** Where recordings live and, if needed, permission to read TiviMate's folder. */

@@ -222,7 +222,7 @@ class WatchActivity : AppCompatActivity() {
                         if (id == "search") showSearchTab() else showTab(id, focusContent = false)
                     }
                     pendingTab = r
-                    handler.postDelayed(r, 350)
+                    handler.postDelayed(r, 220)
                 }
             }
         }
@@ -493,6 +493,7 @@ class WatchActivity : AppCompatActivity() {
     // ---------- Live TV ----------
 
     private fun buildLive(token: Int) {
+        val t0 = Perf.now()
         // Just the TV guide (the live TV apps are on the home screen).
         val loading = GlassUi.text(this, "Loading the TV guide…", 13f, R.font.inter_medium, 0x99FFFFFF.toInt())
         rows.addView(loading, LinearLayout.LayoutParams(-2, -2).apply { setMargins(dp(this@WatchActivity, 56f), dp(this@WatchActivity, 20f), 0, 0) })
@@ -513,8 +514,22 @@ class WatchActivity : AppCompatActivity() {
             }
             rows.addView(GlassUi.text(this, "Guide", 15f, R.font.inter_semibold),
                 LinearLayout.LayoutParams(-2, -2).apply { setMargins(dp(this@WatchActivity, 56f), dp(this@WatchActivity, 16f), 0, dp(this@WatchActivity, 4f)) })
-            for (ch in channels.take(150)) { try { rows.addView(guideRow(ch)) } catch (e: Exception) {} }
-            if (rows.findFocus() == null) rows.post { firstItem()?.requestFocus() }
+            // Channel rows are added in small batches: the first screenful is up immediately and
+            // the rest fill in behind it, instead of building 150 rows before anything draws.
+            val list = channels.take(150)
+            var next = 0
+            fun addBatch() {
+                if (token != buildToken || isDestroyed) return
+                val first = next == 0
+                val end = minOf(next + (if (first) 10 else 8), list.size)
+                while (next < end) { try { rows.addView(guideRow(list[next])) } catch (e: Exception) {}; next++ }
+                if (first) {
+                    Perf.note("Live TV: first rows on screen", t0)
+                    if (rows.findFocus() == null) rows.post { firstItem()?.requestFocus() }
+                }
+                if (next < list.size) handler.postDelayed({ addBatch() }, 10) else Perf.note("Live TV: all ${list.size} rows built", t0)
+            }
+            addBatch()
         }
     }
 

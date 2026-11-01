@@ -45,6 +45,9 @@ object LiveGuide {
 
     @Volatile private var memory: List<Channel>? = null
     @Volatile private var loading = false
+    /** The guide with finished programmes dropped, ready to show, and when that was made. */
+    @Volatile private var shown: List<Channel>? = null
+    @Volatile private var shownAt = 0L
 
     private fun cacheFile(c: Context) = File(c.filesDir, if (customUrl(c) != null) "guide_custom.json" else "guide.json")
 
@@ -54,30 +57,70 @@ object LiveGuide {
     fun setCustomUrl(c: Context, url: String?) {
         Prefs.setString(c, "epg_url", url?.trim()?.takeIf { it.isNotBlank() })
         memory = null
+        shown = null
         File(c.filesDir, "guide_custom.json").delete()
     }
 
-    /** The guide, from memory/disk straight away if fresh enough, else downloaded. Main-thread callback. */
+    /**
+     * The guide, shown straight away from memory or the saved copy however old it is; an old
+     * one is refreshed quietly for next time. Only the very first run waits for a download.
+     * The callback is on the main thread.
+     */
     fun load(c: Context, done: (List<Channel>?) -> Unit) {
         val app = c.applicationContext
-        val f = cacheFile(app)
-        memory?.let { if (System.currentTimeMillis() - f.lastModified() < MAX_AGE) { done(it); return } }
+        val t0 = Perf.now()
+        val ready = shown
+        if (ready != null && System.currentTimeMillis() - shownAt < 90_000L) {
+            Perf.note("TV guide (memory)", t0)
+            done(ready)
+            refreshIfStale(app)
+            return
+        }
         Thread {
-            var result: List<Channel>? = null
-            if (f.exists() && System.currentTimeMillis() - f.lastModified() < MAX_AGE) result = readCache(f)
-            if (result == null && !loading) {
-                loading = true
-                try {
-                    val custom = customUrl(app)
-                    result = if (custom != null) downloadXml(custom, custom = true) else download()
-                    writeCache(f, result)
-                } catch (e: Exception) {
-                    result = if (f.exists()) readCache(f) else null
-                } finally { loading = false }
-            }
-            if (result != null) memory = result
-            main.post { done(result?.let { trimmed(it) }) }
+            val f = cacheFile(app)
+            var from = "memory"
+            var result: List<Channel>? = memory
+            if (result == null && f.exists()) { result = readCache(f); from = "saved copy" }
+            if (result == null) { from = "download"; result = fetchNow(app, f) }
+            val list = result?.let { trimmed(it) }          // done here, not on the main thread
+            if (result != null) { memory = result; shown = list; shownAt = System.currentTimeMillis() }
+            val ms = Perf.now() - t0
+            main.post { Perf.record("TV guide ($from): $ms ms"); done(list) }
+            refreshIfStale(app)
         }.start()
+    }
+
+    private fun isFresh(f: File) = f.exists() && System.currentTimeMillis() - f.lastModified() < MAX_AGE
+
+    /** If our copy is old, fetch a newer one in the background for next time. */
+    private fun refreshIfStale(app: Context) {
+        if (loading || isFresh(cacheFile(app))) return
+        Thread {
+            val fresh = fetchNow(app, cacheFile(app))
+            if (fresh != null) { memory = fresh; shown = trimmed(fresh); shownAt = System.currentTimeMillis() }
+        }.start()
+    }
+
+    private fun fetchNow(app: Context, f: File): List<Channel>? {
+        if (loading) return if (f.exists()) readCache(f) else null
+        loading = true
+        return try {
+            val custom = customUrl(app)
+            val r = if (custom != null) downloadXml(custom, custom = true) else download()
+            writeCache(f, r)
+            r
+        } catch (e: Exception) {
+            if (f.exists()) readCache(f) else null
+        } finally { loading = false }
+    }
+
+    /** For the speed test: how long reading the saved guide takes. */
+    fun benchmarkDisk(c: Context): String {
+        val f = cacheFile(c.applicationContext)
+        if (!f.exists()) return "no guide saved yet"
+        val t0 = Perf.now()
+        val list = readCache(f) ?: return "couldn't read it"
+        return "${list.size} channels, read in ${Perf.now() - t0} ms"
     }
 
     /** Drop finished programmes and channels with nothing left. */

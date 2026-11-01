@@ -78,3 +78,20 @@ jobs:
           git add dist/app-debug.apk dist/testapp-debug.apk
           git commit -m "Publish debug APKs (run ${{ github.run_number }}) [skip ci]" || echo "No change to commit"
           git push origin HEAD:main
+
+      # Unit tests run last, so they never hold up the APK. Results appear in the run summary.
+      - name: Unit tests
+        continue-on-error: true
+        run: |
+          gradle :app:testDebugUnitTest --stacktrace
+        
+      - name: Unit test results
+        if: always()
+        run: |
+          echo "### Unit tests" >> "$GITHUB_STEP_SUMMARY"
+          shopt -s nullglob
+          files=(app/build/test-results/testDebugUnitTest/*.xml)
+          if [ ${#files[@]} -eq 0 ]; then echo "No results (the tests did not run)." >> "$GITHUB_STEP_SUMMARY"; fi
+          for f in "${files[@]}"; do
+            grep -o '<testsuite [^>]*' "$f" | sed -E 's/.*name="([^"]*)".*tests="([0-9]+)".*failures="([0-9]+)".*errors="([0-9]+)".*/- \1: \2 tests, \3 failed, \4 errors/' >> "$GITHUB_STEP_SUMMARY"
+          done

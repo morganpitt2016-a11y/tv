@@ -632,16 +632,8 @@ object TiviTuner {
     // it, types the title, picks the matching film or show and presses Play - behind the
     // cover, like tuning a channel.
 
-    private val vodNoise = Regex("\\b(4k|uhd|fhd|hd|sd|hevc|multi|sub|subs|dub|dubbed|vod)\\b")
-
     /** "EN - The Batman (2022) 4K" -> "the batman". */
-    fun vodKey(s: String): String = s.lowercase()
-        .replace(Regex("^\\s*(\\[[^\\]]*\\]|\\|[^|]*\\||[a-z]{2,3}\\s*[-|])\\s*"), "")
-        .replace(Regex("\\(?\\b(19|20)\\d{2}\\b\\)?"), " ")
-        .replace("&", "and")
-        .replace(Regex("[^a-z0-9 ]+"), " ")
-        .replace(vodNoise, " ")
-        .replace(Regex("\\s+"), " ").trim()
+    fun vodKey(s: String): String = TextMatch.vodKey(s)
 
     private val playLabels = listOf("play", "watch", "resume", "continue", "watch now", "play now", "start")
 
@@ -898,21 +890,7 @@ object TiviTuner {
 
     // ---------- Matching ----------
 
-    private val noise = Regex("\\b(uk|gb|hd|fhd|uhd|sd|4k|hevc|h265|raw|vip|backup)\\b|[|:\\[\\]()_.\\-]")
+    fun normalise(s: String): String = TextMatch.normalise(s)
 
-    fun normalise(s: String): String = s.lowercase()
-        .replace(Regex("^\\s*\\d{1,4}[.)]?\\s+"), "")
-        .replace(noise, " ")
-        .replace("bbc 1", "bbc one").replace("bbc1", "bbc one").replace("bbc 2", "bbc two").replace("bbc2", "bbc two")
-        .replace("itv 1", "itv1").replace("channel 5", "5").replace("channel5", "5").replace("ch4", "channel 4")
-        .replace(Regex("\\s+"), " ").trim()
-
-    private fun matches(candidate: String, wanted: String): Boolean {
-        if (candidate.isEmpty() || wanted.isEmpty()) return false
-        if (candidate == wanted) return true
-        val plusOne = { x: String -> x.contains("+1") }
-        if (plusOne(candidate) != plusOne(wanted)) return false
-        // "bbc one london" contains "bbc one" as whole words.
-        return Regex("(^| )" + Regex.escape(wanted) + "( |$)").containsMatchIn(candidate) && candidate.length <= wanted.length + 14
-    }
+    private fun matches(candidate: String, wanted: String) = TextMatch.matches(candidate, wanted)
 }

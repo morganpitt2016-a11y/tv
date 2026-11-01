@@ -341,5 +341,11 @@ class LauncherApp : Application() {
         }, android.content.IntentFilter(Intent.ACTION_SCREEN_ON), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
         // Scheduled TiviMate recordings survive a restart.
         try { TiviRecorder.rearm(this) } catch (e: Exception) {}
+        // A few seconds after start (not during it), get the TV guide and the streaming services
+        // ready, so Live TV and Watch open instantly instead of loading.
+        Handler(Looper.getMainLooper()).postDelayed({
+            try { LiveGuide.load(this) {} } catch (e: Exception) {}
+            Thread { try { WatchCatalog.featuredProviders(this) } catch (e: Exception) {} }.start()
+        }, 5000)
     }
 }

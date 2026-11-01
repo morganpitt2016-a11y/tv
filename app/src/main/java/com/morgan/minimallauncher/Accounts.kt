@@ -29,7 +29,12 @@ object Accounts {
 
     private fun prefs(c: Context) = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    fun all(c: Context): List<Account> {
+    @Volatile private var cached: List<Account>? = null
+
+    /** The accounts, remembered in memory (this is asked for on every focus change). */
+    fun all(c: Context): List<Account> = cached ?: loadAll(c).also { cached = it }
+
+    private fun loadAll(c: Context): List<Account> {
         val raw = prefs(c).getString("accounts", null)
         if (raw == null) {
             // Upgrading from before accounts existed: keep the existing people as the first account.
@@ -53,6 +58,7 @@ object Accounts {
         val arr = JSONArray()
         list.forEach { arr.put(JSONObject().put("id", it.id).put("name", it.name).put("pass", it.passcodeHash ?: "").put("colour", it.colour)) }
         prefs(c).edit().putString("accounts", arr.toString()).apply()
+        cached = list
     }
 
     fun needsSetup(c: Context) = all(c).isEmpty()

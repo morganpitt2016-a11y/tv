@@ -61,6 +61,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var dockLabel: TextView
     private lateinit var dockBackdrop: ImageView
     private lateinit var claudePet: ClaudePet
+    private var lastSelfEnable = 0L
     private lateinit var claudePanel: FrameLayout
     private lateinit var dogPet: DogPet
     private lateinit var profilePill: View
@@ -210,7 +211,8 @@ class MainActivity : AppCompatActivity() {
         RedirectDiag.launcherShown(this)
         AppWatchService.startIfNeeded(this)
         RemoteService.startIfEnabled(this)
-        SelfEnable.enableAll(this)
+        // Switching the accessibility service on only needs checking now and then, not on every return home.
+        if (Perf.now() - lastSelfEnable > 30_000L) { lastSelfEnable = Perf.now(); SelfEnable.enableAll(this) }
         handler.post(clockTick)
         rotator.start()
         widgets.start()
@@ -249,6 +251,7 @@ class MainActivity : AppCompatActivity() {
      * row/position had focus and put it back afterwards.
      */
     private fun refreshAll(focusActiveProfile: Boolean = false) {
+        val perfStart = Perf.now()
         val saved = savedFocus()
         applyProfileStyle()
         val allApps = AppListHelper.loadLaunchableTvApps(this)
@@ -264,6 +267,7 @@ class MainActivity : AppCompatActivity() {
         } else {
             restoreFocus(saved)
         }
+        Perf.note("Home: refresh", perfStart)
     }
 
     private fun savedFocus(): Pair<ViewGroup, Int>? {
