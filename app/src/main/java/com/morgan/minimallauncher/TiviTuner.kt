@@ -96,7 +96,7 @@ object TiviTuner {
         if (numbersLoaded) return
         numbersLoaded = true
         try {
-            val o = org.json.JSONObject(Prefs.string(c, "tivi_numbers") ?: "{}")
+            val o = org.json.JSONObject(Prefs.string(c, "tivi_numbers2") ?: "{}")
             o.keys().forEach { k -> numbers[k] = o.getInt(k) }
         } catch (e: Exception) {}
     }
@@ -104,7 +104,7 @@ object TiviTuner {
     private fun saveNumbers(c: android.content.Context) {
         val o = org.json.JSONObject()
         numbers.entries.take(3000).forEach { (k, v) -> o.put(k, v) }
-        Prefs.setString(c, "tivi_numbers", o.toString())
+        Prefs.setString(c, "tivi_numbers2", o.toString())
     }
 
     private val numberOnly = Regex("^\\d{1,4}$")
@@ -135,14 +135,89 @@ object TiviTuner {
         val seen = rowNumbers(list)
         if (seen.isEmpty()) return null
         var changed = false
-        for ((n, name) in seen) if (name.isNotEmpty() && numbers[name] != n) { numbers[name] = n; changed = true }
+        for ((n, name) in seen) if (name.isNotEmpty() && numbers[gk(name)] != n) { numbers[gk(name)] = n; changed = true }
         if (changed) saveNumbers(c)
         return seen.minOf { it.first }..seen.maxOf { it.first }
     }
 
-    /** The channel's number if known (learned beats the built-in guess). */
+    /** The channel's number if learned. Numbers belong to a group, so a guess from another group is never used. */
     private fun numberFor(wanted: String): Pair<Int, Boolean>? =
-        numbers[wanted]?.let { it to true } ?: HINTS[wanted]?.let { it to false }
+        numbers[gk(wanted)]?.let { it to true }
+
+    // ---------- Channel groups ----------
+    // TiviMate lists channels by group ("UK ~ Entertainment", "UK ~ Regionals"...) and a channel
+    // is only in some of them. The picker remembers which group each channel was found in.
+
+    @Volatile private var curGroup = ""
+    private fun gk(name: String) = "$curGroup|$name"
+
+    private val groupOf = HashMap<String, String>()
+    private var groupsLoaded = false
+
+    private fun loadGroups(c: android.content.Context) {
+        if (groupsLoaded) return
+        groupsLoaded = true
+        try {
+            val o = org.json.JSONObject(Prefs.string(c, "tivi_groups") ?: "{}")
+            o.keys().forEach { k -> groupOf[k] = o.getString(k) }
+        } catch (e: Exception) {}
+    }
+
+    private fun saveGroups(c: android.content.Context) {
+        val o = org.json.JSONObject()
+        groupOf.entries.take(3000).forEach { (k, v) -> o.put(k, v) }
+        Prefs.setString(c, "tivi_groups", o.toString())
+    }
+
+    private val clockText = Regex("(?i)\\b(am|pm)\\b|^\\d+ min$|^\\d{1,2}:\\d{2}")
+
+    /** TiviMate's list of groups and the one currently open, if the screen shows them. */
+    private fun groupInfo(roots: List<AccessibilityNodeInfo>): Triple<AccessibilityNodeInfo, List<String>, String>? {
+        val all = roots.flatMap { texts(it) }
+        for (g in roots.flatMap { scrollables(it) }) {
+            if (g.className?.toString()?.contains("GridView") != true) continue
+            val names = texts(g)
+            if (names.size < 3 || names.any { numberOnly.matches(it) || clockText.containsMatchIn(it) }) continue
+            val cur = names.firstOrNull { n -> all.count { it == n } >= 2 } ?: continue
+            return Triple(g, names, cur)
+        }
+        return null
+    }
+
+    private fun isInside(ancestor: AccessibilityNodeInfo, node: AccessibilityNodeInfo?): Boolean {
+        var n = node
+        var d = 0
+        while (n != null && d++ < 12) { if (n == ancestor) return true; n = n.parent }
+        return false
+    }
+
+    /** Move TiviMate's highlight onto [target] in the group list and open it. */
+    private fun goToGroup(service: AccessibilityService, target: String, done: (Boolean) -> Unit) {
+        var rounds = 0
+        fun check() {
+            if (cancelled || ++rounds > 40) { done(false); return }
+            val info = groupInfo(tiviRoots(service)) ?: run { note("Group list not on screen"); done(false); return }
+            val (grid, names, cur) = info
+            if (cur == target) { done(true); return }
+            val focus = service.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+            if (!isInside(grid, focus)) {
+                service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_DPAD_LEFT)
+                later(180, { done(false) }) { check() }; return
+            }
+            val ftxt = focus?.let { texts(it).firstOrNull() ?: it.text?.toString() }
+            val fi = names.indexOf(ftxt)
+            val ti = names.indexOf(target)
+            when {
+                ti < 0 -> { service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_DPAD_DOWN) }
+                fi == ti -> { service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_DPAD_CENTER); later(500, { done(false) }) { check() }; return }
+                fi < 0 -> { service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_DPAD_DOWN) }
+                else -> service.performGlobalAction(if (ti > fi) AccessibilityService.GLOBAL_ACTION_DPAD_DOWN else AccessibilityService.GLOBAL_ACTION_DPAD_UP)
+            }
+            later(130, { done(false) }) { check() }
+        }
+        note("Switching to group \"$target\"")
+        check()
+    }
 
     /** Only an exact remembered match: a loose one could jump to the wrong channel. */
     private fun learnedRow(wanted: String): Int? = rows[wanted]
@@ -210,6 +285,7 @@ object TiviTuner {
         val wanted = normalise(channel)
         loadRows(service)
         loadNumbers(service)
+        loadGroups(service)
         note("---- Tune to \"$channel\" (looking for \"$wanted\"${learnedRow(wanted)?.let { ", remembered row $it" } ?: ""})")
         var nudged = false
         var snapped = false
@@ -220,6 +296,9 @@ object TiviTuner {
         var attempts = 0
         var okPresses = 0
         var emptyWaits = 0
+        val tried = HashSet<String>()
+        val visited = HashSet<String>()
+        var switches = 0
         var settle = 0
         var lastSeen = ""
         var sameCount = 0
@@ -251,14 +330,17 @@ object TiviTuner {
             }
             // The channel list (or TV guide grid) is the biggest list on screen - not the group list beside it.
             val list = lists.maxByOrNull { descendants(it) }!!
+            val gInfo = groupInfo(roots)
+            curGroup = gInfo?.third ?: ""
             val match = bestMatch(list, wanted)
             if (match != null) {
                 note("Found \"${match.text ?: match.contentDescription}\" after $attempts checks")
+                if (curGroup.isNotEmpty() && groupOf[wanted] != curGroup) { groupOf[wanted] = curGroup; saveGroups(service) }
                 // Remember the number this name really sits on, so next time we head straight there.
                 try {
                     harvest(service, list)
                     val mk = normalise((match.text ?: match.contentDescription).toString())
-                    numbers[mk]?.let { n -> if (numbers[wanted] != n) { numbers[wanted] = n; saveNumbers(service) } }
+                    numbers[gk(mk)]?.let { n -> if (numbers[gk(wanted)] != n) { numbers[gk(wanted)] = n; saveNumbers(service) } }
                 } catch (e: Exception) {}
                 rowOf(match)?.let { row -> if (rows[wanted] != row) { rows[wanted] = row; saveRows(service) } }
                 if (rows.isEmpty()) { rows[wanted] = 0; saveRows(service) }
@@ -272,6 +354,28 @@ object TiviTuner {
                 emptyWaits++
                 if (emptyWaits == 1) note("Channel rows not drawn yet - waiting")
                 later(200, { done(false) }) { step() }; return
+            }
+            // Wrong group? Switch to the one this channel was found in last time (or the main one).
+            fun nextGroup(): String? {
+                val names = gInfo?.second ?: return null
+                val remembered = groupOf[wanted]?.takeIf { it in names && it !in tried && it != curGroup }
+                if (remembered != null) return remembered
+                return names.filter { it !in tried && it != curGroup }
+                    .sortedBy { if (it.contains("entertainment", true)) 0 else 1 }.firstOrNull()
+            }
+            fun switchTo(g: String) {
+                if (++switches > 10) { note("Tried too many groups"); done(false); return }
+                nudged = false; lastSeen = ""; sameCount = 0; goingDown = true; visited.clear()
+                directedFailed = false; lastRange = ""; rangeSame = 0; emptyWaits = 0
+                goToGroup(service, g) { ok -> if (!ok) { note("Couldn't switch group"); done(false) } else later(500, { done(false) }) { step() } }
+            }
+            val remembered = groupOf[wanted]
+            if (remembered != null && remembered != curGroup && gInfo != null && remembered in gInfo.second && remembered !in tried) {
+                switchTo(remembered); return
+            }
+            if (remembered == null && switches == 0 && gInfo != null && !curGroup.contains("entertainment", true)) {
+                val ent = gInfo.second.firstOrNull { it.contains("entertainment", true) }
+                if (ent != null) { switchTo(ent); return }
             }
             val inList = focusRowIn(service, list) != null
             if (!inList && !nudged) {
@@ -302,10 +406,21 @@ object TiviTuner {
                 if (!learned && !directedFailed) { directedFailed = true; goingDown = num >= (range.first + range.last) / 2 }
             }
             val seen = texts(list).joinToString("|")
+            fun groupExhausted(): Boolean {
+                if (curGroup.isNotEmpty()) tried.add(curGroup)
+                val g = nextGroup() ?: return false
+                note("Not in \"$curGroup\" - trying \"$g\"")
+                switchTo(g)
+                return true
+            }
+            if (goingDown && seen != lastSeen && !visited.add(seen)) {
+                // Came back round to a screen already seen: this group has no such channel.
+                if (groupExhausted()) return
+            } else visited.add(seen)
             if (seen == lastSeen) {
                 if (++sameCount >= 3) {
                     if (goingDown) { goingDown = false; sameCount = 0; note("Reached the bottom - searching upwards") }
-                    else { note("Not in this channel group. Last names seen: ${texts(list).take(20)}"); done(false); return }
+                    else { if (groupExhausted()) return; note("Not in this channel group. Last names seen: ${texts(list).take(20)}"); done(false); return }
                 }
             } else sameCount = 0
             lastSeen = seen
