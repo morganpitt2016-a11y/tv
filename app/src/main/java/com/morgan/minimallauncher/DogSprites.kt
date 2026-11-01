@@ -304,21 +304,21 @@ object DogSprites {
     )
 
     val SLEEP = arrayOf(
-        "...oo....................................",
-        "..oCCoo...oooooooooo........o............",
-        ".oCFFFFoooHFFHFFHFFFooo....oFooo.........",
-        ".oFFFFFHFFFFFFFFFFFHFFFo.ooFFHHFoo.......",
-        "oFFFFFFFFFFFFFFFFFFFFFFFoFFFFHHFFFo......",
-        "oFFFFFFFFHFFFFHFFFHFFFFFFFDDDHHFFFFo.....",
-        "oFFFFFFFFFFFFFFFFFFFFFFFFDDDDDFFFFFo.....",
-        "oFFFFFFFFFFFFFFFFFFFFFFFGDDDDDKKKFCFo....",
-        "oFFFFFFFFFFFFFFFFFFFFFFRRRDDDDDFCCCCCooo.",
-        ".oFFFFFFFFFFFFFFFFFFFFFRRRDDDDDCCCCCCNNNo",
-        ".oFFFFFFFFFFFFFFFFFFFFFRRRDDDDCCCCCCCNNNo",
-        "..ooFDFFFFFFFFFFFFFFFDFRRRDDDDDCCCCCCCoo.",
-        "....oFFFFFFFFFFFFFDFFFFRRRDDDCCCCCCCCo...",
-        ".....ooFDFFFFDFFFFFFFFFooDDDDCCCcCCcCo...",
-        ".......oooFFFFFFFFFFooo..oooooooooooo....",
+        "...ooo..........................",
+        "..oCCFoo..oooooo.....o..........",
+        ".oCFFFFFooHFFHFFoooooFoo........",
+        ".oFFFFFHFFFFFFFFHGFFooHHooo.....",
+        ".oFFFFFFFFFFFFFFRRFHFFHHFFFo....",
+        ".oFFFFFFFHFFFFHFRRFFDFHHFFFFo...",
+        "oFFFFFFFFFFFFFFFRRDDDDDFFFFFFo..",
+        "oFFFFFFFFFFFFFFFRRDDDDDKKKFFFo..",
+        "oFFFFFFFFFFFFFFFRRDDDDDFFCCCCCoo",
+        ".oFFFFFFFFFFFFFFRRDDDDDDCCCCCNNN",
+        ".oFFFFFFFFFFFFFFFDDDDDDFCCCCCNNN",
+        ".oFFFFDFFFFFFFFFFFDDDDDFCCCCCCCo",
+        "..oFFFFFFFFFFFFFFFDDDCCCCCCCCCo.",
+        "...ooFoFFFDFFFFDFFFFDCCCcCCCCo..",
+        ".....o.ooooFFFFFooooooooooooo...",
     )
 
     val CHEW = arrayOf(
@@ -389,14 +389,25 @@ object DogSprites {
     )
 
     val BED = arrayOf(
-        "........ooooooooooooooooo.......",
-        "....ooooCCCCCCCCCCCCCCCCCoooo...",
-        "..ooCCWCCCCCCCWCCCCCCCWCCCCCCoo.",
-        ".obCCCCCCcccccccccccccccCCCCCCbo",
-        "obbbCCcccccccccccccccccccccCCbbb",
-        ".obbbbbbCcccccccccccccccCbbbbbbo",
-        "..ooDbbbbDbbbbDbbbbDbbbbDbbbboo.",
-        "....oooobbbbbbbbbbbbbbbbboooo...",
+        "..................o.................",
+        ".......oooooooooooCooooooooooo......",
+        "....oooCCCCCCCCCCCCCCCCCCCCCCCooo...",
+        "..ooCCCCCCCcccccccccccccccCCCCCCCoo.",
+        ".obCCCCcccccccccccccccccccccccCCCCbo",
+        "obbbCCCCcccccccccccccccccccccCCCCbbb",
+        ".obbbbbCCCCCCcccccccccccCCCCCCbbbbbo",
+        "..oobDbbbbDbbbbDbbCbDbbbbDbbbbDbboo.",
+        "....oooobbbbbbbbbbbbbbbbbbbbboooo...",
+    )
+
+    val GRASS = arrayOf(
+        ".....4..............",
+        "....23....2...5.2...",
+        ".2..21.2..21.23.212.",
+        "12111112161112111121",
+        "11311131111311131113",
+        "11311131111311131113",
+        "11111111111111111111",
     )
 
 }

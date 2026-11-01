@@ -146,22 +146,25 @@ class MainActivity : AppCompatActivity() {
         setupDog()
     }
 
-    /** The cavapoo lives in a strip just above the dock, with her house and bed on the right. */
+    /** The cavapoo lives beside the dock: she walks along the top, with her steps, grass, house and bed on the right. */
     private fun setupDog() {
         dogPet = DogPet(this)
-        ui.addView(dogPet, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, dp(64)).apply { topMargin = dp(390) })
+        ui.addView(dogPet, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, dp(110)).apply { topMargin = dp(400) })
         dock.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> updateDogWorld() }
     }
 
-    /** Tell her where the dock is and where each app sits. She stands on a line just above the dock glass. */
+    /** Tell her where the dock is: the top of the dock to walk on, the bottoms of the apps for her house and grass. */
     private fun updateDogWorld() {
         if (!::dogPet.isInitialized || dock.childCount == 0 || dock.width == 0) return
-        val groundY = dock.top + dp(4)
+        val first = dock.getChildAt(0)
+        val walkY = dock.top + dp(4)
+        val groundY = dock.top + first.top + first.height
+        val stripTop = walkY - dp(44)
+        val stripH = groundY - stripTop + dp(4)
         val lp = dogPet.layoutParams as FrameLayout.LayoutParams
-        val wanted = groundY - dp(64) + dp(2)
-        if (lp.topMargin != wanted) { lp.topMargin = wanted; dogPet.layoutParams = lp }
+        if (lp.topMargin != stripTop || lp.height != stripH) { lp.topMargin = stripTop; lp.height = stripH; dogPet.layoutParams = lp }
         val centres = (0 until dock.childCount).map { i -> dock.getChildAt(i).let { dock.left + it.left + it.width / 2f } }
-        dogPet.setWorld(dock.left + dp(20).toFloat(), centres)
+        dogPet.setWorld(dock.left + dp(20).toFloat(), dock.right.toFloat(), (walkY - stripTop).toFloat(), (groundY - stripTop).toFloat(), centres)
     }
 
     /** Claude's bedroom: a picture of the room with pixel Claude living in it. OK on him opens the chat. */
@@ -586,7 +589,8 @@ class MainActivity : AppCompatActivity() {
 
         // Tiles shrink only when there are too many to fit the screen.
         val count = apps.size + 2
-        val maxWidth = 900 - 28 - DOCK_GAP * (count - 1)
+        // With the pet on, the dock leaves room at the right for her steps, house and grass.
+        val maxWidth = (if (ProfileStyle.of(this).dog) 740 else 900) - 28 - DOCK_GAP * (count - 1)
         dockTileW = minOf(92, maxWidth / count)
         dockTileH = (dockTileW / AppTiles.RATIO).toInt()
         val w = dp(dockTileW); val h = dp(dockTileH)
