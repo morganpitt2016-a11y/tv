@@ -301,6 +301,7 @@ object TiviTuner {
         var attempts = 0
         var okPresses = 0
         var emptyWaits = 0
+        var menuPressed = false
         val tried = HashSet<String>()
         val visited = HashSet<String>()
         var switches = 0
@@ -331,7 +332,7 @@ object TiviTuner {
                 note("No list showing - pressing OK (#$okPresses). On screen: ${texts.take(10)}")
                 service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_DPAD_CENTER)
                 settle = 0
-                later(700, { done(false) }) { step() }; return
+                later(1100, { done(false) }) { step() }; return
             }
             // The channel list (or TV guide grid) is the biggest list on screen - not the group list beside it.
             val list = lists.maxByOrNull { descendants(it) }!!
@@ -354,6 +355,17 @@ object TiviTuner {
                 return
             }
             // Not on screen yet: move TiviMate's highlight down the list (then back up), like the remote.
+            // OK on the full-screen picture brings up a small menu (TV guide, History...): open the guide from it.
+            if (!menuPressed && rowNumbers(list).isEmpty() && texts(list).any { it.equals("TV guide", true) }) {
+                val item = findIn(service) { it.equals("TV guide", true) }
+                if (item != null) {
+                    menuPressed = true
+                    note("TiviMate's menu is up - opening the TV guide")
+                    pressNode(service, item)
+                    emptyWaits = 0
+                    later(900, { done(false) }) { step() }; return
+                }
+            }
             // TiviMate draws the group list first and fills the channel rows a moment later:
             // don't press anything until rows exist, or a stray Right/OK closes the guide.
             if (rowNumbers(list).isEmpty() && emptyWaits < 15) {
