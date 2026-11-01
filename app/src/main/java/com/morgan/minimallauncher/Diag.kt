@@ -31,7 +31,7 @@ object Diag {
     fun enabled(c: Context) = Prefs.bool(c, "diag_on", false)
 
     /** A short code for this TV, so messages can be told apart. */
-    fun deviceId(c: Context): String {
+    @Synchronized fun deviceId(c: Context): String {
         Prefs.string(c, "diag_id")?.let { return it }
         val id = (1..6).map { "abcdefghjkmnpqrstuvwxyz23456789".random() }.joinToString("")
         Prefs.setString(c, "diag_id", id)

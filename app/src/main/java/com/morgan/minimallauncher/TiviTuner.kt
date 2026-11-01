@@ -232,8 +232,8 @@ object TiviTuner {
                 if (attempts % 4 == 1) note("Waiting for TiviMate (front: ${frontPackages(service)})")
                 later(60, { done(false) }) { step() }; return
             }
-            if (!snapped) { snapped = true; note("TiviMate's screen when the search started:\n" + compactScreen()) }
             val lists = roots.flatMap { scrollables(it) }
+            if (!snapped && lists.isNotEmpty()) { snapped = true; note("TiviMate's screen when the search started:\n" + compactScreen(onlyTivi = true)) }
             val texts = roots.flatMap { texts(it) }
             // Silence the old channel while the guide is open (not before: OK on a paused
             // picture would un-pause it instead of opening the channel list).
@@ -253,6 +253,12 @@ object TiviTuner {
             val match = bestMatch(list, wanted)
             if (match != null) {
                 note("Found \"${match.text ?: match.contentDescription}\" after $attempts checks")
+                // Remember the number this name really sits on, so next time we head straight there.
+                try {
+                    harvest(service, list)
+                    val mk = normalise((match.text ?: match.contentDescription).toString())
+                    numbers[mk]?.let { n -> if (numbers[wanted] != n) { numbers[wanted] = n; saveNumbers(service) } }
+                } catch (e: Exception) {}
                 rowOf(match)?.let { row -> if (rows[wanted] != row) { rows[wanted] = row; saveRows(service) } }
                 if (rows.isEmpty()) { rows[wanted] = 0; saveRows(service) }
                 select(service, list, wanted) { ok -> finish(service, wanted, ok, done) }
@@ -411,12 +417,12 @@ object TiviTuner {
             if (stuck >= 4) { note("Highlight won't move (on ${rowNames(focused)})"); done(false); return }
             val dy = t.centerY() - f.centerY()
             // Small moves, re-checking after each, so it never overshoots.
-            val steps = (kotlin.math.abs(dy) / f.height().coerceAtLeast(1)).coerceIn(1, 3)
+            val steps = (kotlin.math.abs(dy) / f.height().coerceAtLeast(1)).coerceIn(1, 5)
             val key = if (dy > 0) AccessibilityService.GLOBAL_ACTION_DPAD_DOWN else AccessibilityService.GLOBAL_ACTION_DPAD_UP
             lastKey = key
             if (rounds == 1) note("Highlight is on ${rowNames(focused)} - moving ${if (dy > 0) "down" else "up"} to it")
             for (i in 0 until steps) main.postDelayed({ service.performGlobalAction(key) }, i * 25L)
-            later(steps * 25L + 100, { done(false) }) { check() }
+            later(steps * 25L + 90, { done(false) }) { check() }
         }
         later(40, { done(false) }) { check() }
     }
