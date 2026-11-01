@@ -104,6 +104,13 @@ class ProfileStyleActivity : Activity() {
             LinearLayout.LayoutParams(-2, dp(this, 40f)).apply { marginStart = dp(this@ProfileStyleActivity, 14f) })
         col.addView(toggles, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(this@ProfileStyleActivity, 6f) })
 
+        label(col, "HOME SCREEN PET")
+        col.addView(toggle("Pixel cavapoo", { ProfileStyle.of(this, name).dog }) { ProfileStyle.setDog(this, name, it) }.also {
+            it.layoutParams = LinearLayout.LayoutParams(-2, dp(this, 40f)).apply { topMargin = dp(this@ProfileStyleActivity, 6f) }
+        })
+        col.addView(GlassUi.text(this, "He trots along the dock, sniffs your apps and naps on top of them.", 12f, R.font.inter_regular, 0x80FFFFFF.toInt()).apply { gravity = Gravity.CENTER },
+            LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(this@ProfileStyleActivity, 6f) })
+
         val done = pill("Done") { finish() }
         col.addView(done, LinearLayout.LayoutParams(dp(this, 200f), dp(this, 42f)).apply { topMargin = dp(this@ProfileStyleActivity, 26f) })
 

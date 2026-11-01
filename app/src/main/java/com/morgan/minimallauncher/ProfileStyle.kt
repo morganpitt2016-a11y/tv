@@ -35,6 +35,8 @@ object ProfileStyle {
         val accent: Int,
         val clockAccent: Boolean,
         val iconAccent: Boolean,
+        /** The pixel cavapoo who lives on the home screen. */
+        val dog: Boolean,
     )
 
     /** Apple-style system colours. 0 is the standard (white) look. */
@@ -53,6 +55,7 @@ object ProfileStyle {
         Prefs.int(c, k(c, name, "acc"), 0),
         Prefs.bool(c, k(c, name, "clk"), false),
         Prefs.bool(c, k(c, name, "ico"), false),
+        Prefs.bool(c, k(c, name, "dog"), true),
     )
 
     fun setAvatar(c: Context, name: String, v: String) = Prefs.setString(c, k(c, name, "av"), v)
@@ -60,13 +63,14 @@ object ProfileStyle {
     fun setAccent(c: Context, name: String, v: Int) = Prefs.setInt(c, k(c, name, "acc"), v)
     fun setClock(c: Context, name: String, v: Boolean) = Prefs.setBool(c, k(c, name, "clk"), v)
     fun setIcons(c: Context, name: String, v: Boolean) = Prefs.setBool(c, k(c, name, "ico"), v)
+    fun setDog(c: Context, name: String, v: Boolean) = Prefs.setBool(c, k(c, name, "dog"), v)
 
     /** Keep a person's look when they're renamed. */
     fun rename(c: Context, old: String, new: String) {
         val s = of(c, old)
         setAvatar(c, new, s.avatar); setColour(c, new, s.colour); setAccent(c, new, s.accent)
-        setClock(c, new, s.clockAccent); setIcons(c, new, s.iconAccent)
-        setAvatar(c, old, ""); setColour(c, old, -1); setAccent(c, old, 0); setClock(c, old, false); setIcons(c, old, false)
+        setClock(c, new, s.clockAccent); setIcons(c, new, s.iconAccent); setDog(c, new, s.dog)
+        setAvatar(c, old, ""); setColour(c, old, -1); setAccent(c, old, 0); setClock(c, old, false); setIcons(c, old, false); setDog(c, old, true)
         try { Avatars.file(c, old).renameTo(Avatars.file(c, new)) } catch (e: Exception) {}
     }
 
@@ -100,7 +104,7 @@ object ProfileStyle {
 /** Profile pictures: a letter, a character, or a photo from the iPhone, drawn as a circle. */
 object Avatars {
 
-    val CHARACTERS = listOf("🦊", "🐼", "🐸", "🐙", "🦁", "🐵", "🐶", "🐱", "🦄", "🐲",
+    val CHARACTERS = listOf("🦊", "🐘", "🐼", "🐸", "🐙", "🦁", "🐵", "🐶", "🐱", "🦄", "🐲",
         "🤖", "👽", "👻", "🐧", "🐨", "🐯", "🦉", "🐰", "🐻", "🦋")
 
     fun file(c: Context, name: String): File =

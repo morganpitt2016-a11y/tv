@@ -62,6 +62,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var dockBackdrop: ImageView
     private lateinit var claudePet: ClaudePet
     private lateinit var claudePanel: FrameLayout
+    private lateinit var dogPet: DogPet
     private lateinit var profilePill: View
     private var pillPlaced = false
     private lateinit var wallpaperFront: View
@@ -142,6 +143,25 @@ class MainActivity : AppCompatActivity() {
 
         UiSounds.attach(this)
         setupClaudePet()
+        setupDog()
+    }
+
+    /** The cavapoo lives in a strip along the top of the dock. */
+    private fun setupDog() {
+        dogPet = DogPet(this)
+        ui.addView(dogPet, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, dp(64)).apply { topMargin = dp(390) })
+        dock.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> updateDogWorld() }
+    }
+
+    /** Tell him where the dock is and where each app sits. */
+    private fun updateDogWorld() {
+        if (!::dogPet.isInitialized || dock.childCount == 0 || dock.width == 0) return
+        val groundY = dock.top + dock.getChildAt(0).top
+        val lp = dogPet.layoutParams as FrameLayout.LayoutParams
+        val wanted = groundY - dp(64) + dp(2)
+        if (lp.topMargin != wanted) { lp.topMargin = wanted; dogPet.layoutParams = lp }
+        val centres = (0 until dock.childCount).map { i -> dock.getChildAt(i).let { dock.left + it.left + it.width / 2f } }
+        dogPet.setWorld(dock.left + dp(16).toFloat(), dock.right - dp(16).toFloat(), centres)
     }
 
     /** Claude's bedroom: a picture of the room with pixel Claude living in it. OK on him opens the chat. */
@@ -207,6 +227,7 @@ class MainActivity : AppCompatActivity() {
         rotator.stop()
         widgets.stop()
         if (::claudePet.isInitialized) claudePet.pause()
+        if (::dogPet.isInitialized) dogPet.pause()
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
@@ -277,6 +298,10 @@ class MainActivity : AppCompatActivity() {
         val st = ProfileStyle.of(this)
         val tint = if (st.iconAccent && st.accent != 0) ColorStateList.valueOf(st.accent) else ContextCompat.getColorStateList(this, R.color.icon_on_glass)
         for (b in listOf(quickSettingsButton, cinemaButton, nightModeButton)) ((b as? ViewGroup)?.getChildAt(0) as? ImageView)?.imageTintList = tint
+        if (::dogPet.isInitialized) {
+            dogPet.visibility = if (st.dog) View.VISIBLE else View.GONE
+            if (st.dog) dogPet.resume() else dogPet.pause()
+        }
         applyDimming(animate = false)
     }
 
@@ -631,6 +656,7 @@ class MainActivity : AppCompatActivity() {
         tile.setOnFocusChangeListener { v, has ->
             Motion.focus(v, has, 1.12f, 12f)
             ring.focus(v, has)
+            if (has && ::dogPet.isInitialized) dogPet.attend(dock.left + v.left + v.width / 2f)
             showDockLabel(if (has) v else null, name)
         }
         val lp = LinearLayout.LayoutParams(dp(dockTileW), dp(dockTileH))

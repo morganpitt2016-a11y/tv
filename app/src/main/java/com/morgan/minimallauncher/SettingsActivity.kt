@@ -570,15 +570,7 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun pickWallpaper() {
-        val albumCount = WallpaperLibrary.album(this).size
-        val options = listOf("all" to "All Photos") +
-            WallpaperLibrary.categories.map { "cat:${it.id}" to it.title } +
-            ("album" to if (albumCount == 0) "My Photos (add from iPhone)" else "My Photos ($albumCount)") +
-            WallpaperLibrary.bundled.map { "photo:${it.number}" to it.place }
-        choose("Wallpaper for ${ProfileManager.getActiveProfile(this)}", options, ProfileManager.getWallpaper(this)) {
-            if (it == "album" && albumCount == 0) GlassUi.toast(this, "Add photos from the iPhone remote’s Photos tab")
-            ProfileManager.setWallpaper(this, it)
-        }
+        startActivity(Intent(this, WallpaperPickerActivity::class.java))
     }
 
     private fun pickFavourites() {

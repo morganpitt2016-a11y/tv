@@ -54,8 +54,10 @@ object WallpaperLibrary {
             .map { Photo.Local(it, "My Photos") }
 
     /** What this profile's home screen rotates through, first photo first. */
-    fun forProfile(c: Context): List<Photo> {
-        val choice = ProfileManager.getWallpaper(c)
+    fun forProfile(c: Context): List<Photo> = photosFor(c, ProfileManager.getWallpaper(c))
+
+    /** The photos a wallpaper choice ("all", "cat:x", "photo:n", "album") stands for. */
+    fun photosFor(c: Context, choice: String): List<Photo> {
         val list: List<Photo> = when {
             choice == "album" -> album(c)
             choice.startsWith("photo:") -> bundled.filter { it.number == choice.removePrefix("photo:").toIntOrNull() }
