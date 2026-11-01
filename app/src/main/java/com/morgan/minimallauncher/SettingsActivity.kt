@@ -160,7 +160,7 @@ class SettingsActivity : AppCompatActivity() {
             vrow("TV Guide", { if (LiveGuide.customUrl(this) != null) "Your Guide Link" else "Freeview" }) { editGuide() }
             vrow("TiviMate Tuning Log", { "" }, chevron = true) {
                 GlassDialog(this).title("TiviMate Tuning Log")
-                    .message(TiviTuner.logText().takeLast(3500).let { if (it.length < 300) it + "\n\n(Long logs scroll - use Up/Down.)" else it })
+                    .message(TiviTuner.logText().takeLast(9000).let { if (it.length < 300) it + "\n\n(Long logs scroll - use Up/Down.)" else it })
                     .button("Done", GlassDialog.Style.BOLD).show()
             }
         }

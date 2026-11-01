@@ -211,6 +211,7 @@ object TiviTuner {
         loadNumbers(service)
         note("---- Tune to \"$channel\" (looking for \"$wanted\"${learnedRow(wanted)?.let { ", remembered row $it" } ?: ""})")
         var nudged = false
+        var snapped = false
         var goingDown = true
         var directedFailed = false
         var lastRange = ""
@@ -230,6 +231,7 @@ object TiviTuner {
                 if (attempts % 4 == 1) note("Waiting for TiviMate (front: ${frontPackages(service)})")
                 later(60, { done(false) }) { step() }; return
             }
+            if (!snapped) { snapped = true; note("TiviMate's screen when the search started:\n" + compactScreen()) }
             val lists = roots.flatMap { scrollables(it) }
             val texts = roots.flatMap { texts(it) }
             // Silence the old channel while the guide is open (not before: OK on a paused
@@ -531,7 +533,7 @@ object TiviTuner {
     }
 
     fun showCover(channel: String, subtitle: String = "Tuning…") {
-        val service = HomeRedirectService.instance ?: return
+        val service = HomeRedirectService.instance ?: run { note("Cover: the accessibility service isn't running, so nothing can hide TiviMate"); return }
         main.post {
             cover?.let { (it.findViewWithTag<android.widget.TextView>("name"))?.text = channel; return@post }
             val c = service
@@ -560,6 +562,7 @@ object TiviTuner {
             try {
                 wm.addView(box, lp)
                 cover = box
+                note("Cover is up")
                 mute(c, true)
                 box.animate().alpha(1f).setDuration(150).start()
                 // Never leave it up by mistake.
@@ -851,7 +854,8 @@ object TiviTuner {
                 val t = (n.text ?: n.contentDescription)?.toString()?.replace('\n', ' ')?.trim()
                 if (!t.isNullOrBlank()) {
                     val f = buildString { if (list) append("L"); if (n.isClickable) append("C"); if (n.isFocusable) append("F"); if (n.isFocused) append("*") }
-                    lines += "  ${t.take(40)}${if (f.isNotEmpty()) "  ($f)" else ""}"
+                    val id = n.viewIdResourceName?.substringAfter('/')?.let { " #$it" } ?: ""
+                    lines += "  ${t.take(40)}${if (f.isNotEmpty()) "  ($f)" else ""}$id"
                 }
                 for (i in 0 until n.childCount) n.getChild(i)?.let { walk(it, list) }
             }
