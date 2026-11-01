@@ -174,8 +174,13 @@ object TiviTuner {
     /** TiviMate's list of groups and the one currently open, if the screen shows them. */
     private fun groupInfo(roots: List<AccessibilityNodeInfo>): Triple<AccessibilityNodeInfo, List<String>, String>? {
         val all = roots.flatMap { texts(it) }
-        for (g in roots.flatMap { scrollables(it) }) {
-            if (g.className?.toString()?.contains("GridView") != true) continue
+        val grids = mutableListOf<AccessibilityNodeInfo>()
+        fun collect(n: AccessibilityNodeInfo, d: Int) {
+            if (n.className?.toString()?.contains("GridView") == true) grids += n
+            if (d < 14) for (i in 0 until n.childCount) n.getChild(i)?.let { collect(it, d + 1) }
+        }
+        roots.forEach { collect(it, 0) }
+        for (g in grids) {
             val names = texts(g)
             if (names.size < 3 || names.any { numberOnly.matches(it) || clockText.containsMatchIn(it) }) continue
             val cur = names.firstOrNull { n -> all.count { it == n } >= 2 } ?: continue
@@ -332,6 +337,7 @@ object TiviTuner {
             val list = lists.maxByOrNull { descendants(it) }!!
             val gInfo = groupInfo(roots)
             curGroup = gInfo?.third ?: ""
+            if (attempts == 2) note(if (gInfo == null) "Group list not found" else "Group \"$curGroup\" of ${gInfo.second.size}: ${gInfo.second}")
             val match = bestMatch(list, wanted)
             if (match != null) {
                 note("Found \"${match.text ?: match.contentDescription}\" after $attempts checks")
