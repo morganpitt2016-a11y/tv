@@ -146,22 +146,22 @@ class MainActivity : AppCompatActivity() {
         setupDog()
     }
 
-    /** The cavapoo lives in a strip along the top of the dock. */
+    /** The cavapoo lives in a strip just above the dock, with her house and bed on the right. */
     private fun setupDog() {
         dogPet = DogPet(this)
         ui.addView(dogPet, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, dp(64)).apply { topMargin = dp(390) })
         dock.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> updateDogWorld() }
     }
 
-    /** Tell him where the dock is and where each app sits. */
+    /** Tell her where the dock is and where each app sits. She stands on a line just above the dock glass. */
     private fun updateDogWorld() {
         if (!::dogPet.isInitialized || dock.childCount == 0 || dock.width == 0) return
-        val groundY = dock.top + dock.getChildAt(0).top
+        val groundY = dock.top + dp(4)
         val lp = dogPet.layoutParams as FrameLayout.LayoutParams
         val wanted = groundY - dp(64) + dp(2)
         if (lp.topMargin != wanted) { lp.topMargin = wanted; dogPet.layoutParams = lp }
         val centres = (0 until dock.childCount).map { i -> dock.getChildAt(i).let { dock.left + it.left + it.width / 2f } }
-        dogPet.setWorld(dock.left + dp(16).toFloat(), dock.right - dp(16).toFloat(), centres)
+        dogPet.setWorld(dock.left + dp(20).toFloat(), centres)
     }
 
     /** Claude's bedroom: a picture of the room with pixel Claude living in it. OK on him opens the chat. */

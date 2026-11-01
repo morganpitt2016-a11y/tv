@@ -4,57 +4,83 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
-import android.graphics.PorterDuff
 import android.graphics.RectF
 import android.view.Choreographer
 import android.view.View
 import java.util.Calendar
 import kotlin.math.abs
-import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.random.Random
 
 /**
- * A little pixel cavapoo who lives along the top of the dock. He trots between
- * the apps, stops to sniff them, wags, pants, and curls up to sleep on top of
- * one. When you move onto an app he trots over to sniff it. (Drawn in code:
- * a 38x26 pixel sprite, scaled up with hard edges.)
+ * A little pixel cavapoo who lives in a strip above the dock, with her own house,
+ * bed and bone on the right. She wanders, sniffs the app you've selected (from above,
+ * never covering it), sits and looks at you, fetches her bone and chews it, and
+ * sleeps in her bed (all night, and for naps in the day).
+ * The art is in DogSprites (one character per pixel), drawn with hard edges.
  */
 class DogPet(context: Context) : View(context) {
 
-    private val SW = 38
-    private val SH = 26
-    private val sprite = Bitmap.createBitmap(SW, SH, Bitmap.Config.ARGB_8888)
-    private val sc = Canvas(sprite)
-    private val fill = Paint()                  // no anti-aliasing: hard pixel edges
-    private val blit = Paint()
-    private val text = Paint(Paint.ANTI_ALIAS_FLAG)
     private val d = context.resources.displayMetrics.density
-    private val k = 1.5f * d                    // screen pixels per sprite pixel
+    private val k = 1.1f * d                                   // screen pixels per art pixel
 
-    private val FUR = 0xFFDB9B5C.toInt()
-    private val FUR_D = 0xFFB87440.toInt()
-    private val CREAM = 0xFFF5E3C6.toInt()
-    private val OUT = 0xFF4A2C1A.toInt()
-    private val DARK = 0xFF1C1210.toInt()
-    private val COLLAR = 0xFFB3261E.toInt()
-    private val GOLD = 0xFFE8B84A.toInt()
-    private val TONGUE = 0xFFF28B9A.toInt()
+    private val colours = mapOf(
+        'o' to 0xFF54301B.toInt(), 'F' to 0xFFDE9A5A.toInt(), 'H' to 0xFFF1BF88.toInt(), 'D' to 0xFFB8733C.toInt(),
+        'C' to 0xFFF8E8CE.toInt(), 'c' to 0xFFE2C8A0.toInt(), 'K' to 0xFF1E1511.toInt(), 'W' to 0xFFFFFFFF.toInt(),
+        'R' to 0xFF8E241C.toInt(), 'r' to 0xFFB83C2E.toInt(), 'G' to 0xFFEEBE4C.toInt(), 'T' to 0xFFF08A99.toInt(),
+        'N' to 0xFF2A1A18.toInt(), 'B' to 0xFFEFE4D0.toInt(), 'b' to 0xFFC9B89A.toInt())
 
-    // The world: where he may walk, and where the apps are.
+    private fun make(rows: Array<String>): Bitmap {
+        val w = rows.maxOf { it.length }
+        val bmp = Bitmap.createBitmap(w, rows.size, Bitmap.Config.ARGB_8888)
+        rows.forEachIndexed { y, row -> row.forEachIndexed { x, ch -> colours[ch]?.let { bmp.setPixel(x, y, it) } } }
+        return bmp
+    }
+
+    private val walkA = make(DogSprites.WALK_A)
+    private val walkB = make(DogSprites.WALK_B)
+    private val carryA = make(DogSprites.CARRY_A)
+    private val carryB = make(DogSprites.CARRY_B)
+    private val sniffA = make(DogSprites.SNIFF_A)
+    private val sniffB = make(DogSprites.SNIFF_B)
+    private val sit = make(DogSprites.SIT)
+    private val sitBlink = make(DogSprites.SIT_BLINK)
+    private val sleepBmp = make(DogSprites.SLEEP)
+    private val chewBmp = make(DogSprites.CHEW)
+    private val boneBmp = make(DogSprites.BONE)
+    private val houseBmp = make(DogSprites.HOUSE)
+    private val bedBmp = make(DogSprites.BED)
+
+    private val blit = Paint().apply { isFilterBitmap = false; isAntiAlias = false; isDither = false }
+    private val p = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val text = Paint(Paint.ANTI_ALIAS_FLAG)
+
+    private enum class S { IDLE, WALK, SNIFF, SLEEP, CHEW }
+
+    // ---------- The world ----------
     private var minX = 0f
-    private var maxX = 0f
     private var tiles: List<Float> = emptyList()
+    private var ready = false
 
-    // Life.
+    private fun houseX0() = width - 30f * d - houseBmp.width * k
+    private fun bedX0() = houseX0() - 8f * d - bedBmp.width * k
+    private fun bedCentre() = bedX0() + bedBmp.width * k / 2f
+    private fun maxX() = bedX0() - 10f * d
+    private fun chewX() = bedX0() - 46f * d
+
+    // ---------- Life ----------
+    private var state = S.IDLE
     private var x = -1f
     private var dir = 1f
-    private var state = "idle"           // walk | sniff | idle | sleep
     private var timer = 1.5f
     private var targetX = 0f
-    private var attending = false
-    private var phase = 0f
+    private var then: (() -> Unit)? = null
+    private var hurry = false
+    private var carrying = false
+    private var boneX = 0f
+    private var boneOnGround = true
     private var t = 0f
+    private var phase = 0f
     private var blink = 3f
     private var zzz = 0f
 
@@ -62,7 +88,6 @@ class DogPet(context: Context) : View(context) {
         isFocusable = false
         isClickable = false
         text.typeface = GlassUi.font(context, R.font.inter_semibold)
-        text.color = 0xFFFFFFFF.toInt()
     }
 
     private var running = false
@@ -80,20 +105,17 @@ class DogPet(context: Context) : View(context) {
     override fun onAttachedToWindow() { super.onAttachedToWindow(); resume() }
     override fun onDetachedFromWindow() { super.onDetachedFromWindow(); pause() }
 
-    /** The stretch of dock he can walk along, and the middle of each app on it. */
-    fun setWorld(min: Float, max: Float, appCentres: List<Float>) {
-        minX = min; maxX = max; tiles = appCentres
-        if (x < 0f) { x = (min + max) / 2f; targetX = x }
-        x = x.coerceIn(min, max)
-        targetX = targetX.coerceIn(min, max)
+    /** Where she may walk from, and where each app is (she stays above the dock, never on it). */
+    fun setWorld(min: Float, appCentres: List<Float>) {
+        minX = min; tiles = appCentres; ready = true
     }
 
-    /** You've moved onto an app: he trots over to sniff it. */
+    /** You've moved onto an app: she trots over and sniffs it from above. */
     fun attend(cx: Float) {
-        if (tiles.isEmpty()) return
-        targetX = cx.coerceIn(minX, maxX)
-        attending = true
-        state = "walk"
+        if (!ready || x < 0f) return
+        if (carrying) { carrying = false; boneX = x; boneOnGround = true }
+        if (state == S.CHEW) { boneX = x + chewBoneOffset(); boneOnGround = true }
+        goTo(cx.coerceIn(minX, maxX()), fast = true) { sniff(2.5f) }
     }
 
     // ---------- Behaviour ----------
@@ -103,147 +125,124 @@ class DogPet(context: Context) : View(context) {
         return h >= 23 || h < 6
     }
 
-    private fun randomApp(): Float {
-        if (tiles.isEmpty()) return (minX + maxX) / 2f
-        return (tiles.random() + (Random.nextFloat() - 0.5f) * 14f * d).coerceIn(minX, maxX)
+    private fun chewBoneOffset() = (chewBmp.width / 2f - 4f) * k
+
+    private fun goTo(px: Float, fast: Boolean = false, cb: (() -> Unit)? = null) {
+        targetX = px; then = cb; hurry = fast; state = S.WALK
     }
 
-    private fun step(dt: Float) {
-        t += dt
-        blink -= dt
-        if (blink < -0.12f) blink = 2f + Random.nextFloat() * 4f
-        if (x < 0f) return
+    private fun sniff(sec: Float) { state = S.SNIFF; timer = sec }
+    private fun sitFor(sec: Float) { state = S.IDLE; timer = sec }
 
-        when (state) {
-            "walk" -> {
-                val dx = targetX - x
-                val speed = 30f * d * (if (attending) 1.5f else 1f)
-                if (abs(dx) <= speed * dt) {
-                    x = targetX
-                    // Arrived at an app.
-                    when {
-                        attending -> { attending = false; state = "sniff"; timer = 2.5f + Random.nextFloat() * 2f }
-                        isNight() -> { state = "sleep"; timer = 60f + Random.nextFloat() * 60f }
-                        else -> {
-                            val r = Random.nextFloat()
-                            when {
-                                r < 0.5f -> { state = "sniff"; timer = 2f + Random.nextFloat() * 2f }
-                                r < 0.75f -> { state = "sleep"; timer = 10f + Random.nextFloat() * 12f }
-                                else -> { state = "idle"; timer = 1.5f + Random.nextFloat() * 2f }
-                            }
-                        }
-                    }
-                } else {
-                    dir = if (dx > 0) 1f else -1f
-                    x += dir * speed * dt
-                    phase += dt * 10f
-                }
-            }
-            "sleep" -> { zzz += dt; timer -= dt; if (timer <= 0f && !isNight()) { state = "idle"; timer = 1.2f; zzz = 0f } }
-            else -> {
-                timer -= dt
-                if (timer <= 0f) {
-                    if (isNight() && state != "walk") { targetX = randomApp(); state = "walk" }
-                    else { targetX = randomApp(); state = "walk" }
-                }
-            }
+    private fun randomApp(): Float {
+        val base = if (tiles.isEmpty()) (minX + maxX()) / 2f else tiles.random()
+        return (base + (Random.nextFloat() - 0.5f) * 14f * d).coerceIn(minX, maxX())
+    }
+
+    private fun toBed(sleepFor: Float) {
+        goTo(bedCentre()) { state = S.SLEEP; timer = sleepFor; zzz = 0f; dir = 1f }
+    }
+
+    /** Fetch the bone, carry it over and chew it. */
+    private fun fetch() {
+        if (!boneOnGround) { sitFor(2f); return }
+        goTo(boneX.coerceIn(minX, maxX())) {
+            carrying = true; boneOnGround = false
+            goTo(chewX()) { carrying = false; dir = 1f; state = S.CHEW; timer = 7f + Random.nextFloat() * 5f }
         }
     }
 
-    // ---------- The sprite ----------
-
-    private fun oval(l: Int, t: Int, r: Int, b: Int, color: Int, outline: Boolean = true) {
-        if (outline) { fill.color = OUT; sc.drawOval(RectF(l - 1f, t - 1f, r + 1f, b + 1f), fill) }
-        fill.color = color
-        sc.drawOval(RectF(l.toFloat(), t.toFloat(), r.toFloat(), b.toFloat()), fill)
+    private fun decide() {
+        if (isNight()) { toBed(120f + Random.nextFloat() * 60f); return }
+        val r = Random.nextFloat()
+        when {
+            r < 0.30f -> goTo(randomApp()) { sniff(2.5f + Random.nextFloat() * 2f) }
+            r < 0.48f -> sitFor(2.5f + Random.nextFloat() * 3f)
+            r < 0.70f -> fetch()
+            r < 0.84f -> toBed(10f + Random.nextFloat() * 12f)
+            else -> goTo(randomApp()) { sitFor(1.5f) }
+        }
     }
 
-    private fun rect(l: Int, t: Int, r: Int, b: Int, color: Int) {
-        fill.color = color
-        sc.drawRect(l.toFloat(), t.toFloat(), r.toFloat(), b.toFloat(), fill)
+    private fun step(dt: Float) {
+        if (width == 0 || !ready) return
+        t += dt
+        blink -= dt
+        if (blink < -0.12f) blink = 2f + Random.nextFloat() * 4f
+        if (x < 0f) { x = (minX + maxX()) / 2f; boneX = (maxX() - 60f * d).coerceAtLeast(minX); timer = 1f }
+
+        when (state) {
+            S.WALK -> {
+                val dx = targetX - x
+                val speed = (if (carrying) 24f else 30f) * d * (if (hurry) 1.5f else 1f)
+                if (abs(dx) <= speed * dt) {
+                    x = targetX
+                    val cb = then; then = null
+                    state = S.IDLE; timer = 1.2f
+                    cb?.invoke()
+                } else {
+                    dir = if (dx > 0f) 1f else -1f
+                    x += dir * speed * dt
+                    phase += dt * 7f
+                }
+            }
+            S.SNIFF -> { timer -= dt; if (timer <= 0f) { state = S.IDLE; timer = 2f } }
+            S.CHEW -> {
+                timer -= dt
+                if (timer <= 0f) { boneX = x + chewBoneOffset(); boneOnGround = true; state = S.IDLE; timer = 1.5f }
+            }
+            S.SLEEP -> {
+                zzz += dt; timer -= dt
+                if (timer <= 0f) { if (isNight()) timer = 60f else { state = S.IDLE; timer = 1.5f; zzz = 0f } }
+            }
+            S.IDLE -> { timer -= dt; if (timer <= 0f) decide() }
+        }
     }
 
-    /** Standing, walking or sniffing (head dropped to the app). */
-    private fun drawStanding(bob: Int, swing: Int, wag: Int, tongue: Boolean, eyeOpen: Boolean, drop: Int, twitch: Int) {
-        sc.drawColor(0, PorterDuff.Mode.CLEAR)
-        val hx = if (drop > 0) 2 else 0
-        val hy = drop
-        // Far legs.
-        rect(12 + swing, 18, 15 + swing, 24, FUR_D); rect(12 + swing, 22, 15 + swing, 24, CREAM)
-        rect(17 - swing, 18, 20 - swing, 24, FUR_D); rect(17 - swing, 22, 20 - swing, 24, CREAM)
-        // Curly tail.
-        oval(1, 6 + wag - bob, 7, 13 - bob, FUR)
-        rect(2, 6 + wag - bob, 5, 8 + wag - bob, CREAM)
-        // Body and chest.
-        oval(6, 9 - bob, 24, 19 - bob, FUR)
-        oval(19, 12 - bob, 25, 19 - bob, CREAM, outline = false)
-        rect(9, 11 - bob, 11, 12 - bob, CREAM); rect(13, 10 - bob, 14, 11 - bob, FUR_D)   // curls
-        // Near legs.
-        rect(8 - swing, 18, 11 - swing, 24, FUR); rect(8 - swing, 22, 11 - swing, 24, CREAM)
-        rect(21 + swing, 18, 24 + swing, 24, FUR); rect(21 + swing, 22, 24 + swing, 24, CREAM)
-        // Collar.
-        rect(19, 13 - bob, 23, 15 - bob, COLLAR); rect(21, 14 - bob, 22, 15 - bob, GOLD)
-        // Head.
-        oval(20 + hx, 3 + hy, 31 + hx, 14 + hy, FUR)
-        rect(23 + hx, 3 + hy, 25 + hx, 4 + hy, CREAM); rect(26 + hx, 4 + hy, 27 + hx, 5 + hy, CREAM); rect(21 + hx, 4 + hy, 22 + hx, 5 + hy, FUR_D)
-        oval(19 + hx, 6 + hy, 24 + hx, 15 + hy, FUR_D)                                   // floppy ear
-        oval(27 + hx, 8 + hy, 33 + hx, 13 + hy, CREAM)                                   // muzzle
-        rect(32 + hx + twitch, 8 + hy, 34 + hx + twitch, 10 + hy, DARK)                  // nose
-        if (eyeOpen) { rect(27 + hx, 6 + hy, 29 + hx, 8 + hy, DARK); rect(27 + hx, 6 + hy, 28 + hx, 7 + hy, 0xFFFFFFFF.toInt()) }
-        else rect(27 + hx, 7 + hy, 29 + hx, 8 + hy, DARK)
-        rect(29 + hx, 12 + hy, 31 + hx, 13 + hy, OUT)
-        if (tongue) rect(30 + hx, 13 + hy, 31 + hx, 15 + hy, TONGUE)
-    }
+    // ---------- Drawing ----------
 
-    /** Curled up asleep, chin on his paws. */
-    private fun drawSleeping(breath: Int) {
-        sc.drawColor(0, PorterDuff.Mode.CLEAR)
-        oval(1, 17, 8, 24, FUR)                                                          // tail wrapped round
-        oval(4, 15 - breath, 27, 24, FUR)
-        rect(8, 17 - breath, 11, 18 - breath, CREAM); rect(14, 16 - breath, 15, 17 - breath, FUR_D)
-        oval(21, 14, 32, 24, FUR)
-        rect(24, 14, 26, 15, CREAM); rect(27, 15, 28, 16, CREAM)
-        oval(20, 16, 25, 24, FUR_D)                                                      // ear
-        oval(28, 19, 34, 23, CREAM)                                                      // muzzle
-        rect(33, 19, 35, 21, DARK)                                                       // nose
-        rect(27, 19, 29, 20, DARK)                                                       // shut eye
-        rect(24, 22, 30, 24, CREAM)                                                      // paws
-        rect(19, 21, 23, 22, COLLAR)
+    /** Draw [bmp] with its bottom on [bottom] and its [anchor] column at [cx]. */
+    private fun draw(canvas: Canvas, bmp: Bitmap, cx: Float, bottom: Float, flip: Boolean = false, anchor: Float = bmp.width / 2f) {
+        canvas.save()
+        canvas.translate(cx, bottom)
+        canvas.scale(if (flip) -k else k, k)
+        canvas.drawBitmap(bmp, -anchor, -bmp.height.toFloat(), blit)
+        canvas.restore()
     }
 
     override fun onDraw(canvas: Canvas) {
         if (x < 0f) return
-        val groundY = height - 2f * d
-        val moving = state == "walk"
-        val sleeping = state == "sleep"
-        val sniffing = state == "sniff"
+        val ground = height - 2f * d
 
-        val eyeOpen = !(blink < 0f && blink > -0.12f)
-        if (sleeping) drawSleeping(if (sin(t * 1.6f) > 0f) 1 else 0)
-        else drawStanding(
-            bob = if (moving && sin(phase * 2f) > 0f) 1 else 0,
-            swing = if (moving) (sin(phase) * 2f).roundToInt() else 0,
-            wag = (sin(t * (if (moving) 14f else 9f)) * 1.6f).roundToInt(),
-            tongue = moving || (!sniffing && sin(t * 3f) > 0.5f),
-            eyeOpen = eyeOpen,
-            drop = if (sniffing) 8 else 0,
-            twitch = if (sniffing && sin(t * 22f) > 0f) 1 else 0,
-        )
+        // A faint floor, so the house and bed aren't floating.
+        p.color = 0x2EFFFFFF
+        canvas.drawRoundRect(RectF(minX - 8f * d, ground, width - 22f * d, ground + 2f * d), d, d, p)
 
-        canvas.save()
-        canvas.translate(x, groundY)
-        canvas.scale(dir * k, k)
-        blit.isFilterBitmap = false
-        canvas.drawBitmap(sprite, -SW / 2f, -24f, blit)
-        canvas.restore()
+        draw(canvas, houseBmp, houseX0() + houseBmp.width * k / 2f, ground)
+        draw(canvas, bedBmp, bedCentre(), ground)
+        if (boneOnGround && !carrying && state != S.CHEW) draw(canvas, boneBmp, boneX, ground)
 
-        if (sleeping) {
+        val flip = dir < 0f
+        val anchor = DogSprites.SIDE_ANCHOR.toFloat()
+        when (state) {
+            S.SLEEP -> draw(canvas, sleepBmp, bedCentre(), ground - 2.5f * k)
+            S.CHEW -> draw(canvas, chewBmp, x, ground - (if (sin(t * 6f) > 0f) 0.6f * k else 0f))
+            S.SNIFF -> draw(canvas, if (sin(t * 12f) > 0f) sniffA else sniffB, x, ground, flip, anchor)
+            S.WALK -> {
+                val a = ((phase.toInt()) % 2 == 0)
+                val bmp = if (carrying) (if (a) carryA else carryB) else (if (a) walkA else walkB)
+                draw(canvas, bmp, x, ground, flip, anchor)
+            }
+            S.IDLE -> draw(canvas, if (blink < 0f && blink > -0.12f) sitBlink else sit, x, ground)
+        }
+
+        if (state == S.SLEEP) {
             text.textAlign = Paint.Align.LEFT
             for (i in 0 until 3) {
                 val ph = (zzz * 0.5f + i * 0.5f) % 1.5f
-                text.color = (((1f - ph / 1.5f) * 220).toInt().coerceIn(0, 255) shl 24) or 0xFFFFFF
+                text.color = (((1f - ph / 1.5f) * 230).toInt().coerceIn(0, 255) shl 24) or 0xFFFFFF
                 text.textSize = (7f + i * 2.5f) * d
-                canvas.drawText("z", x + dir * 12f * d + ph * 6f * d, groundY - 16f * d - ph * 14f * d, text)
+                canvas.drawText("z", bedCentre() + 9f * d + ph * 6f * d, ground - 16f * d - ph * 14f * d, text)
             }
         }
     }
