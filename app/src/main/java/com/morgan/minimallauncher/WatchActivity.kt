@@ -313,10 +313,22 @@ class WatchActivity : AppCompatActivity() {
     private fun categoryLoads(type: String): List<Triple<String, String, TitleLoader>> {
         val what = if (type == "MOVIE") "Films" else "Shows"
         val list = mutableListOf<Triple<String, String, TitleLoader>>()
+        val year = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
+        // The best rated of a big popular list; and what's newest (this year and last), most popular first.
+        fun best(l: List<WatchCatalog.Title>?) = l?.filter { (it.imdb ?: 0.0) >= 6.8 }?.sortedByDescending { it.imdb }?.take(30)
+        fun newest(l: List<WatchCatalog.Title>?) = l?.filter { it.year >= year - 1 }?.take(30)
+        fun row(key: String, title: String, genres: List<String>, sort: String = "POPULAR", pick: (List<WatchCatalog.Title>?) -> List<WatchCatalog.Title>?) =
+            list.add(Triple<String, String, TitleLoader>(key, title) { d ->
+                WatchCatalog.titles(this, sort = sort, packages = shorts(), types = listOf(type), genres = genres, first = 100) { l -> d(pick(l)) }
+            })
+        row("trend", "Trending $what", emptyList(), "TRENDING") { it?.take(30) }
+        row("new", "New $what", emptyList(), "TRENDING") { newest(it) }
+        row("best", "Best Rated $what", emptyList()) { best(it) }
         list += Triple<String, String, TitleLoader>("pop", "All $what") { d -> WatchCatalog.titles(this, packages = shorts(), types = listOf(type), first = 60, done = d) }
-        list += Triple<String, String, TitleLoader>("trend", "Trending $what") { d -> WatchCatalog.titles(this, sort = "TRENDING", packages = shorts(), types = listOf(type), done = d) }
         for ((g, name) in genreList) {
-            list += Triple<String, String, TitleLoader>("g_$g", name) { d -> WatchCatalog.titles(this, packages = shorts(), types = listOf(type), genres = listOf(g), done = d) }
+            row("g_$g", name, listOf(g)) { it?.take(40) }
+            row("gb_$g", "Best $name", listOf(g)) { best(it) }
+            row("gn_$g", "New in $name", listOf(g), "TRENDING") { newest(it) }
         }
         return list
     }
@@ -474,12 +486,12 @@ class WatchActivity : AppCompatActivity() {
     private fun buildCategory(token: Int, type: String) {
         val what = if (type == "MOVIE") "Films" else "Series"
         for ((key, title, load) in categoryLoads(type)) {
-            val more: () -> Unit = if (key.startsWith("g_")) {
-                { openCollection("$title $what", catalogue(shorts(), types = listOf(type), genre = key.removePrefix("g_"))) }
+            val more: () -> Unit = if (key.startsWith("g")) {
+                { openCollection("$title $what", catalogue(shorts(), types = listOf(type), genre = key.substringAfter("_"))) }
             } else {
                 { openCollection("All $what", catalogue(shorts(), types = listOf(type), sort = if (key == "trend") "TRENDING" else "POPULAR")) }
             }
-            titleRow(token, key, title, quietFail = key.startsWith("g_"), more = more, load = load)
+            titleRow(token, key, title, quietFail = key.startsWith("g"), more = more, load = load)
         }
     }
 
