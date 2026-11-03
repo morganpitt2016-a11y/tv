@@ -217,8 +217,7 @@ class HomeWidgets(
 
     private fun lift(v: View) {
         v.setOnFocusChangeListener { view, has ->
-            view.animate().scaleX(if (has) 1.06f else 1f).scaleY(if (has) 1.06f else 1f)
-                .setInterpolator(android.view.animation.DecelerateInterpolator(2f)).setDuration(220).start()
+            Motion.spring(view, if (has) 1.06f else 1f)
         }
     }
 }

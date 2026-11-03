@@ -135,8 +135,7 @@ object GlassUi {
     fun focusLift(view: View, scale: Float = 1.03f) {
         view.setOnFocusChangeListener { v, has ->
             // Rows on glass: grow only (a shadow under a white row reads as a dark band).
-            v.animate().scaleX(if (has) scale else 1f).scaleY(if (has) scale else 1f)
-                .setInterpolator(Motion.focusEase).setDuration(Motion.FOCUS).start()
+            Motion.spring(v, if (has) scale else 1f)
         }
     }
 

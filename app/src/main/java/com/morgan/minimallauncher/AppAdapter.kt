@@ -62,8 +62,7 @@ class AppAdapter(
         root.setOnFocusChangeListener { _, has ->
             val ease = android.view.animation.DecelerateInterpolator(2f)
             GlassUi.spotlight(tile, has)
-            tile.animate().scaleX(if (has) 1.07f else 1f).scaleY(if (has) 1.07f else 1f)
-                .translationZ(if (has) dp(c, 12f).toFloat() else 0f).setInterpolator(ease).setDuration(220).start()
+            Motion.spring(tile, if (has) 1.07f else 1f, if (has) dp(c, 12f).toFloat() else 0f)
             label.animate().translationY(if (has) dp(c, 4f).toFloat() else 0f).setInterpolator(ease).setDuration(220).start()
         }
         return Holder(root, tile, image, label)

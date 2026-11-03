@@ -279,21 +279,40 @@ object LiveGuide {
 
     // ---------- Cache ----------
 
+    // Saved as a compact binary file (about 10x quicker to read than JSON on a Chromecast);
+    // an older JSON copy is still understood and gets rewritten on the next refresh.
+    private const val MAGIC = 0x47444532
+
     private fun writeCache(f: File, list: List<Channel>) {
-        val arr = JSONArray()
-        for (c in list) {
-            val ps = JSONArray()
-            c.programmes.forEach { p ->
-                ps.put(JSONObject().put("t", p.title).put("d", p.desc.take(400)).put("s", p.start).put("e", p.stop).put("i", p.image).put("n", p.episode))
+        val keepFrom = System.currentTimeMillis() - 3_600_000L
+        java.io.DataOutputStream(java.io.BufferedOutputStream(java.io.FileOutputStream(f), 64 * 1024)).use { o ->
+            o.writeInt(MAGIC)
+            o.writeInt(list.size)
+            for (c in list) {
+                o.writeUTF(c.id); o.writeUTF(c.name); o.writeUTF(c.logo ?: "")
+                val ps = c.programmes.filter { it.stop > keepFrom }
+                o.writeInt(ps.size)
+                for (p in ps) {
+                    o.writeUTF(p.title.take(300)); o.writeUTF(p.desc.take(400)); o.writeLong(p.start); o.writeLong(p.stop)
+                    o.writeUTF(p.image ?: ""); o.writeUTF(p.episode.take(100))
+                }
             }
-            arr.put(JSONObject().put("id", c.id).put("name", c.name).put("logo", c.logo).put("p", ps))
         }
-        f.writeText(arr.toString())
     }
 
     private fun readCache(f: File): List<Channel>? = try {
-        parseJsonChannels(JSONArray(f.readText()))
-    } catch (e: Exception) { null }
+        java.io.DataInputStream(java.io.BufferedInputStream(java.io.FileInputStream(f), 64 * 1024)).use { i ->
+            if (i.readInt() != MAGIC) throw java.io.IOException("old format")
+            List(i.readInt()) {
+                val id = i.readUTF(); val name = i.readUTF(); val logo = i.readUTF().ifEmpty { null }
+                Channel(id, name, logo, List(i.readInt()) {
+                    Programme(i.readUTF(), i.readUTF(), i.readLong(), i.readLong(), i.readUTF().ifEmpty { null }, i.readUTF())
+                })
+            }
+        }
+    } catch (e: Exception) {
+        try { parseJsonChannels(JSONArray(f.readText())) } catch (e2: Exception) { null }
+    }
 
     // ---------- Watching ----------
 

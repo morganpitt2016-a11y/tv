@@ -2,6 +2,10 @@ package com.morgan.minimallauncher
 
 import android.view.View
 import android.view.animation.PathInterpolator
+import androidx.dynamicanimation.animation.DynamicAnimation
+import androidx.dynamicanimation.animation.SpringAnimation
+import androidx.dynamicanimation.animation.SpringForce
+import java.util.WeakHashMap
 
 /**
  * One motion language for the whole launcher (tvOS-like): quick, decelerating
@@ -21,16 +25,30 @@ object Motion {
     const val PANEL = 300L
     const val HERO = 650L
 
+    // Springs, not timed tweens: motion that is interrupted (focus racing across a row)
+    // carries its velocity on instead of restarting, which is what makes iOS feel fluid.
+    private class Springs(v: View) {
+        private fun make(prop: DynamicAnimation.ViewProperty, rest: Float) =
+            SpringAnimation(v, prop).setSpring(SpringForce(rest).setStiffness(420f).setDampingRatio(0.78f)).apply { minimumVisibleChange = 1f / 500f }
+        val sx = make(DynamicAnimation.SCALE_X, 1f)
+        val sy = make(DynamicAnimation.SCALE_Y, 1f)
+        val z = make(DynamicAnimation.TRANSLATION_Z, 0f).apply { minimumVisibleChange = 0.5f }
+    }
+    private val springs = WeakHashMap<View, Springs>()
+
+    /** Spring [v] to [scale] (and [lift] px of elevation). */
+    fun spring(v: View, scale: Float, lift: Float = 0f) {
+        v.animate().cancel()
+        val s = springs.getOrPut(v) { Springs(v) }
+        s.sx.animateToFinalPosition(scale)
+        s.sy.animateToFinalPosition(scale)
+        s.z.animateToFinalPosition(lift)
+    }
+
     /** Lift [v] when focused: a small grow and a soft shadow; settle back when not. */
     fun focus(v: View, focused: Boolean, scale: Float = 1.08f, liftDp: Float = 10f) {
         val d = v.resources.displayMetrics.density
-        v.animate().cancel()
-        v.animate()
-            .scaleX(if (focused) scale else 1f).scaleY(if (focused) scale else 1f)
-            .translationZ(if (focused) liftDp * d else 0f)
-            .setInterpolator(focusEase)
-            .setDuration(FOCUS)
-            .start()
+        spring(v, if (focused) scale else 1f, if (focused) liftDp * d else 0f)
         GlassUi.spotlight(v, focused)
     }
 
