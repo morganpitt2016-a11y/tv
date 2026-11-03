@@ -576,9 +576,14 @@ class WatchActivity : AppCompatActivity() {
             runOnUiThread { LiveGuide.load(this) { ready.countDown() } }
             try { ready.await(4, java.util.concurrent.TimeUnit.SECONDS) } catch (e: Exception) {}
             val cats = Xtream.liveCategories(app)
-            // UK groups first (they're what's wanted here); "Entertainment" leads and is loaded for the front page.
-            val catIds = cats.keys.sortedWith(compareBy({ val n = cats[it].orEmpty(); if (n.contains("entertainment", true)) 0 else if (n.trim().startsWith("UK", true)) 1 else 2 }, { cats[it] }))
-                .let { l -> l.filter { cats[it].orEmpty().trim().startsWith("UK", true) }.ifEmpty { l }.take(12) }
+            // Every group, UK first (then US, then the rest), "Entertainment" leading each.
+            fun rank(name: String): Int {
+                val n = name.trim()
+                val uk = Regex("(^|[^A-Za-z])UK([^A-Za-z]|$)|united kingdom|british", RegexOption.IGNORE_CASE).containsMatchIn(n)
+                val us = Regex("(^|[^A-Za-z])US([^A-Za-z]|$)", RegexOption.IGNORE_CASE).containsMatchIn(n)
+                return (if (uk) 0 else if (us) 20 else 40) + (if (n.contains("entertainment", true)) 0 else 1)
+            }
+            val catIds = cats.keys.sortedWith(compareBy({ rank(cats[it].orEmpty()) }, { cats[it].orEmpty() })).take(90)
             val first = catIds.firstOrNull()
             val all = if (first == null) emptyList() else try { Xtream.liveInCategory(app, first) } catch (e: Exception) { emptyList() }
             runOnUiThread {
@@ -605,9 +610,9 @@ class WatchActivity : AppCompatActivity() {
                 // ---- Groups + guide ----
                 host.addView(GlassUi.text(this, "Guide", 15f, R.font.inter_semibold),
                     LinearLayout.LayoutParams(-2, -2).apply { setMargins(dp(this@WatchActivity, 56f), dp(this@WatchActivity, 14f), 0, dp(this@WatchActivity, 6f)) })
-                val heads = LinearLayout(this).apply { clipChildren = false }
+                val heads = LinearLayout(this).apply { clipChildren = false; clipToPadding = false; setPadding(dp(context, 56f), dp(context, 4f), dp(context, 56f), dp(context, 8f)) }
+                val headScroll = android.widget.HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; clipChildren = false; clipToPadding = false; isFillViewport = false; addView(heads) }
                 val pills = mutableListOf<TextView>()
-                val info = TextView(this)   // replaced below
                 val infoTitle = GlassUi.text(this, "", 17f, R.font.inter_semibold).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
                 val infoSub = GlassUi.text(this, "", 12f, R.font.inter_medium, 0xCCFFFFFF.toInt()).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END }
                 val epg = EpgView(this)
@@ -637,7 +642,7 @@ class WatchActivity : AppCompatActivity() {
                     }.start()
                 }
                 for (catId in catIds) {
-                    val name = (cats[catId] ?: "Channels").replace(Regex("^\\s*UK\\s*[~:|-]*\\s*", RegexOption.IGNORE_CASE), "").ifBlank { "Channels" }
+                    val name = (cats[catId] ?: "Channels").replace(Regex("\\s*[~|]+\\s*"), " · ").trim().ifBlank { "Channels" }
                     val pill = GlassUi.text(this, name, 13f, R.font.inter_medium).apply {
                         tag = catId
                         background = GlassUi.panel(context, 16f, 0x20)
@@ -649,7 +654,7 @@ class WatchActivity : AppCompatActivity() {
                     pills += pill
                     heads.addView(pill, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(this@WatchActivity, 8f) })
                 }
-                host.addView(heads, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(this@WatchActivity, 56f); bottomMargin = dp(this@WatchActivity, 8f) })
+                host.addView(headScroll, LinearLayout.LayoutParams(-1, -2))
                 val infoBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(context, 4f), 0, dp(context, 4f), dp(context, 8f)) }
                 infoBox.addView(infoTitle); infoBox.addView(infoSub)
                 host.addView(infoBox, LinearLayout.LayoutParams(-1, -2).apply { marginStart = dp(this@WatchActivity, 60f); marginEnd = dp(this@WatchActivity, 56f) })
