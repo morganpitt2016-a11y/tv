@@ -136,6 +136,7 @@ object Diag {
                     main.post { PlayerActivity.play(app, Xtream.vodUrl(app, v), title, live = false, eyebrow = "FILM") }
                 }
             }
+            cmd == "update" -> Updater.maybeUpdate(app, force = true) { send(app, "update", it) }
             cmd == "audio" -> send(app, "audio", TiviTuner.audioReport(app))
             cmd == "recs" -> send(app, "recs", TiviRecorder.describe(app))
             cmd == "clearrec" || cmd.startsWith("clearrec:") -> {

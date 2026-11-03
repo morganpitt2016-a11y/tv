@@ -11,8 +11,8 @@ android {
         applicationId "com.morgan.minimallauncher"
         minSdk 26
         targetSdk 34
-        versionCode 1
-        versionName "1.0"
+        versionCode (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInteger()
+        versionName "1." + (System.getenv("GITHUB_RUN_NUMBER") ?: "0")
     }
 
     // GitHub builds sign with one kept key (see .github/workflows/build.yml), so each

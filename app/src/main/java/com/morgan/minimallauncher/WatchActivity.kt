@@ -546,7 +546,99 @@ class WatchActivity : AppCompatActivity() {
 
     // ---------- Live TV ----------
 
+    // ---------- Live TV straight from the provider ----------
+
+    private var liveGroup: String? = null
+
+    /** The provider's own channel list, by group: tiny rows, and a channel plays the moment you press OK. */
+    private fun buildLiveProvider(token: Int) {
+        val host = rows
+        val app = applicationContext
+        val t0 = Perf.now()
+        val loading = GlassUi.text(this, "Loading channels…", 13f, R.font.inter_medium, 0x99FFFFFF.toInt())
+        host.addView(loading, LinearLayout.LayoutParams(-2, -2).apply { setMargins(dp(this, 56f), dp(this, 20f), 0, 0) })
+        LiveGuide.load(this) { }          // so "now / next" is ready
+        Thread {
+            val all = try { Xtream.live(app) } catch (e: Exception) { emptyList() }
+            val cats = Xtream.liveCategories(app)
+            runOnUiThread {
+                if (containerToken[host] != token || isDestroyed) return@runOnUiThread
+                host.removeView(loading)
+                if (all.isEmpty()) { buildLiveGuide(token); return@runOnUiThread }
+                // Groups, biggest sensible first; "Entertainment" leads.
+                val groups = all.groupBy { it.category }.entries
+                    .sortedWith(compareBy({ if ((cats[it.key] ?: "").contains("entertainment", true)) 0 else 1 }, { -it.value.size }))
+                    .take(10)
+                val heads = LinearLayout(this).apply { clipChildren = false }
+                val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; clipChildren = false }
+                var selected: View? = null
+                val pills = mutableListOf<TextView>()
+                fun show(catId: String) {
+                    liveGroup = catId
+                    pills.forEach { it.isSelected = it.tag == catId }
+                    body.removeAllViews()
+                    val list = (groups.firstOrNull { it.key == catId }?.value ?: emptyList()).sortedBy { it.num }
+                    var next = 0
+                    fun batch() {
+                        if (containerToken[host] != token || isDestroyed || liveGroup != catId) return
+                        val end = minOf(next + 12, list.size)
+                        while (next < end) { body.addView(channelRow(list[next], list)); next++ }
+                        if (next == 12) { Perf.note("Live TV: first channels on screen", t0); if (host === rows && rows.findFocus() == null) rows.post { firstItem()?.requestFocus() } }
+                        if (next < list.size) handler.postDelayed({ batch() }, 12)
+                    }
+                    batch()
+                }
+                for ((catId, _) in groups) {
+                    val name = (cats[catId] ?: "Channels").replace(Regex("^\\s*UK\\s*[~:|-]*\\s*", RegexOption.IGNORE_CASE), "").ifBlank { "Channels" }
+                    val pill = GlassUi.text(this, name, 13f, R.font.inter_medium).apply {
+                        tag = catId
+                        background = GlassUi.panel(context, 16f, 0x20)
+                        setPadding(dp(context, 16f), dp(context, 8f), dp(context, 16f), dp(context, 8f))
+                        isFocusable = true; isClickable = true
+                        setOnClickListener { show(catId) }
+                        setOnFocusChangeListener { v, has -> Motion.spring(v, if (has) 1.06f else 1f) }
+                    }
+                    pills += pill
+                    heads.addView(pill, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(this@WatchActivity, 8f) })
+                }
+                host.addView(heads, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(this@WatchActivity, 56f); topMargin = dp(this@WatchActivity, 8f); bottomMargin = dp(this@WatchActivity, 6f) })
+                host.addView(body, LinearLayout.LayoutParams(-1, -2))
+                show(liveGroup?.takeIf { g -> groups.any { it.key == g } } ?: groups.first().key)
+            }
+        }.start()
+    }
+
+    private fun channelRow(ch: Xtream.Live, group: List<Xtream.Live>): View {
+        val c = this
+        val row = LinearLayout(c).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(c, 56f), dp(c, 4f), dp(c, 56f), dp(c, 4f))
+            isFocusable = true; isClickable = true
+            background = GlassUi.panel(c, 12f, 0x14)
+        }
+        row.addView(GlassUi.text(c, ch.num.toString(), 13f, R.font.inter_medium, 0x80FFFFFF.toInt()).apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(dp(c, 36f), -2))
+        val logo = ImageView(c).apply { scaleType = ImageView.ScaleType.FIT_CENTER }
+        ImageLoader.load(logo, ch.icon, ImageLoader.ICON)
+        row.addView(logo, LinearLayout.LayoutParams(dp(c, 64f), dp(c, 36f)).apply { marginStart = dp(c, 8f); marginEnd = dp(c, 14f) })
+        val col = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL }
+        col.addView(GlassUi.text(c, ch.name, 14f, R.font.inter_semibold).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END })
+        col.addView(GlassUi.text(c, LiveGuide.nowNext(c, ch.name) ?: "", 11.5f, R.font.inter_medium, 0xB3FFFFFF.toInt()).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END })
+        row.addView(col, LinearLayout.LayoutParams(0, -2, 1f))
+        row.contentDescription = ch.name
+        row.setOnClickListener {
+            val app = applicationContext
+            PlayerActivity.play(this, Xtream.liveUrl(app, ch.id), ch.name, live = true, subtitle = LiveGuide.nowNext(app, ch.name),
+                eyebrow = "LIVE", alt = Xtream.liveUrl(app, ch.id, hls = true), liveId = ch.id)
+        }
+        focusEffect(row) { }
+        return row
+    }
+
     private fun buildLive(token: Int) {
+        if (Xtream.isSetUp(this)) buildLiveProvider(token) else buildLiveGuide(token)
+    }
+
+    private fun buildLiveGuide(token: Int) {
         val t0 = Perf.now()
         val host = rows
         // Just the TV guide (the live TV apps are on the home screen).

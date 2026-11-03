@@ -107,7 +107,7 @@ object Xtream {
     }
 
     fun clearCache(c: Context) {
-        liveMem = null; vodMem = null; seriesMem = null
+        liveMem = null; vodMem = null; seriesMem = null; catMem = null
         dir(c).listFiles()?.forEach { it.delete() }
     }
 
@@ -188,6 +188,14 @@ object Xtream {
     }
 
     private fun icon(s: String?) = s?.takeIf { it.startsWith("http") }
+
+    @Volatile private var catMem: Map<String, String>? = null
+
+    /** Channel group names ("UK ~ Entertainment") by category id. */
+    fun liveCategories(c: Context): Map<String, String> = catMem ?: try {
+        val a = org.json.JSONArray(Net.get(api(c, "get_live_categories"), timeoutMs = 15_000))
+        (0 until a.length()).associate { val o = a.getJSONObject(it); o.optString("category_id") to o.optString("category_name") }
+    } catch (e: Exception) { emptyMap() }.also { if (it.isNotEmpty()) catMem = it }
 
     private fun java.io.DataOutputStream.str(x: String?) = writeUTF((x ?: "").take(600))
 

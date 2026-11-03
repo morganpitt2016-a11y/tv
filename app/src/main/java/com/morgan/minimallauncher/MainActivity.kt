@@ -217,6 +217,7 @@ class MainActivity : AppCompatActivity() {
         rotator.start()
         widgets.start()
         refreshAll(onlyIfChanged = true)
+        Updater.maybeUpdate(this)                      // new builds arrive by themselves (rate limited)
         applyDimming(animate = false)
         handler.post(ambientTick)
         if (::claudePet.isInitialized) claudePet.resume()

@@ -44,6 +44,8 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
+        <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <application
         android:name=".LauncherApp"
         android:usesCleartextTraffic="true"
@@ -106,6 +108,8 @@
             android:exported="false"
             android:screenOrientation="landscape"
             android:theme="@style/Theme.MinimalLauncher" />
+
+        <receiver android:name=".UpdateReceiver" android:exported="false" />
 
         <activity
             android:name=".ExternalPlayActivity"
