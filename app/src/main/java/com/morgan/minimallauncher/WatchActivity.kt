@@ -1246,19 +1246,19 @@ class WatchActivity : AppCompatActivity() {
 
     // ---------- Continue Watching ----------
 
-    private fun bindResume(h: Holder, it: ResumeStore.Item) {
-        val left = if (it.durSec > 0) ((it.durSec - it.posSec) / 60).coerceAtLeast(1) else 0
-        h.label.text = it.title
+    private fun bindResume(h: Holder, item: ResumeStore.Item) {
+        val left = if (item.durSec > 0) ((item.durSec - item.posSec) / 60).coerceAtLeast(1) else 0
+        h.label.text = item.title
         h.sub?.text = when {
-            it.kind == "live" -> "Live"
-            it.kind == "episode" && it.posSec == 0 -> "Up next · S${it.season} E${it.episode}"
-            it.kind == "episode" -> "S${it.season} E${it.episode}  ·  $left min left"
+            item.kind == "live" -> "Live"
+            item.kind == "episode" && item.posSec == 0 -> "Up next · S${item.season} E${item.episode}"
+            item.kind == "episode" -> "S${item.season} E${item.episode}  ·  $left min left"
             else -> "$left min left"
         }
-        h.progress?.let { bar -> bar.post { bar.layoutParams.width = if (it.durSec > 0) (h.root.width * it.posSec.toFloat() / it.durSec).toInt() else 0; bar.requestLayout() } }
-        ImageLoader.load(h.image, it.image, ImageLoader.CARD)
-        h.root.contentDescription = "Continue ${it.title}"
-        h.root.setOnClickListener { openResume(it) }
+        h.progress?.let { bar -> bar.post { bar.layoutParams.width = if (item.durSec > 0) (h.root.width * item.posSec.toFloat() / item.durSec).toInt() else 0; bar.requestLayout() } }
+        ImageLoader.load(h.image, item.image, ImageLoader.CARD)
+        h.root.contentDescription = "Continue ${item.title}"
+        h.root.setOnClickListener { openResume(item) }
         focusEffect(h.root) { }
     }
 
