@@ -144,9 +144,10 @@ object Xtream {
      * old copy is refreshed quietly in the background.
      */
     private fun <T> list(
-        c: Context, action: String, enc: (java.io.DataOutputStream, T) -> Unit, dec: (java.io.DataInputStream) -> T, parse: (JsonReader) -> T?,
+        c: Context, action: String, enc: (java.io.DataOutputStream, T) -> Unit, dec: (java.io.DataInputStream) -> T,
+        extra: String = "", cacheName: String = action, parse: (JsonReader) -> T?,
     ): List<T> {
-        val bin = File(dir(c), "$action.bin")
+        val bin = File(dir(c), "$cacheName.bin")
         fun write(items: List<T>) {
             if (items.isEmpty()) return
             val tmp = File(bin.path + ".part")
@@ -165,19 +166,19 @@ object Xtream {
             if (!items.isNullOrEmpty()) {
                 if (System.currentTimeMillis() - bin.lastModified() > 12 * 3600_000L) {
                     bin.setLastModified(System.currentTimeMillis())      // one refresh at a time
-                    Thread { try { write(listJson(c, action, parse, force = true)) } catch (e: Exception) {} }.start()
+                    Thread { try { write(listJson(c, action, extra, cacheName, parse, force = true)) } catch (e: Exception) {} }.start()
                 }
                 return items
             }
         }
-        return listJson(c, action, parse, force = false).also { write(it) }
+        return listJson(c, action, extra, cacheName, parse, force = false).also { write(it) }
     }
 
-    private fun <T> listJson(c: Context, action: String, parse: (JsonReader) -> T?, force: Boolean): List<T> {
-        val f = File(dir(c), "$action.json")
+    private fun <T> listJson(c: Context, action: String, extra: String, cacheName: String, parse: (JsonReader) -> T?, force: Boolean): List<T> {
+        val f = File(dir(c), "$cacheName.json")
         if (force || !f.exists() || System.currentTimeMillis() - f.lastModified() > 12 * 3600_000L) {
-            val tmp = File(dir(c), "$action.tmp")
-            val conn = URL(api(c, action)).openConnection() as HttpURLConnection
+            val tmp = File(dir(c), "$cacheName.tmp")
+            val conn = URL(api(c, action, extra)).openConnection() as HttpURLConnection
             conn.connectTimeout = 15_000; conn.readTimeout = 60_000
             conn.setRequestProperty("User-Agent", Net.USER_AGENT)
             try { conn.inputStream.use { input -> tmp.outputStream().use { input.copyTo(it) } } } finally { conn.disconnect() }
@@ -231,6 +232,17 @@ object Xtream {
         val id = m["stream_id"]?.toIntOrNull() ?: return@list null
         Live(id, m["num"]?.toIntOrNull() ?: 0, m["name"].orEmpty().trim(), icon(m["stream_icon"]), m["category_id"].orEmpty())
     }.also { liveMem = it }
+
+    /** One group's channels (small and quick), instead of the whole line-up. */
+    fun liveInCategory(c: Context, categoryId: String): List<Live> =
+        liveMem?.filter { it.category == categoryId }?.takeIf { it.isNotEmpty() } ?: list(c, "get_live_streams",
+            { o, v: Live -> o.writeInt(v.id); o.writeInt(v.num); o.str(v.name); o.str(v.icon); o.str(v.category) },
+            { i -> Live(i.readInt(), i.readInt(), i.readUTF(), i.readUTF().ifEmpty { null }, i.readUTF()) },
+            extra = "&category_id=$categoryId", cacheName = "live_cat_$categoryId") { r ->
+            val m = obj(r)
+            val id = m["stream_id"]?.toIntOrNull() ?: return@list null
+            Live(id, m["num"]?.toIntOrNull() ?: 0, m["name"].orEmpty().trim(), icon(m["stream_icon"]), m["category_id"].orEmpty().ifEmpty { categoryId })
+        }
 
     fun vod(c: Context): List<Vod> = vodMem ?: list(c, "get_vod_streams",
         { o, v: Vod -> o.writeInt(v.id); o.str(v.name); o.str(v.ext); o.str(v.icon); o.str(v.category) },

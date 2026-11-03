@@ -374,7 +374,7 @@ object LiveGuide {
                     if (activity.isDestroyed) return@runOnUiThread
                     if (hit != null) {
                         PlayerActivity.play(activity, Xtream.liveUrl(app, hit.id), channel.name, live = true,
-                            subtitle = channel.now()?.title, eyebrow = "LIVE", alt = Xtream.liveUrl(app, hit.id, hls = true), liveId = hit.id)
+                            subtitle = channel.now()?.title, eyebrow = "LIVE", alt = Xtream.liveUrl(app, hit.id, hls = true), liveId = hit.id, liveCat = hit.category)
                     } else openViaTiviMate(activity, channel, null)
                 }
             }.start()

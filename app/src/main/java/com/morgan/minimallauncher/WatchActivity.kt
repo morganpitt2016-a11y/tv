@@ -557,7 +557,7 @@ class WatchActivity : AppCompatActivity() {
     private fun playLive(ch: Xtream.Live) {
         val app = applicationContext
         PlayerActivity.play(this, Xtream.liveUrl(app, ch.id), ch.name, live = true, subtitle = LiveGuide.nowNext(app, ch.name),
-            eyebrow = "LIVE", alt = Xtream.liveUrl(app, ch.id, hls = true), liveId = ch.id)
+            eyebrow = "LIVE", alt = Xtream.liveUrl(app, ch.id, hls = true), liveId = ch.id, liveCat = ch.category)
     }
 
     /**
@@ -575,12 +575,16 @@ class WatchActivity : AppCompatActivity() {
             val ready = java.util.concurrent.CountDownLatch(1)
             runOnUiThread { LiveGuide.load(this) { ready.countDown() } }
             try { ready.await(4, java.util.concurrent.TimeUnit.SECONDS) } catch (e: Exception) {}
-            val all = try { Xtream.live(app) } catch (e: Exception) { emptyList() }
             val cats = Xtream.liveCategories(app)
+            // UK groups first (they're what's wanted here); "Entertainment" leads and is loaded for the front page.
+            val catIds = cats.keys.sortedWith(compareBy({ val n = cats[it].orEmpty(); if (n.contains("entertainment", true)) 0 else if (n.trim().startsWith("UK", true)) 1 else 2 }, { cats[it] }))
+                .let { l -> l.filter { cats[it].orEmpty().trim().startsWith("UK", true) }.ifEmpty { l }.take(12) }
+            val first = catIds.firstOrNull()
+            val all = if (first == null) emptyList() else try { Xtream.liveInCategory(app, first) } catch (e: Exception) { emptyList() }
             runOnUiThread {
                 if (containerToken[host] != token || isDestroyed) return@runOnUiThread
                 host.removeView(loading)
-                if (all.isEmpty()) { buildLiveGuide(token); return@runOnUiThread }
+                if (all.isEmpty() || first == null) { buildLiveGuide(token); return@runOnUiThread }
 
                 // ---- Popular ----
                 val byGroupFirst = all.sortedWith(compareBy({ if ((cats[it.category] ?: "").contains("entertainment", true)) 0 else 1 }, { it.num }))
@@ -596,9 +600,6 @@ class WatchActivity : AppCompatActivity() {
                 }
 
                 // ---- Groups + guide ----
-                val groups = all.groupBy { it.category }.entries
-                    .sortedWith(compareBy({ if ((cats[it.key] ?: "").contains("entertainment", true)) 0 else 1 }, { -it.value.size }))
-                    .take(10)
                 host.addView(GlassUi.text(this, "Guide", 15f, R.font.inter_semibold),
                     LinearLayout.LayoutParams(-2, -2).apply { setMargins(dp(this@WatchActivity, 56f), dp(this@WatchActivity, 14f), 0, dp(this@WatchActivity, 6f)) })
                 val heads = LinearLayout(this).apply { clipChildren = false }
@@ -623,10 +624,16 @@ class WatchActivity : AppCompatActivity() {
                 fun show(catId: String) {
                     current = catId
                     pills.forEach { it.isSelected = it.tag == catId; it.alpha = if (it.tag == catId) 1f else 0.7f }
-                    val list = (groups.firstOrNull { it.key == catId }?.value ?: emptyList()).sortedBy { it.num }
-                    epg.setRows(list.take(120).map { EpgView.Row(it, LiveGuide.guideFor(it.name)) })
+                    infoTitle.text = "Loading…"; infoSub.text = ""
+                    Thread {
+                        val list = (if (catId == first) all else try { Xtream.liveInCategory(app, catId) } catch (e: Exception) { emptyList() }).sortedBy { it.num }
+                        runOnUiThread {
+                            if (current != catId || containerToken[host] != token || isDestroyed) return@runOnUiThread
+                            epg.setRows(list.take(120).map { EpgView.Row(it, LiveGuide.guideFor(it.name)) })
+                        }
+                    }.start()
                 }
-                for ((catId, _) in groups) {
+                for (catId in catIds) {
                     val name = (cats[catId] ?: "Channels").replace(Regex("^\\s*UK\\s*[~:|-]*\\s*", RegexOption.IGNORE_CASE), "").ifBlank { "Channels" }
                     val pill = GlassUi.text(this, name, 13f, R.font.inter_medium).apply {
                         tag = catId
@@ -644,7 +651,7 @@ class WatchActivity : AppCompatActivity() {
                 infoBox.addView(infoTitle); infoBox.addView(infoSub)
                 host.addView(infoBox, LinearLayout.LayoutParams(-1, -2).apply { marginStart = dp(this@WatchActivity, 60f); marginEnd = dp(this@WatchActivity, 56f) })
                 host.addView(epg, LinearLayout.LayoutParams(-1, -2).apply { marginStart = dp(this@WatchActivity, 56f); marginEnd = dp(this@WatchActivity, 56f) })
-                show(groups.first().key)
+                show(first)
                 Perf.note("Live TV: front page and guide ready", t0)
                 if (host === rows && rows.findFocus() == null) rows.post { firstItem()?.requestFocus() }
             }

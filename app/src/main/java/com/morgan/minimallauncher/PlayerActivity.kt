@@ -128,9 +128,12 @@ class PlayerActivity : Activity() {
         if (live && liveId >= 0) {
             val app = applicationContext
             Thread {
-                val all = try { Xtream.live(app) } catch (e: Exception) { emptyList() }
-                val cur = all.firstOrNull { it.id == liveId }
-                val group = if (cur == null) emptyList() else all.filter { it.category == cur.category }.sortedBy { it.num }
+                val cat = intent.getStringExtra(EXTRA_LIVE_CAT)
+                val group = (if (cat != null) try { Xtream.liveInCategory(app, cat) } catch (e: Exception) { emptyList() } else {
+                    val all = try { Xtream.live(app) } catch (e: Exception) { emptyList() }
+                    val cur = all.firstOrNull { it.id == liveId }
+                    if (cur == null) emptyList() else all.filter { it.category == cur.category }
+                }).sortedBy { it.num }
                 runOnUiThread { zapList = group; zapIndex = group.indexOfFirst { it.id == liveId }.coerceAtLeast(0) }
             }.start()
         }
@@ -446,6 +449,7 @@ class PlayerActivity : Activity() {
         const val EXTRA_EYEBROW = "eyebrow"
         const val EXTRA_FROM_START = "from_start"
         const val EXTRA_LIVE_ID = "live_id"
+        const val EXTRA_LIVE_CAT = "live_cat"
         const val EXTRA_IMAGE = "image"
         const val EXTRA_SEASON = "season"
         const val EXTRA_EPISODE = "episode"
@@ -457,12 +461,12 @@ class PlayerActivity : Activity() {
         fun play(
             c: Context, url: String, title: String, live: Boolean, subtitle: String? = null, eyebrow: String? = null, alt: String? = null,
             fromStart: Boolean = false, liveId: Int = -1, series: String? = null, queue: List<Triple<String, Int, Int>> = emptyList(),
-            image: String? = null, season: Int = 0, episode: Int = 0,
+            image: String? = null, season: Int = 0, episode: Int = 0, liveCat: String? = null,
         ) {
             c.startActivity(Intent(c, PlayerActivity::class.java)
                 .putExtra(EXTRA_URL, url).putExtra(EXTRA_ALT_URL, alt).putExtra(EXTRA_LIVE, live)
                 .putExtra(EXTRA_TITLE, title).putExtra(EXTRA_SUBTITLE, subtitle).putExtra(EXTRA_EYEBROW, eyebrow).putExtra(EXTRA_FROM_START, fromStart)
-                .putExtra(EXTRA_LIVE_ID, liveId).putExtra(EXTRA_SERIES, series).putExtra(EXTRA_IMAGE, image)
+                .putExtra(EXTRA_LIVE_ID, liveId).putExtra(EXTRA_LIVE_CAT, liveCat).putExtra(EXTRA_SERIES, series).putExtra(EXTRA_IMAGE, image)
                 .putExtra(EXTRA_SEASON, season).putExtra(EXTRA_EPISODE, episode)
                 .putExtra(EXTRA_Q_URLS, queue.map { it.first }.toTypedArray())
                 .putExtra(EXTRA_Q_S, queue.map { it.second }.toIntArray())
