@@ -335,6 +335,21 @@ object LiveGuide {
         return options.firstOrNull { (pkg, _) -> launchIntent(c, pkg) != null }
     }
 
+    private val matchCache = java.util.concurrent.ConcurrentHashMap<String, Any>()
+    @Volatile private var cacheList: Any? = null
+
+    /** The guide's entry for a provider channel name ("BBC ONE UHD" -> BBC One), or null. */
+    fun guideFor(providerName: String): Channel? {
+        val list = shown ?: memory ?: return null
+        if (cacheList !== list) { matchCache.clear(); cacheList = list }
+        (matchCache[providerName])?.let { return it as? Channel }
+        val k = TextMatch.normalise(providerName)
+        val ch = list.firstOrNull { TextMatch.normalise(it.name) == k }
+            ?: list.firstOrNull { TextMatch.normalise(it.name).let { n -> n.isNotEmpty() && TextMatch.matches(k, n) } }
+        matchCache[providerName] = ch ?: Unit
+        return ch
+    }
+
     /** "Now  ·  Next: …" for a channel (by its provider name), from the guide already in memory. */
     fun nowNext(c: Context, providerName: String): String? {
         val list = shown ?: memory ?: return null

@@ -550,43 +550,81 @@ class WatchActivity : AppCompatActivity() {
 
     private var liveGroup: String? = null
 
-    /** The provider's own channel list, by group: tiny rows, and a channel plays the moment you press OK. */
+    /** The names the main UK channels go by, in the order they're shown on the front page. */
+    private val popularNames = listOf("BBC One", "BBC Two", "ITV1", "Channel 4", "Channel 5", "ITV2", "BBC Three", "E4", "Sky News", "BBC News",
+        "Dave", "ITV3", "ITV4", "Film4", "More4", "Drama", "5 USA", "CBBC", "CBeebies", "BBC Four")
+
+    private fun playLive(ch: Xtream.Live) {
+        val app = applicationContext
+        PlayerActivity.play(this, Xtream.liveUrl(app, ch.id), ch.name, live = true, subtitle = LiveGuide.nowNext(app, ch.name),
+            eyebrow = "LIVE", alt = Xtream.liveUrl(app, ch.id, hls = true), liveId = ch.id)
+    }
+
+    /**
+     * Live TV straight from the provider: the popular channels first (like a set-top box's front page),
+     * then the channel groups, then a proper guide - channels down the side, time across the top.
+     */
     private fun buildLiveProvider(token: Int) {
         val host = rows
         val app = applicationContext
         val t0 = Perf.now()
         val loading = GlassUi.text(this, "Loading channels…", 13f, R.font.inter_medium, 0x99FFFFFF.toInt())
         host.addView(loading, LinearLayout.LayoutParams(-2, -2).apply { setMargins(dp(this@WatchActivity, 56f), dp(this@WatchActivity, 20f), 0, 0) })
-        LiveGuide.load(this) { }          // so "now / next" is ready
         Thread {
+            // The free guide gives now / next; make sure it is ready before the rows are drawn.
+            val ready = java.util.concurrent.CountDownLatch(1)
+            runOnUiThread { LiveGuide.load(this) { ready.countDown() } }
+            try { ready.await(4, java.util.concurrent.TimeUnit.SECONDS) } catch (e: Exception) {}
             val all = try { Xtream.live(app) } catch (e: Exception) { emptyList() }
             val cats = Xtream.liveCategories(app)
             runOnUiThread {
                 if (containerToken[host] != token || isDestroyed) return@runOnUiThread
                 host.removeView(loading)
                 if (all.isEmpty()) { buildLiveGuide(token); return@runOnUiThread }
-                // Groups, biggest sensible first; "Entertainment" leads.
+
+                // ---- Popular ----
+                val byGroupFirst = all.sortedWith(compareBy({ if ((cats[it.category] ?: "").contains("entertainment", true)) 0 else 1 }, { it.num }))
+                val popular = popularNames.mapNotNull { n ->
+                    val k = TextMatch.normalise(n)
+                    byGroupFirst.firstOrNull { TextMatch.normalise(it.name) == k }
+                        ?: byGroupFirst.firstOrNull { TextMatch.normalise(it.name).let { x -> TextMatch.matches(x, k) } }
+                }.distinctBy { it.id }
+                if (popular.isNotEmpty()) {
+                    val r = row("popular", "Popular", height = 150f)
+                    r.list.adapter = CardAdapter(popular, { p -> wideCard(p) }) { h, ch -> bindLiveCard(h, ch) }
+                    host.addView(r.view)
+                }
+
+                // ---- Groups + guide ----
                 val groups = all.groupBy { it.category }.entries
                     .sortedWith(compareBy({ if ((cats[it.key] ?: "").contains("entertainment", true)) 0 else 1 }, { -it.value.size }))
                     .take(10)
+                host.addView(GlassUi.text(this, "Guide", 15f, R.font.inter_semibold),
+                    LinearLayout.LayoutParams(-2, -2).apply { setMargins(dp(this@WatchActivity, 56f), dp(this@WatchActivity, 14f), 0, dp(this@WatchActivity, 6f)) })
                 val heads = LinearLayout(this).apply { clipChildren = false }
-                val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; clipChildren = false }
-                var selected: View? = null
                 val pills = mutableListOf<TextView>()
+                val info = TextView(this)   // replaced below
+                val infoTitle = GlassUi.text(this, "", 17f, R.font.inter_semibold).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
+                val infoSub = GlassUi.text(this, "", 12f, R.font.inter_medium, 0xCCFFFFFF.toInt()).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END }
+                val epg = EpgView(this)
+                epg.onSelect = { row, prog ->
+                    val fmt = java.text.SimpleDateFormat("h:mma", java.util.Locale.UK)
+                    infoTitle.text = prog?.title ?: row.ch.name
+                    infoSub.text = if (prog == null) "Live on ${row.ch.name}"
+                        else "${row.ch.name}  ·  ${fmt.format(java.util.Date(prog.start)).lowercase()} – ${fmt.format(java.util.Date(prog.stop)).lowercase()}" +
+                            (if (prog.desc.isNotBlank()) "\n${prog.desc.take(220)}" else "")
+                }
+                epg.onPlay = { row -> playLive(row.ch) }
+                epg.onProgramme = { row, prog ->
+                    val g = row.guide
+                    if (g != null) programmeDialog(g, prog) else playLive(row.ch)
+                }
+                var current: String? = null
                 fun show(catId: String) {
-                    liveGroup = catId
-                    pills.forEach { it.isSelected = it.tag == catId }
-                    body.removeAllViews()
+                    current = catId
+                    pills.forEach { it.isSelected = it.tag == catId; it.alpha = if (it.tag == catId) 1f else 0.7f }
                     val list = (groups.firstOrNull { it.key == catId }?.value ?: emptyList()).sortedBy { it.num }
-                    var next = 0
-                    fun batch() {
-                        if (containerToken[host] != token || isDestroyed || liveGroup != catId) return
-                        val end = minOf(next + 12, list.size)
-                        while (next < end) { body.addView(channelRow(list[next], list)); next++ }
-                        if (next == 12) { Perf.note("Live TV: first channels on screen", t0); if (host === rows && rows.findFocus() == null) rows.post { firstItem()?.requestFocus() } }
-                        if (next < list.size) handler.postDelayed({ batch() }, 12)
-                    }
-                    batch()
+                    epg.setRows(list.take(120).map { EpgView.Row(it, LiveGuide.guideFor(it.name)) })
                 }
                 for ((catId, _) in groups) {
                     val name = (cats[catId] ?: "Channels").replace(Regex("^\\s*UK\\s*[~:|-]*\\s*", RegexOption.IGNORE_CASE), "").ifBlank { "Channels" }
@@ -596,16 +634,33 @@ class WatchActivity : AppCompatActivity() {
                         setPadding(dp(context, 16f), dp(context, 8f), dp(context, 16f), dp(context, 8f))
                         isFocusable = true; isClickable = true
                         setOnClickListener { show(catId) }
-                        setOnFocusChangeListener { v, has -> Motion.spring(v, if (has) 1.06f else 1f) }
+                        setOnFocusChangeListener { v, has -> Motion.spring(v, if (has) 1.06f else 1f); if (has) show(catId) }
                     }
                     pills += pill
                     heads.addView(pill, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(this@WatchActivity, 8f) })
                 }
-                host.addView(heads, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(this@WatchActivity, 56f); topMargin = dp(this@WatchActivity, 8f); bottomMargin = dp(this@WatchActivity, 6f) })
-                host.addView(body, LinearLayout.LayoutParams(-1, -2))
-                show(liveGroup?.takeIf { g -> groups.any { it.key == g } } ?: groups.first().key)
+                host.addView(heads, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(this@WatchActivity, 56f); bottomMargin = dp(this@WatchActivity, 8f) })
+                val infoBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(context, 4f), 0, dp(context, 4f), dp(context, 8f)) }
+                infoBox.addView(infoTitle); infoBox.addView(infoSub)
+                host.addView(infoBox, LinearLayout.LayoutParams(-1, -2).apply { marginStart = dp(this@WatchActivity, 60f); marginEnd = dp(this@WatchActivity, 56f) })
+                host.addView(epg, LinearLayout.LayoutParams(-1, -2).apply { marginStart = dp(this@WatchActivity, 56f); marginEnd = dp(this@WatchActivity, 56f) })
+                show(groups.first().key)
+                Perf.note("Live TV: front page and guide ready", t0)
+                if (host === rows && rows.findFocus() == null) rows.post { firstItem()?.requestFocus() }
             }
         }.start()
+    }
+
+    private fun bindLiveCard(h: Holder, ch: Xtream.Live) {
+        val g = LiveGuide.guideFor(ch.name)
+        val now = g?.now()
+        h.label.text = now?.title ?: ch.name
+        h.sub?.text = if (now != null) "${g.name}  ·  ${LiveGuide.nowNext(applicationContext, ch.name)?.substringAfter("  ·  ", "") ?: ""}".trimEnd(' ', '·') else ch.name
+        h.progress?.let { bar -> bar.post { bar.layoutParams.width = ((h.root.width) * (now?.progress() ?: 0f)).toInt(); bar.requestLayout() } }
+        ImageLoader.load(h.image, now?.image ?: g?.logo ?: ch.icon, ImageLoader.CARD)
+        h.root.contentDescription = ch.name
+        h.root.setOnClickListener { playLive(ch) }
+        focusEffect(h.root) { }
     }
 
     private fun channelRow(ch: Xtream.Live, group: List<Xtream.Live>): View {
