@@ -193,10 +193,10 @@ class PlayerActivity : Activity() {
             if (p != null && !live && queue.isNotEmpty() && !counting && p.duration > 0) {
                 val left = p.duration - p.currentPosition
                 val next = queue.first()
-                if (left in 1..25_000) {
+                if (left in 1..25_000 && !nextDismissed) {
                     nextView.text = "Next episode · S${next.season} E${next.episode}\nPress OK to play it now"
                     nextView.visibility = View.VISIBLE
-                } else if (nextView.visibility == View.VISIBLE) nextView.visibility = View.GONE
+                } else if (left > 25_000) { nextDismissed = false; if (nextView.visibility == View.VISIBLE) nextView.visibility = View.GONE }
             }
             if (++ticks % 15 == 0) saveProgress()
             handler.postDelayed(this, 1000)
@@ -309,13 +309,31 @@ class PlayerActivity : Activity() {
         bannerSub.text = "Season ${n.season}, Episode ${n.episode}"
         seriesTitle?.let { WatchHistory.record(applicationContext, it, n.season, n.episode) }
         curSeason = n.season; curEpisode = n.episode
+        nextDismissed = false
         WatchHistory.forget(applicationContext, n.url)
         showBanner(4500)
         start(n.url, resume = false)
         handler.removeCallbacks(progressTick); handler.postDelayed(progressTick, 1000)
     }
 
+    private var nextDismissed = false
+
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // Back: first clear the playback controls and pop-ups so the picture is clean; only then leave.
+        if (event.keyCode == KeyEvent.KEYCODE_BACK && !counting) {
+            val controls = !live && view.isControllerFullyVisible
+            val pill = optionsPill.visibility == View.VISIBLE
+            val card = nextView.visibility == View.VISIBLE
+            if (controls || pill || card) {
+                if (event.action == KeyEvent.ACTION_DOWN) {
+                    if (controls) view.hideController()
+                    optionsPill.visibility = View.GONE
+                    if (card) { nextView.visibility = View.GONE; nextDismissed = true }
+                    view.requestFocus()
+                }
+                return true
+            }
+        }
         if (counting && event.action == KeyEvent.ACTION_DOWN) {
             when (event.keyCode) {
                 KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> { handler.removeCallbacksAndMessages(null); playNext(); return true }
