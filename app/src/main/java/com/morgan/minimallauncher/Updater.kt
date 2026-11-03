@@ -48,7 +48,7 @@ object Updater {
         val got = info?.let { if (Build.VERSION.SDK_INT >= 28) it.longVersionCode.toInt() else @Suppress("DEPRECATION") it.versionCode } ?: -1
         if (got <= have) { file.delete(); return "Downloaded file is build $got, not newer than $have - waiting for the next one" }
         val pending = Prefs.string(c, "upd_pending")?.split(":")
-        if (pending != null && pending.size == 2 && pending[0].toIntOrNull() == latest && System.currentTimeMillis() - (pending[1].toLongOrNull() ?: 0L) < 10 * 60_000L)
+        if (pending != null && pending.size == 2 && pending[0].toIntOrNull() == latest && System.currentTimeMillis() - (pending[1].toLongOrNull() ?: 0L) < 3 * 60_000L)
             return "Build $latest was already sent to the installer - waiting for it to finish"
         if (Build.VERSION.SDK_INT >= 26 && !c.packageManager.canRequestPackageInstalls())
             return "Build $latest is ready but this TV hasn't allowed the launcher to install updates yet"
@@ -59,6 +59,8 @@ object Updater {
 
     private fun install(c: Context, file: File) {
         val pi = c.packageManager.packageInstaller
+        // Clear out any earlier attempt that never finished.
+        try { pi.mySessions.forEach { try { pi.abandonSession(it.sessionId) } catch (e: Exception) {} } } catch (e: Exception) {}
         val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
         if (Build.VERSION.SDK_INT >= 31) params.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
         val id = pi.createSession(params)

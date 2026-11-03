@@ -137,6 +137,16 @@ object Diag {
                 }
             }
             cmd == "update" -> Updater.maybeUpdate(app, force = true) { send(app, "update", it) }
+            cmd == "livecats" -> thread(isDaemon = true) {
+                val t0 = android.os.SystemClock.uptimeMillis()
+                val cats = try { Xtream.liveCategories(app) } catch (e: Exception) { emptyMap() }
+                val t1 = android.os.SystemClock.uptimeMillis()
+                val first = cats.entries.firstOrNull { it.value.contains("entertainment", true) } ?: cats.entries.firstOrNull()
+                val chans = if (first == null) emptyList() else try { Xtream.liveInCategory(app, first.key) } catch (e: Exception) { emptyList() }
+                val t2 = android.os.SystemClock.uptimeMillis()
+                send(app, "livecats", "Groups: ${cats.size} in ${t1 - t0} ms\nNames: ${cats.values.take(40)}\n" +
+                    "First group \"${first?.value}\": ${chans.size} channels in ${t2 - t1} ms\nSample: ${chans.take(8).map { it.name }}")
+            }
             cmd == "audio" -> send(app, "audio", TiviTuner.audioReport(app))
             cmd == "recs" -> send(app, "recs", TiviRecorder.describe(app))
             cmd == "clearrec" || cmd.startsWith("clearrec:") -> {

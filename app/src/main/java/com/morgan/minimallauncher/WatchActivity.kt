@@ -584,7 +584,10 @@ class WatchActivity : AppCompatActivity() {
             runOnUiThread {
                 if (containerToken[host] != token || isDestroyed) return@runOnUiThread
                 host.removeView(loading)
-                if (all.isEmpty() || first == null) { buildLiveGuide(token); return@runOnUiThread }
+                if (all.isEmpty() || first == null) {
+                    Diag.send(app, "livetab", "Falling back to the old guide: ${cats.size} groups, chosen ${catIds.size}, first channel list ${all.size} entries. Group names: ${cats.values.take(25)}")
+                    buildLiveGuide(token); return@runOnUiThread
+                }
 
                 // ---- Popular ----
                 val byGroupFirst = all.sortedWith(compareBy({ if ((cats[it.category] ?: "").contains("entertainment", true)) 0 else 1 }, { it.num }))
@@ -697,6 +700,7 @@ class WatchActivity : AppCompatActivity() {
     }
 
     private fun buildLive(token: Int) {
+        showPlainHero("LIVE TV", "What’s on", "Popular channels first, then every group, with a full guide.")
         if (Xtream.isSetUp(this)) buildLiveProvider(token) else buildLiveGuide(token)
     }
 
