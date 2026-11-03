@@ -124,6 +124,7 @@ object Diag {
             cmd == "perf" -> send(app, "perf", Perf.text())
             cmd == "screen" -> send(app, "screen", onMain { TiviTuner.tiviScreen() })
             cmd == "speedtest" -> main.post { Perf.runSpeedTest(app) { send(app, "speedtest", it) } }
+            cmd == "audio" -> send(app, "audio", TiviTuner.audioReport(app))
             cmd == "recs" -> send(app, "recs", TiviRecorder.describe(app))
             cmd == "clearrec" || cmd.startsWith("clearrec:") -> {
                 val n = TiviRecorder.clear(app, cmd.substringAfter(":", "").trim().ifEmpty { null })

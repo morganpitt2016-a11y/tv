@@ -773,6 +773,84 @@ object TiviTuner {
             val msm = c.getSystemService(android.media.session.MediaSessionManager::class.java)
             val sessions = msm.getActiveSessions(android.content.ComponentName(c, MediaListener::class.java))
             val tivi = sessions.filter { it.packageName == PKG }
+            if (tivi.isNotEmpty()) { tivi.forEach { it.transportControls.pause() }; note("Audio: paused TiviMate through its media session"); return }
+            note("Audio: no TiviMate media session (sessions: ${sessions.map { it.packageName }})")
+        } catch (e: Exception) { note("Audio: can't read media sessions (${e.javaClass.simpleName}) - is notification access on for the launcher?") }
+        // No media session to talk to: the remote's Pause key instead.
+        try {
+            val am = c.getSystemService(android.media.AudioManager::class.java)
+            am.dispatchMediaKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_MEDIA_PAUSE))
+            am.dispatchMediaKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_MEDIA_PAUSE))
+            note("Audio: sent the Pause media key")
+        } catch (e: Exception) {}
+    }
+
+    /** What the audio system looks like right now, for the remote diagnostics. */
+    fun audioReport(c: android.content.Context): String {
+        val am = c.getSystemService(android.media.AudioManager::class.java)
+        val sb = StringBuilder()
+        sb.append("Volume fixed: ${am.isVolumeFixed}\n")
+        for ((n, st) in listOf("music" to android.media.AudioManager.STREAM_MUSIC, "notification" to android.media.AudioManager.STREAM_NOTIFICATION, "system" to android.media.AudioManager.STREAM_SYSTEM))
+            sb.append("$n: volume ${am.getStreamVolume(st)}/${am.getStreamMaxVolume(st)}, muted ${am.isStreamMute(st)}\n")
+        try {
+            val msm = c.getSystemService(android.media.session.MediaSessionManager::class.java)
+            val ss = msm.getActiveSessions(android.content.ComponentName(c, MediaListener::class.java))
+            sb.append("Media sessions: ").append(if (ss.isEmpty()) "none" else ss.joinToString { "${it.packageName}=${it.playbackState?.state}" }).append('\n')
+        } catch (e: Exception) { sb.append("Media sessions: not readable (${e.javaClass.simpleName})\n") }
+        sb.append("Audio playing: ").append(try { am.activePlaybackConfigurations.joinToString { "${it.audioAttributes.usage}" }.ifEmpty { "nothing" } } catch (e: Exception) { "?" })
+        return sb.toString()
+    }
+
+    /** Is [t] the row for season [sn] episode [en] in TiviMate's episode list ("E4. Show - S01E04 - Title")? */
+    private fun episodeRow(t: String, sn: Int, en: Int): Boolean {
+        Regex("S0*(\\d+)E0*(\\d+)").find(t)?.let { m -> return m.groupValues[1].toInt() == sn && m.groupValues[2].toInt() == en }
+        return sn == 1 && Regex("^E0*$en\\.").containsMatchIn(t)
+    }
+
+    // Hold audio focus while the cover is up: players that respect it (TiviMate's live channel does) pause
+    // instead of being heard underneath. Muting the stream alone doesn't work on every TV.
+    private var focusRequest: android.media.AudioFocusRequest? = null
+
+    private fun holdAudio(c: android.content.Context, on: Boolean) {
+        val am = c.getSystemService(android.media.AudioManager::class.java) ?: return
+        try {
+            if (on && focusRequest == null) {
+                val req = android.media.AudioFocusRequest.Builder(android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
+                    .setAudioAttributes(android.media.AudioAttributes.Builder().setUsage(android.media.AudioAttributes.USAGE_MEDIA).build())
+                    .setOnAudioFocusChangeListener { }.build()
+                if (am.requestAudioFocus(req) == android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED) focusRequest = req
+            } else if (!on) {
+                focusRequest?.let { am.abandonAudioFocusRequest(it) }
+                focusRequest = null
+            }
+        } catch (e: Exception) {}
+    }
+
+    private val quietStreams = intArrayOf(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.STREAM_NOTIFICATION,
+        android.media.AudioManager.STREAM_SYSTEM)
+    private val mutedStreams = HashSet<Int>()
+    private var mutedByUs = false
+
+    /**
+     * Pause whatever TiviMate is playing (the old channel), so nothing is heard while
+     * the cover is up. The Chromecast's own volume is fixed (the TV controls it), so
+     * muting alone doesn't work there.
+     */
+    private var lastHush = 0L
+
+    /** [hush], at most every 700ms. */
+    private fun hushNow(c: android.content.Context) {
+        val now = android.os.SystemClock.uptimeMillis()
+        if (now - lastHush < 700) return
+        lastHush = now
+        hush(c)
+    }
+
+    fun hush(c: android.content.Context) {
+        try {
+            val msm = c.getSystemService(android.media.session.MediaSessionManager::class.java)
+            val sessions = msm.getActiveSessions(android.content.ComponentName(c, MediaListener::class.java))
+            val tivi = sessions.filter { it.packageName == PKG }
             if (tivi.isNotEmpty()) { tivi.forEach { it.transportControls.pause() }; return }
         } catch (e: Exception) {}
         // No media session to talk to: the remote's Pause key instead.
