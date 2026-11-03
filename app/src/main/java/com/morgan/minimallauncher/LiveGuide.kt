@@ -341,14 +341,19 @@ object LiveGuide {
     private val matchCache = java.util.concurrent.ConcurrentHashMap<String, Any>()
     @Volatile private var cacheList: Any? = null
 
+    @Volatile private var normIndex: List<Pair<String, Channel>> = emptyList()
+
     /** The guide's entry for a provider channel name ("BBC ONE UHD" -> BBC One), or null. */
     fun guideFor(providerName: String): Channel? {
         val list = shown ?: memory ?: return null
-        if (cacheList !== list) { matchCache.clear(); cacheList = list }
+        if (cacheList !== list) {
+            matchCache.clear(); cacheList = list
+            normIndex = list.map { TextMatch.normalise(it.name) to it }.filter { it.first.isNotEmpty() }   // normalised once, not per lookup
+        }
         (matchCache[providerName])?.let { return it as? Channel }
         val k = TextMatch.normalise(providerName)
-        val ch = list.firstOrNull { TextMatch.normalise(it.name) == k }
-            ?: list.firstOrNull { TextMatch.normalise(it.name).let { n -> n.isNotEmpty() && TextMatch.matches(k, n) } }
+        val idx = normIndex
+        val ch = idx.firstOrNull { it.first == k }?.second ?: idx.firstOrNull { TextMatch.matches(k, it.first) }?.second
         matchCache[providerName] = ch ?: Unit
         return ch
     }

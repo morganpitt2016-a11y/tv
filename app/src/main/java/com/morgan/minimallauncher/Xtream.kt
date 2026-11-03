@@ -125,9 +125,17 @@ object Xtream {
         if (!isSetUp(c)) return
         val app = c.applicationContext
         Thread {
-            try { live(app) } catch (e: Exception) {}
+            // The UK channel groups first (small, and what the TV Guide opens on), several at once.
+            try {
+                val cats = liveCategories(app)
+                val ids = cats.filter { it.value.trim().startsWith("UK", true) }.keys.toList()
+                val pool = java.util.concurrent.Executors.newFixedThreadPool(4)
+                ids.forEach { id -> pool.execute { try { liveInCategory(app, id) } catch (e: Exception) {} } }
+                pool.shutdown(); pool.awaitTermination(60, java.util.concurrent.TimeUnit.SECONDS)
+            } catch (e: Exception) {}
             try { vod(app) } catch (e: Exception) {}
             try { series(app) } catch (e: Exception) {}
+            try { live(app) } catch (e: Exception) {}
         }.start()
     }
 

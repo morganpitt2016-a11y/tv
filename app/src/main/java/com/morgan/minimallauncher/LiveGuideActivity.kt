@@ -117,13 +117,16 @@ class LiveGuideActivity : Activity() {
         epg.onRecord = { row, prog -> recordDialog(row, prog ?: row.guide?.now()) }
         epg.onLeftEdge = { catViews[current]?.requestFocus() }
         storage.text = Recordings.storageSummary(this)
+        title.text = "Loading the guide…"
 
         // Categories, then the channels of the first one.
         val app = applicationContext
         Thread {
-            val ready = java.util.concurrent.CountDownLatch(1)
-            runOnUiThread { LiveGuide.load(app) { ready.countDown() } }
-            try { ready.await(4, java.util.concurrent.TimeUnit.SECONDS) } catch (e: Exception) {}
+            if (LiveGuide.cached() == null) {
+                val ready = java.util.concurrent.CountDownLatch(1)
+                runOnUiThread { LiveGuide.load(app) { ready.countDown() } }
+                try { ready.await(2, java.util.concurrent.TimeUnit.SECONDS) } catch (e: Exception) {}
+            } else runOnUiThread { LiveGuide.load(app) { } }      // keeps it fresh without waiting
             val all = Xtream.liveCategories(app)
             fun rank(n: String) = when { n.trim().startsWith("UK", true) -> 0; n.trim().startsWith("LIVE", true) -> 10; n.trim().startsWith("24/7", true) -> 20; n.trim().startsWith("US", true) -> 30; else -> 40 }
             val ids = all.keys.filterNot { all[it].orEmpty().contains("radio", true) }.sortedWith(compareBy { rank(all[it].orEmpty()) })
@@ -171,7 +174,13 @@ class LiveGuideActivity : Activity() {
             val list: List<Xtream.Live> = try {
                 when (id) {
                     "_fav" -> Xtream.best(Xtream.liveById(app, Xtream.favourites(app)))
-                    "_all" -> Xtream.best(allUk.flatMap { Xtream.liveInCategory(app, it) })
+                    "_all" -> {
+                        val pool = java.util.concurrent.Executors.newFixedThreadPool(4)
+                        val parts = allUk.map { gid -> pool.submit<List<Xtream.Live>> { try { Xtream.liveInCategory(app, gid) } catch (e: Exception) { emptyList() } } }
+                        val merged = parts.flatMap { it.get() }
+                        pool.shutdown()
+                        Xtream.best(merged)
+                    }
                     else -> Xtream.liveGroup(app, id)
                 }
             } catch (e: Exception) { emptyList() }
