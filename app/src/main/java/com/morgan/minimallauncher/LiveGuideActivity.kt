@@ -51,6 +51,9 @@ class LiveGuideActivity : Activity() {
     private val pipJob = Runnable { playPip() }
     private var selected: EpgView.Row? = null
     private var allUk: List<String> = emptyList()
+    private var catNames: Map<String, String> = emptyMap()
+    private val mainMap = LinkedHashMap<String, List<String>>()
+    private var otherIds: List<String> = emptyList()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -129,23 +132,53 @@ class LiveGuideActivity : Activity() {
             } else runOnUiThread { LiveGuide.load(app) { } }      // keeps it fresh without waiting
             val all = Xtream.liveCategories(app)
             fun rank(n: String) = when { n.trim().startsWith("UK", true) -> 0; n.trim().startsWith("LIVE", true) -> 10; n.trim().startsWith("24/7", true) -> 20; n.trim().startsWith("US", true) -> 30; else -> 40 }
-            val ids = all.keys.filterNot { all[it].orEmpty().contains("radio", true) }.sortedWith(compareBy { rank(all[it].orEmpty()) })
-            allUk = ids.filter { id -> val n = all[id].orEmpty(); n.trim().startsWith("UK", true) &&
-                listOf("entertainment", "documentar", "kids", "movies", "news", "music", "sport").any { n.contains(it, true) } && !n.contains("radio", true) }
+            fun ids(pred: (String) -> Boolean) = all.filter { pred(it.value.trim()) && !it.value.contains("radio", true) }.keys.toList()
+            fun uk(n: String, vararg kw: String) = n.startsWith("UK", true) && kw.any { n.contains(it, true) }
+            // The categories in the order a set-top box shows them; anything else goes under "Others".
+            val map = LinkedHashMap<String, List<String>>()
+            map["+1"] = ids { uk(it, "plus one") }
+            map["Documentaries"] = ids { uk(it, "documentar") }
+            map["Kids"] = ids { uk(it, "kids") }
+            map["Movies"] = ids { uk(it, "movies") }
+            map["Sport"] = ids { uk(it, "sky sports", "tnt sports") || (it.startsWith("UK", true) && it.endsWith("sports", true)) }
+            map["News"] = ids { uk(it, "news") }
+            map["Entertainment"] = ids { uk(it, "entertainment") }
+            map["Music"] = ids { uk(it, "music") }
+            map["Shopping"] = ids { uk(it, "shopping") }
+            map["Religion"] = ids { it.contains("religio", true) }
+            map["International"] = ids { it.startsWith("INT", true) }
+            val claimed = map.values.flatten().toSet()
+            val others = all.keys.filter { it !in claimed && !all[it].orEmpty().contains("radio", true) }.sortedWith(compareBy { rank(all[it].orEmpty()) })
             runOnUiThread {
                 if (isDestroyed) return@runOnUiThread
-                fun add(id: String, name: String) {
-                    cats[id] = name
-                    val v = categoryView(id, name)
-                    catViews[id] = v
-                    catList.addView(v, LinearLayout.LayoutParams(-1, dp(c, 34f)).apply { bottomMargin = dp(c, 1f) })
-                }
-                add("_fav", "Favourites")
-                add("_all", "All channels")
-                for (id in ids) add(id, all[id].orEmpty().replace(Regex("^\\s*UK\\s*[~|:-]*\\s*", RegexOption.IGNORE_CASE), "").replace(Regex("\\s*[~|]+\\s*"), " · ").trim().ifBlank { "Channels" })
+                catNames = all
+                mainMap.clear(); map.filter { it.value.isNotEmpty() }.forEach { (k, v) -> mainMap[k] = v }
+                otherIds = others
+                allUk = listOf("Entertainment", "Documentaries", "Kids", "Movies", "News", "Music", "Sport").flatMap { mainMap[it].orEmpty() }.distinct()
+                showCategories(sub = false)
                 selectCategory("_all", focusGrid = true)
             }
         }.start()
+    }
+
+    private fun addCategory(id: String, name: String) {
+        cats[id] = name
+        val v = categoryView(id, name)
+        catViews[id] = v
+        catList.addView(v, LinearLayout.LayoutParams(-1, dp(this, 34f)).apply { bottomMargin = dp(this@LiveGuideActivity, 1f) })
+    }
+
+    /** The main list (Favourites, All channels, HD, +1 ... International, Others) or, under "Others", everything else. */
+    private fun showCategories(sub: Boolean) {
+        catList.removeAllViews(); catViews.clear(); cats.clear()
+        if (!sub) {
+            addCategory("_fav", "Favourites"); addCategory("_all", "All channels"); addCategory("_hd", "HD")
+            mainMap.keys.forEach { addCategory("m:$it", it) }
+            if (otherIds.isNotEmpty()) addCategory("_others", "Others  ›")
+        } else {
+            addCategory("_back", "‹  Categories")
+            for (id in otherIds) addCategory(id, catNames[id].orEmpty().replace(Regex("^\\s*UK\\s*[~|:-]*\\s*", RegexOption.IGNORE_CASE), "UK · ").replace(Regex("\\s*[~|]+\\s*"), " · ").trim().ifBlank { "Channels" })
+        }
     }
 
     private fun categoryView(id: String, name: String) = GlassUi.text(this, name, 14f, R.font.inter_medium, 0xCCFFFFFF.toInt()).apply {
@@ -154,11 +187,17 @@ class LiveGuideActivity : Activity() {
         maxLines = 1; ellipsize = TextUtils.TruncateAt.END
         isFocusable = true; isClickable = true
         background = null
-        setOnClickListener { selectCategory(id, focusGrid = true) }
+        setOnClickListener {
+            when (id) {
+                "_others" -> { showCategories(sub = true); catViews.values.firstOrNull()?.requestFocus() }
+                "_back" -> { showCategories(sub = false); (catViews[current] ?: catViews["_all"])?.requestFocus() }
+                else -> selectCategory(id, focusGrid = true)
+            }
+        }
         setOnFocusChangeListener { v, has ->
             Motion.spring(v, if (has) 1.04f else 1f)
             v.background = if (has) GlassUi.panel(context, 10f, 0x55) else if (id == current) GlassUi.panel(context, 10f, 0x24) else null
-            if (has) selectCategory(id, focusGrid = false)
+            if (has && id != "_others" && id != "_back") selectCategory(id, focusGrid = false)
         }
         setOnKeyListener { _, k, e ->
             if (e.action == KeyEvent.ACTION_DOWN && (k == KeyEvent.KEYCODE_DPAD_RIGHT)) { epg.requestFocus(); true } else false
@@ -174,6 +213,12 @@ class LiveGuideActivity : Activity() {
             val list: List<Xtream.Live> = try {
                 when (id) {
                     "_fav" -> Xtream.best(Xtream.liveById(app, Xtream.favourites(app)))
+                    "_hd" -> {
+                        val pool = java.util.concurrent.Executors.newFixedThreadPool(4)
+                        val parts = allUk.map { gid -> pool.submit<List<Xtream.Live>> { try { Xtream.liveInCategory(app, gid) } catch (e: Exception) { emptyList() } } }
+                        val merged = parts.flatMap { it.get() }; pool.shutdown()
+                        Xtream.best(merged).filter { Regex("(?i)\\b(uhd|fhd|hd|4k)\\b").containsMatchIn(it.name) }
+                    }
                     "_all" -> {
                         val pool = java.util.concurrent.Executors.newFixedThreadPool(4)
                         val parts = allUk.map { gid -> pool.submit<List<Xtream.Live>> { try { Xtream.liveInCategory(app, gid) } catch (e: Exception) { emptyList() } } }
@@ -181,7 +226,12 @@ class LiveGuideActivity : Activity() {
                         pool.shutdown()
                         Xtream.best(merged)
                     }
-                    else -> Xtream.liveGroup(app, id)
+                    else -> if (id.startsWith("m:")) {
+                        val pool = java.util.concurrent.Executors.newFixedThreadPool(4)
+                        val parts = mainMap[id.removePrefix("m:")].orEmpty().map { gid -> pool.submit<List<Xtream.Live>> { try { Xtream.liveInCategory(app, gid) } catch (e: Exception) { emptyList() } } }
+                        val merged = parts.flatMap { it.get() }; pool.shutdown()
+                        Xtream.best(merged)
+                    } else Xtream.liveGroup(app, id)
                 }
             } catch (e: Exception) { emptyList() }
             runOnUiThread {
