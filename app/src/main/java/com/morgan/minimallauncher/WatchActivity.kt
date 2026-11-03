@@ -556,7 +556,7 @@ class WatchActivity : AppCompatActivity() {
         val app = applicationContext
         val t0 = Perf.now()
         val loading = GlassUi.text(this, "Loading channels…", 13f, R.font.inter_medium, 0x99FFFFFF.toInt())
-        host.addView(loading, LinearLayout.LayoutParams(-2, -2).apply { setMargins(dp(this, 56f), dp(this, 20f), 0, 0) })
+        host.addView(loading, LinearLayout.LayoutParams(-2, -2).apply { setMargins(dp(this@WatchActivity, 56f), dp(this@WatchActivity, 20f), 0, 0) })
         LiveGuide.load(this) { }          // so "now / next" is ready
         Thread {
             val all = try { Xtream.live(app) } catch (e: Exception) { emptyList() }
