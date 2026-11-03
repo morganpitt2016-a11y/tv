@@ -47,8 +47,12 @@ object Updater {
         val info = c.packageManager.getPackageArchiveInfo(file.path, 0)
         val got = info?.let { if (Build.VERSION.SDK_INT >= 28) it.longVersionCode.toInt() else @Suppress("DEPRECATION") it.versionCode } ?: -1
         if (got <= have) { file.delete(); return "Downloaded file is build $got, not newer than $have - waiting for the next one" }
+        val pending = Prefs.string(c, "upd_pending")?.split(":")
+        if (pending != null && pending.size == 2 && pending[0].toIntOrNull() == latest && System.currentTimeMillis() - (pending[1].toLongOrNull() ?: 0L) < 10 * 60_000L)
+            return "Build $latest was already sent to the installer - waiting for it to finish"
         if (Build.VERSION.SDK_INT >= 26 && !c.packageManager.canRequestPackageInstalls())
             return "Build $latest is ready but this TV hasn't allowed the launcher to install updates yet"
+        Prefs.setString(c, "upd_pending", "$latest:${System.currentTimeMillis()}")
         install(c, file)
         return "Installing build $latest (was $have)"
     }
@@ -79,5 +83,12 @@ class UpdateReceiver : BroadcastReceiver() {
             PackageInstaller.STATUS_SUCCESS -> {}
             else -> Diag.send(c, "update", "Install didn't finish: ${i.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE)}")
         }
+    }
+}
+
+/** Fires when the launcher has just been updated: starting its process is all that is needed to bring the remote link back. */
+class PackageReplacedReceiver : BroadcastReceiver() {
+    override fun onReceive(c: Context, i: Intent) {
+        Diag.send(c, "update", "Launcher restarted after an update (build ${Updater.installedBuild(c)})")
     }
 }

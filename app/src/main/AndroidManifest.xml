@@ -110,6 +110,11 @@
             android:theme="@style/Theme.MinimalLauncher" />
 
         <receiver android:name=".UpdateReceiver" android:exported="false" />
+        <receiver android:name=".PackageReplacedReceiver" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
         <activity
             android:name=".ExternalPlayActivity"
