@@ -218,7 +218,10 @@ class EpgView(context: Context) : View(context) {
         c.restore()
         // "Now" marker
         val nx = timeX(now)
-        if (nx > chW && nx < w) { p.color = (accent and 0x00FFFFFF) or 0xE6000000.toInt(); c.drawRect(nx, headH - 2 * d, nx + 1.5f * d, height.toFloat(), p) }
+        if (nx > chW && nx < w) {
+            p.color = 0x40FFFFFF; c.drawRect(nx, headH, nx + 1f * d, height.toFloat(), p)          // a faint line down the grid
+            p.color = 0xFFFFFFFF.toInt(); c.drawCircle(nx + 0.5f * d, headH - 3 * d, 3 * d, p)      // and a marker on the time bar
+        }
     }
 
     private val rect = RectF()
@@ -241,7 +244,7 @@ class EpgView(context: Context) : View(context) {
         text.color = if (selected && focused) GlassUi.INK else if (live || selected) 0xFFFFFFFF.toInt() else 0xCCFFFFFF.toInt()
         c.drawText(ellipsize(title, rect.width() - 20 * d, text), rect.left + 10 * d, rect.centerY() + 4.5f * d, text)
         if (progress != null) {
-            p.color = if (selected && focused) (accent and 0x00FFFFFF) or 0xFF000000.toInt() else (accent and 0x00FFFFFF) or 0xCC000000.toInt()
+            p.color = if (selected && focused) 0x66000000 else 0xA6FFFFFF.toInt()
             c.drawRoundRect(rect.left + 8 * d, rect.bottom - 5 * d, rect.left + 8 * d + (rect.width() - 16 * d) * progress, rect.bottom - 3 * d, 2 * d, 2 * d, p)
         }
     }
