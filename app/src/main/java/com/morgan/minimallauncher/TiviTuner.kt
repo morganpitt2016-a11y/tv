@@ -833,6 +833,7 @@ object TiviTuner {
             setBusy(false)
             if (cancelled) { cancelled = false; note("Cancelled"); hideCover(); return }
             note(why)
+            HomeRedirectService.instance?.let { Diag.send(it, "film", "Result: ${if (ok) "playing" else "FAILED"} for \"$title\"\n" + logText().takeLast(60000)) }
             if (ok) main.postDelayed({ hideCover() }, 500)
             else {
                 note("What TiviMate showed:\n" + compactScreen())
@@ -862,7 +863,7 @@ object TiviTuner {
                         if (Build.VERSION.SDK_INT >= 30) field.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)
                         note("Typed \"$title\" into TiviMate's search ($typed)")
                         stage = 1; stageTries = 0
-                        later(700, { finish(false, "Error") }) { step() }; return
+                        later(300, { finish(false, "Error") }) { step() }; return
                     }
                     val search = findNode(service) { n ->
                         val t = (n.text ?: n.contentDescription)?.toString()?.lowercase()?.trim()
@@ -899,27 +900,28 @@ object TiviTuner {
                         note("Found \"${hit.text ?: hit.contentDescription}\" - opening it")
                         pressNode(service, hit)
                         stage = 2; stageTries = 0
-                        later(900, { finish(false, "Error") }) { step() }; return
+                        later(450, { finish(false, "Error") }) { step() }; return
                     }
-                    if (++stageTries > 14) return finish(false, "Not found in TiviMate's films and series")
-                    later(200, { finish(false, "Error") }) { step() }
+                    if (++stageTries > 20) return finish(false, "Not found in TiviMate's films and series")
+                    later(150, { finish(false, "Error") }) { step() }
                 }
                 else -> {
                     val play = findNode(service) { n -> (n.text ?: n.contentDescription)?.toString()?.let(::isPlayLabel) == true }
                     if (play != null) {
+                        note("TiviMate's page for it:\n" + compactScreen(onlyTivi = true))
                         note("Pressing \"${play.text ?: play.contentDescription}\"")
                         pressNode(service, play)
-                        main.postDelayed({ finish(true, "Playing") }, 700)
+                        main.postDelayed({ finish(true, "Playing") }, 450)
                         return
                     }
                     // Some films start straight away: nothing left but the picture.
                     if (isWatchingFullScreen(service) && stageTries > 2) return finish(true, "Playing")
-                    if (++stageTries > 10) return finish(false, "No Play button on TiviMate's page")
-                    later(200, { finish(false, "Error") }) { step() }
+                    if (++stageTries > 14) return finish(false, "No Play button on TiviMate's page")
+                    later(150, { finish(false, "Error") }) { step() }
                 }
             }
         }
-        later(400, { finish(false, "Error") }) { step() }
+        later(250, { finish(false, "Error") }) { step() }
     }
 
     // ---------- Windows and nodes ----------

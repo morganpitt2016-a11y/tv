@@ -66,7 +66,7 @@ class PlayerActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
-        start(url, resume = !live)
+        start(url, resume = !live && !intent.getBooleanExtra(EXTRA_FROM_START, false))
     }
 
     private fun start(u: String, resume: Boolean) {
@@ -128,11 +128,12 @@ class PlayerActivity : Activity() {
         const val EXTRA_TITLE = "title"
         const val EXTRA_SUBTITLE = "sub"
         const val EXTRA_EYEBROW = "eyebrow"
+        const val EXTRA_FROM_START = "from_start"
 
-        fun play(c: Context, url: String, title: String, live: Boolean, subtitle: String? = null, eyebrow: String? = null, alt: String? = null) {
+        fun play(c: Context, url: String, title: String, live: Boolean, subtitle: String? = null, eyebrow: String? = null, alt: String? = null, fromStart: Boolean = false) {
             c.startActivity(Intent(c, PlayerActivity::class.java)
                 .putExtra(EXTRA_URL, url).putExtra(EXTRA_ALT_URL, alt).putExtra(EXTRA_LIVE, live)
-                .putExtra(EXTRA_TITLE, title).putExtra(EXTRA_SUBTITLE, subtitle).putExtra(EXTRA_EYEBROW, eyebrow)
+                .putExtra(EXTRA_TITLE, title).putExtra(EXTRA_SUBTITLE, subtitle).putExtra(EXTRA_EYEBROW, eyebrow).putExtra(EXTRA_FROM_START, fromStart)
                 .addFlags(if (c is Activity) 0 else Intent.FLAG_ACTIVITY_NEW_TASK))
         }
     }

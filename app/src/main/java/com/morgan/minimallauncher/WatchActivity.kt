@@ -864,7 +864,7 @@ class WatchActivity : AppCompatActivity() {
                 if (isDestroyed) return@runOnUiThread
                 val f = film
                 when {
-                    f != null -> PlayerActivity.play(this, Xtream.vodUrl(app, f), t.name, live = false, subtitle = t.year.takeIf { it > 0 }?.toString(), eyebrow = "FILM")
+                    f != null -> playFilm(t, Xtream.vodUrl(app, f))
                     series != null && episodes.isNotEmpty() -> chooseEpisode(t, episodes)
                     else -> {
                         GlassUi.toast(this, "${t.name} isn’t in your Dodgy Box library - trying TiviMate")
@@ -875,14 +875,61 @@ class WatchActivity : AppCompatActivity() {
         }.start()
     }
 
+    private fun playFilm(t: WatchCatalog.Title, url: String) {
+        fun go(fromStart: Boolean) {
+            if (fromStart) WatchHistory.forget(applicationContext, url)
+            PlayerActivity.play(this, url, t.name, live = false, subtitle = t.year.takeIf { it > 0 }?.toString(), eyebrow = "FILM", fromStart = fromStart)
+        }
+        val at = WatchHistory.seconds(this, url)
+        if (at <= 30) return go(false)
+        GlassDialog(this).title(t.name).message("You stopped at ${WatchHistory.clock(at)}.")
+            .button("Continue from ${WatchHistory.clock(at)}", GlassDialog.Style.BOLD) { go(false) }
+            .button("Start from the beginning") { go(true) }
+            .button("Cancel").show()
+    }
+
+    private fun playEpisode(t: WatchCatalog.Title, e: Xtream.Episode, fromStart: Boolean = false) {
+        val app = applicationContext
+        val url = Xtream.episodeUrl(app, e)
+        if (fromStart) WatchHistory.forget(app, url)
+        WatchHistory.record(app, t.name, e.season, e.number)
+        PlayerActivity.play(this, url, t.name, live = false, subtitle = "Season ${e.season}, Episode ${e.number}", eyebrow = "SERIES", fromStart = fromStart)
+    }
+
     private fun chooseEpisode(t: WatchCatalog.Title, episodes: List<Xtream.Episode>) {
         val app = applicationContext
+        val sorted = episodes.sortedWith(compareBy({ it.season }, { it.number }))
+        val last = WatchHistory.last(app, t.name)?.let { l -> sorted.indexOfFirst { it.season == l.season && it.number == l.episode } }?.takeIf { it >= 0 }
+        if (last == null) return episodeList(t, sorted)
+        // Been here before: offer to pick up where you were, move on, or start again - not always episode one.
+        val e = sorted[last]
+        val at = WatchHistory.seconds(app, Xtream.episodeUrl(app, e))
+        val next = sorted.getOrNull(last + 1)
+        val d = GlassDialog(this).title(t.name)
+        if (at > 30) {
+            d.message("You stopped S${e.season} E${e.number} at ${WatchHistory.clock(at)}.")
+            d.button("Continue S${e.season} E${e.number} · ${WatchHistory.clock(at)}", GlassDialog.Style.BOLD) { playEpisode(t, e) }
+            next?.let { n -> d.button("Next episode · S${n.season} E${n.number}") { playEpisode(t, n) } }
+        } else if (next != null) {
+            d.message("You finished S${e.season} E${e.number}.")
+            d.button("Next episode · S${next.season} E${next.number}", GlassDialog.Style.BOLD) { playEpisode(t, next) }
+            d.button("Watch S${e.season} E${e.number} again") { playEpisode(t, e, fromStart = true) }
+        } else {
+            d.message("You've reached the last episode.")
+            d.button("Watch S${e.season} E${e.number} again", GlassDialog.Style.BOLD) { playEpisode(t, e, fromStart = true) }
+        }
+        val first = sorted.first()
+        d.button("Start from the beginning · S${first.season} E${first.number}") { playEpisode(t, first, fromStart = true) }
+        d.button("Choose an episode") { episodeList(t, sorted) }
+        d.button("Cancel")
+        d.show()
+    }
+
+    private fun episodeList(t: WatchCatalog.Title, episodes: List<Xtream.Episode>) {
         val d = GlassDialog(this).title(t.name).message("${episodes.size} episodes on Dodgy Box").scrolling()
         for (e in episodes) {
             val name = e.title.takeIf { it.isNotBlank() && !it.contains(t.name, ignoreCase = true) }?.let { " · $it" }.orEmpty()
-            d.button("S${e.season} E${e.number}$name") {
-                PlayerActivity.play(this, Xtream.episodeUrl(app, e), t.name, live = false, subtitle = "Season ${e.season}, Episode ${e.number}", eyebrow = "SERIES")
-            }
+            d.button("S${e.season} E${e.number}$name") { playEpisode(t, e) }
         }
         d.button("Cancel")
         d.show()
