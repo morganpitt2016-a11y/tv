@@ -27,7 +27,7 @@ object Motion {
 
     // Springs, not timed tweens: motion that is interrupted (focus racing across a row)
     // carries its velocity on instead of restarting, which is what makes iOS feel fluid.
-    private class Springs(v: View) {
+    private class Springs(private val v: View) {
         private fun make(prop: DynamicAnimation.ViewProperty, rest: Float) =
             SpringAnimation(v, prop).setSpring(SpringForce(rest).setStiffness(420f).setDampingRatio(0.78f)).apply { minimumVisibleChange = 1f / 500f }
         val sx = make(DynamicAnimation.SCALE_X, 1f)
