@@ -342,6 +342,7 @@ class LauncherApp : Application() {
         // Scheduled TiviMate recordings survive a restart.
         try { TiviRecorder.rearm(this) } catch (e: Exception) {}
         Diag.start(this)
+        try { Xtream.warm(this) } catch (e: Exception) {}      // films, series and channels ready before you ask
         // A few seconds after start (not during it), get the TV guide and the streaming services
         // ready, so Live TV and Watch open instantly instead of loading.
         Handler(Looper.getMainLooper()).postDelayed({

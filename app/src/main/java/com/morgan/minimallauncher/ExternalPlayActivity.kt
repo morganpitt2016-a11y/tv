@@ -24,7 +24,7 @@ class ExternalPlayActivity : Activity() {
             thread(isDaemon = true) {
                 val msg = try {
                     Xtream.save(app, server, user, pass)
-                    "Dodgy Box sign-in saved: " + Xtream.check(app)
+                    Xtream.check(app).let { st -> Xtream.warm(app); "Dodgy Box sign-in saved: $st" }
                 } catch (e: Exception) {
                     Xtream.signOut(app)
                     "Couldn’t use that link to sign in: ${e.message}"

@@ -95,6 +95,17 @@ object Xtream {
 
     private fun dir(c: Context) = File(c.cacheDir, "xtream").apply { mkdirs() }
 
+    /** Load the lists in the background so the first film or channel doesn't wait for a big download. */
+    fun warm(c: Context) {
+        if (!isSetUp(c)) return
+        val app = c.applicationContext
+        Thread {
+            try { live(app) } catch (e: Exception) {}
+            try { vod(app) } catch (e: Exception) {}
+            try { series(app) } catch (e: Exception) {}
+        }.start()
+    }
+
     fun clearCache(c: Context) {
         liveMem = null; vodMem = null; seriesMem = null
         dir(c).listFiles()?.forEach { it.delete() }
@@ -103,7 +114,7 @@ object Xtream {
     /** Downloads a list once (kept for 12 hours), then reads it as a stream - provider lists can be huge. */
     private fun <T> list(c: Context, action: String, parse: (JsonReader) -> T?): List<T> {
         val f = File(dir(c), "$action.json")
-        if (!f.exists() || System.currentTimeMillis() - f.lastModified() > 12 * 3600_000L) {
+        fun download() {
             val tmp = File(dir(c), "$action.tmp")
             val conn = URL(api(c, action)).openConnection() as HttpURLConnection
             conn.connectTimeout = 15_000; conn.readTimeout = 60_000
@@ -111,6 +122,9 @@ object Xtream {
             try { conn.inputStream.use { input -> tmp.outputStream().use { input.copyTo(it) } } } finally { conn.disconnect() }
             tmp.renameTo(f)
         }
+        val stale = System.currentTimeMillis() - f.lastModified() > 12 * 3600_000L
+        if (!f.exists()) download()
+        else if (stale) Thread { try { download() } catch (e: Exception) {} }.start()   // use the old copy now, refresh quietly
         val out = ArrayList<T>()
         JsonReader(InputStreamReader(f.inputStream(), Charsets.UTF_8)).use { r ->
             if (r.peek() != JsonToken.BEGIN_ARRAY) { f.delete(); return out }
