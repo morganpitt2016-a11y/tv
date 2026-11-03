@@ -38,6 +38,27 @@ object Xtream {
         clearCache(c)
     }
 
+    /**
+     * Many providers use the same server, username and password in the guide (XMLTV) link as for streaming.
+     * With the owner's say-so, try signing in with the ones in the saved guide link, entirely on this TV.
+     * Returns a status line (never the details themselves), or throws with the reason.
+     */
+    fun signInFromGuideLink(c: Context): String {
+        val link = LiveGuide.customUrl(c) ?: throw Exception("No guide link is saved on this TV")
+        val uri = android.net.Uri.parse(link)
+        val user = uri.getQueryParameter("username") ?: throw Exception("The guide link has no username in it")
+        val pass = uri.getQueryParameter("password") ?: throw Exception("The guide link has no password in it")
+        val host = uri.host ?: throw Exception("The guide link has no server in it")
+        val server = (uri.scheme ?: "http") + "://" + host + (if (uri.port > 0) ":${uri.port}" else "")
+        val before = Triple(Prefs.string(c, "xt_server"), Prefs.string(c, "xt_user"), Prefs.string(c, "xt_pass"))
+        save(c, server, user, pass)
+        return try { check(c) } catch (e: Exception) {
+            Prefs.setString(c, "xt_server", before.first); Prefs.setString(c, "xt_user", before.second); Prefs.setString(c, "xt_pass", before.third)
+            clearCache(c)
+            throw e
+        }
+    }
+
     fun signOut(c: Context) {
         listOf("xt_server", "xt_user", "xt_pass").forEach { Prefs.setString(c, it, null) }
         clearCache(c)
