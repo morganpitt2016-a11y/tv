@@ -311,7 +311,11 @@ object LiveGuide {
             }
         }
     } catch (e: Exception) {
-        try { parseJsonChannels(JSONArray(f.readText())) } catch (e2: Exception) { null }
+        try {
+            val old = parseJsonChannels(JSONArray(f.readText()))
+            Thread { try { writeCache(f, old) } catch (e3: Exception) {} }.start()   // convert once; the next read is fast
+            old
+        } catch (e2: Exception) { null }
     }
 
     // ---------- Watching ----------
