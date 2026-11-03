@@ -279,7 +279,8 @@ object TiviTuner {
             }
             if (!ok) note("What TiviMate showed:\n" + compactScreen())
             // Lift the cover once the picture is up (or straight away if it failed).
-            main.postDelayed({ hideCover() }, if (ok) 300 else 0)
+            val svc = HomeRedirectService.instance
+            if (ok && svc != null) hideCoverWhenSoundChanges(svc, 7_000) else hideCover()
             doneOuter(ok)
             HomeRedirectService.instance?.let { Diag.send(it, "tune", "Result: ${if (ok) "selected" else "FAILED"} for \"$channel\"\n" + logText().takeLast(60000)) }
         }
@@ -828,6 +829,26 @@ object TiviTuner {
         }
     }
 
+    /**
+     * Keep the cover (and the mute) up until the old sound has stopped and the new picture's sound has begun,
+     * so the previous channel is never heard in between. Gives up after [maxMs].
+     */
+    private fun hideCoverWhenSoundChanges(c: android.content.Context, maxMs: Long) {
+        val am = c.getSystemService(android.media.AudioManager::class.java)
+        val start = android.os.SystemClock.uptimeMillis()
+        var sawStop = false
+        fun poll() {
+            if (cover == null) return
+            val playing = try { am.activePlaybackConfigurations.isNotEmpty() } catch (e: Exception) { return hideCover() }
+            if (!playing) sawStop = true
+            if ((playing && sawStop) || android.os.SystemClock.uptimeMillis() - start > maxMs) {
+                note("Sound: ${if (playing && sawStop) "new picture's sound is on" else "gave up waiting"} after ${android.os.SystemClock.uptimeMillis() - start} ms")
+                hideCover()
+            } else main.postDelayed({ poll() }, 150)
+        }
+        main.postDelayed({ poll() }, 250)
+    }
+
     fun hideCover() {
         main.post {
             val v = cover ?: return@post
@@ -899,8 +920,7 @@ object TiviTuner {
             note(why)
             HomeRedirectService.instance?.let { Diag.send(it, "film", "Result: ${if (ok) "playing" else "FAILED"} for \"$title\"\n" + logText().takeLast(60000)) }
             if (ok) {
-                main.postDelayed({ note("Audio check (film starting): " + audioReport(app).replace("\n", " | ")) }, 2500)
-                main.postDelayed({ hideCover() }, 500)
+                hideCoverWhenSoundChanges(app, 12_000)
             } else {
                 note("What TiviMate showed:\n" + compactScreen())
                 // Back to the film's page rather than leaving you in TiviMate's search.
