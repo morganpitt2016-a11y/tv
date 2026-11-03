@@ -244,6 +244,34 @@ object Xtream {
             Live(id, m["num"]?.toIntOrNull() ?: 0, m["name"].orEmpty().trim(), icon(m["stream_icon"]), m["category_id"].orEmpty().ifEmpty { categoryId })
         }
 
+    private val qualityNoise = Regex("(?i)\\b(uhd|fhd|hd|sd|4k|hevc|h\\.?265|1080p?|720p?|50fps|60fps)\\b|\\(f\\)|\\[[^\\]]*\\]")
+    private fun qualityRank(n: String): Int = when {
+        Regex("(?i)\\b(uhd|4k)\\b").containsMatchIn(n) -> 4
+        Regex("(?i)\\bfhd\\b|1080").containsMatchIn(n) -> 3
+        Regex("(?i)\\bhd\\b|720").containsMatchIn(n) -> 2
+        Regex("(?i)\\bsd\\b").containsMatchIn(n) -> 0
+        else -> 1
+    }
+
+    /** One entry per channel: the highest-definition version (UHD, then FHD, HD, SD), in channel-number order. */
+    fun best(list: List<Live>): List<Live> =
+        list.groupBy { TextMatch.normalise(qualityNoise.replace(it.name, " ")).ifEmpty { it.name.lowercase() } }.values
+            .map { g -> g.sortedWith(compareByDescending<Live> { qualityRank(it.name) }.thenBy { it.num }).first() }
+            .sortedBy { it.num }
+
+    /** A group's channels, one per station. */
+    fun liveGroup(c: Context, categoryId: String): List<Live> = best(liveInCategory(c, categoryId))
+
+    // Favourites (channel ids), kept on the TV.
+    fun favourites(c: Context): Set<Int> = (Prefs.string(c, "fav_live") ?: "").split(",").mapNotNull { it.toIntOrNull() }.toSet()
+    fun toggleFavourite(c: Context, id: Int): Boolean {
+        val f = favourites(c).toMutableSet()
+        val added = if (id in f) { f.remove(id); false } else { f.add(id); true }
+        Prefs.setString(c, "fav_live", f.joinToString(","))
+        return added
+    }
+    fun liveById(c: Context, ids: Set<Int>): List<Live> = try { live(c).filter { it.id in ids } } catch (e: Exception) { emptyList() }
+
     fun vod(c: Context): List<Vod> = vodMem ?: list(c, "get_vod_streams",
         { o, v: Vod -> o.writeInt(v.id); o.str(v.name); o.str(v.ext); o.str(v.icon); o.str(v.category) },
         { i -> Vod(i.readInt(), i.readUTF(), i.readUTF(), i.readUTF().ifEmpty { null }, i.readUTF()) }) { r ->

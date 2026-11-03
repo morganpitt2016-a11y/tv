@@ -129,7 +129,7 @@ class PlayerActivity : Activity() {
             val app = applicationContext
             Thread {
                 val cat = intent.getStringExtra(EXTRA_LIVE_CAT)
-                val group = (if (cat != null) try { Xtream.liveInCategory(app, cat) } catch (e: Exception) { emptyList() } else {
+                val group = (if (cat != null) try { Xtream.liveGroup(app, cat) } catch (e: Exception) { emptyList() } else {
                     val all = try { Xtream.live(app) } catch (e: Exception) { emptyList() }
                     val cur = all.firstOrNull { it.id == liveId }
                     if (cur == null) emptyList() else all.filter { it.category == cur.category }

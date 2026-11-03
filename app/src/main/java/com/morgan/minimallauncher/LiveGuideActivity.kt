@@ -50,6 +50,7 @@ class LiveGuideActivity : Activity() {
     private var pipChannel = -1
     private val pipJob = Runnable { playPip() }
     private var selected: EpgView.Row? = null
+    private var allUk: List<String> = emptyList()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -94,7 +95,7 @@ class LiveGuideActivity : Activity() {
         root.addView(right, FrameLayout.LayoutParams(-1, -1).apply { marginStart = dp(c, 250f) })
         setContentView(root)
 
-        val fmt = SimpleDateFormat("h:mma", Locale.UK)
+        val fmt = SimpleDateFormat("h.mma", Locale.UK)
         val tick = object : Runnable { override fun run() { clockView.text = fmt.format(Date()).lowercase(); handler.postDelayed(this, 20_000) } }
         tick.run()
 
@@ -104,8 +105,10 @@ class LiveGuideActivity : Activity() {
             desc.text = prog?.desc?.takeIf { it.isNotBlank() } ?: "Live on ${row.ch.name}"
             meta.text = if (prog == null) row.ch.name else {
                 val mins = ((prog.stop - prog.start) / 60_000).toInt()
+                val len = if (mins >= 60) "${mins / 60}h${if (mins % 60 > 0) " ${mins % 60}m" else ""}" else "${mins}m"
+                val q = when { Regex("(?i)\\b(uhd|4k)\\b").containsMatchIn(row.ch.name) -> "UHD"; Regex("(?i)\\b(fhd|hd)\\b").containsMatchIn(row.ch.name) -> "HD"; else -> "" }
                 val started = if (prog.start <= System.currentTimeMillis()) "Started at" else "Starts at"
-                "${row.ch.name}   ·   ${mins}m   ·   $started ${fmt.format(Date(prog.start)).lowercase()}"
+                listOf(row.ch.name.replace(Regex("(?i)\\s*\\b(uhd|fhd|hd|4k)\\b"), "").trim(), len, q, "$started ${fmt.format(Date(prog.start)).lowercase()}").filter { it.isNotEmpty() }.joinToString("   ·   ")
             }
             handler.removeCallbacks(pipJob); handler.postDelayed(pipJob, 900)        // only once you settle on a channel
         }
@@ -124,15 +127,20 @@ class LiveGuideActivity : Activity() {
             val all = Xtream.liveCategories(app)
             fun rank(n: String) = when { n.trim().startsWith("UK", true) -> 0; n.trim().startsWith("LIVE", true) -> 10; n.trim().startsWith("24/7", true) -> 20; n.trim().startsWith("US", true) -> 30; else -> 40 }
             val ids = all.keys.filterNot { all[it].orEmpty().contains("radio", true) }.sortedWith(compareBy { rank(all[it].orEmpty()) })
+            allUk = ids.filter { id -> val n = all[id].orEmpty(); n.trim().startsWith("UK", true) &&
+                listOf("entertainment", "documentar", "kids", "movies", "news", "music", "sport").any { n.contains(it, true) } && !n.contains("radio", true) }
             runOnUiThread {
                 if (isDestroyed) return@runOnUiThread
-                for (id in ids) {
-                    cats[id] = all[id].orEmpty().replace(Regex("\\s*[~|]+\\s*"), " · ").trim()
-                    val v = categoryView(id, cats[id]!!)
+                fun add(id: String, name: String) {
+                    cats[id] = name
+                    val v = categoryView(id, name)
                     catViews[id] = v
-                    catList.addView(v, LinearLayout.LayoutParams(-1, dp(c, 36f)).apply { bottomMargin = dp(c, 2f) })
+                    catList.addView(v, LinearLayout.LayoutParams(-1, dp(c, 34f)).apply { bottomMargin = dp(c, 1f) })
                 }
-                ids.firstOrNull()?.let { selectCategory(it, focusGrid = true) }
+                add("_fav", "Favourites")
+                add("_all", "All channels")
+                for (id in ids) add(id, all[id].orEmpty().replace(Regex("^\\s*UK\\s*[~|:-]*\\s*", RegexOption.IGNORE_CASE), "").replace(Regex("\\s*[~|]+\\s*"), " · ").trim().ifBlank { "Channels" })
+                selectCategory("_all", focusGrid = true)
             }
         }.start()
     }
@@ -160,10 +168,21 @@ class LiveGuideActivity : Activity() {
         catViews.forEach { (k, v) -> if (!v.isFocused) v.background = if (k == id) GlassUi.panel(this, 10f, 0x24) else null }
         val app = applicationContext
         Thread {
-            val list = try { Xtream.liveInCategory(app, id) } catch (e: Exception) { emptyList() }.sortedBy { it.num }
+            val list: List<Xtream.Live> = try {
+                when (id) {
+                    "_fav" -> Xtream.best(Xtream.liveById(app, Xtream.favourites(app)))
+                    "_all" -> Xtream.best(allUk.flatMap { Xtream.liveInCategory(app, it) })
+                    else -> Xtream.liveGroup(app, id)
+                }
+            } catch (e: Exception) { emptyList() }
             runOnUiThread {
                 if (current != id || isDestroyed) return@runOnUiThread
-                epg.setRows(list.take(200).map { EpgView.Row(it, LiveGuide.guideFor(it.name)) })
+                epg.setRows(list.take(250).map { EpgView.Row(it, LiveGuide.guideFor(it.name)) })
+                if (list.isEmpty()) {
+                    title.text = if (id == "_fav") "No favourites yet" else "No channels here"
+                    desc.text = if (id == "_fav") "Highlight a channel and press Menu to add it to your favourites." else ""
+                    meta.text = ""
+                }
                 if (focusGrid) epg.requestFocus()
             }
         }.start()
@@ -198,18 +217,23 @@ class LiveGuideActivity : Activity() {
 
     private fun recordDialog(row: EpgView.Row, prog: LiveGuide.Programme?) {
         val g = row.guide
-        if (g == null || prog == null) { GlassUi.toast(this, "No programme information for this channel to record from"); return }
-        val on = prog.isOn()
-        val d = GlassDialog(this).title(prog.title)
-            .message("${row.ch.name}\n${storageNote()}")
-        if (on) d.button("Watch", GlassDialog.Style.BOLD) { watch(row.ch) }
-        val scheduled = TiviRecorder.isScheduled(this, g, prog)
-        if (on) d.button("Record now") { Recordings.start(applicationContext, g.name, prog.title, prog.stop, prog.image); GlassUi.toast(this, "Recording ${prog.title}") }
-        else if (scheduled) d.button("Cancel recording", GlassDialog.Style.DESTRUCTIVE) { TiviRecorder.cancel(this, TiviRecorder.idFor(g.name, prog.start)); GlassUi.toast(this, "Recording cancelled") }
-        else d.button("Record", GlassDialog.Style.BOLD) { TiviRecorder.schedule(this, g, prog); GlassUi.toast(this, "Will record ${prog.title}") }
-        d.button("Record series") {
-            val n = TiviRecorder.addSeries(this, g, prog, LiveGuide.cached() ?: listOf(g))
-            GlassUi.toast(this, if (n > 0) "Series linked - $n episode${if (n == 1) "" else "s"} scheduled" else "Series linked")
+        val fav = row.ch.id in Xtream.favourites(this)
+        val d = GlassDialog(this).title(prog?.title ?: row.ch.name).message("${row.ch.name}\n${storageNote()}")
+        d.button("Watch", GlassDialog.Style.BOLD) { watch(row.ch) }
+        if (g != null && prog != null) {
+            val scheduled = TiviRecorder.isScheduled(this, g, prog)
+            if (prog.isOn()) d.button("Record now") { Recordings.start(applicationContext, g.name, prog.title, prog.stop, prog.image); GlassUi.toast(this, "Recording ${prog.title}") }
+            else if (scheduled) d.button("Cancel recording", GlassDialog.Style.DESTRUCTIVE) { TiviRecorder.cancel(this, TiviRecorder.idFor(g.name, prog.start)); GlassUi.toast(this, "Recording cancelled") }
+            else d.button("Record") { TiviRecorder.schedule(this, g, prog); GlassUi.toast(this, "Will record ${prog.title}") }
+            d.button("Record series") {
+                val n = TiviRecorder.addSeries(this, g, prog, LiveGuide.cached() ?: listOf(g))
+                GlassUi.toast(this, if (n > 0) "Series linked - $n episode${if (n == 1) "" else "s"} scheduled" else "Series linked")
+            }
+        }
+        d.button(if (fav) "Remove from Favourites" else "Add to Favourites") {
+            val added = Xtream.toggleFavourite(applicationContext, row.ch.id)
+            GlassUi.toast(this, if (added) "${row.ch.name} added to Favourites" else "${row.ch.name} removed from Favourites")
+            if (current == "_fav") { val keep = current; current = null; selectCategory(keep!!, focusGrid = true) }
         }
         d.button("Cancel")
         d.show()

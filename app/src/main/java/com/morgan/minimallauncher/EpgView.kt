@@ -30,9 +30,9 @@ class EpgView(context: Context) : View(context) {
 
     private val d = resources.displayMetrics.density
     private var visibleRows = 7
-    private val rowH = 52 * d
+    private val rowH = 47 * d
     private val headH = 30 * d
-    private val chW = 190 * d
+    private val chW = 200 * d
     private val pxPerMin = 4.4f * d
     private val gap = 3 * d
 
@@ -47,7 +47,7 @@ class EpgView(context: Context) : View(context) {
     private val fontBold = ResourcesCompat.getFont(context, R.font.inter_semibold) ?: Typeface.DEFAULT_BOLD
     private val p = Paint(Paint.ANTI_ALIAS_FLAG)
     private val text = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val clock = SimpleDateFormat("h:mma", Locale.UK)
+    private val clock = SimpleDateFormat("h.mma", Locale.UK)
 
     init {
         isFocusable = true
@@ -129,7 +129,7 @@ class EpgView(context: Context) : View(context) {
             KeyEvent.KEYCODE_DPAD_UP -> { if (selRow <= 0) return false; selRow-- }
             KeyEvent.KEYCODE_PAGE_DOWN, KeyEvent.KEYCODE_CHANNEL_DOWN -> { selRow = minOf(rows.size - 1, selRow + visibleRows - 1) }
             KeyEvent.KEYCODE_PAGE_UP, KeyEvent.KEYCODE_CHANNEL_UP -> { selRow = maxOf(0, selRow - (visibleRows - 1)) }
-            KeyEvent.KEYCODE_MEDIA_RECORD, KeyEvent.KEYCODE_PROG_RED -> { onRecord?.invoke(r, cur); return true }
+            KeyEvent.KEYCODE_MEDIA_RECORD, KeyEvent.KEYCODE_PROG_RED, KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_INFO -> { onRecord?.invoke(r, cur); return true }
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
                 val now = System.currentTimeMillis()
                 if (cur == null || cur.isOn(now)) onPlay?.invoke(r) else onProgramme?.invoke(r, cur)
@@ -178,7 +178,7 @@ class EpgView(context: Context) : View(context) {
         }
         c.restore()
 
-        // Channel column (over the programmes)
+        // Channel column (over the programmes): name on the left, number at the right edge.
         c.save()
         c.clipRect(0f, headH, chW, height.toFloat())
         p.style = Paint.Style.FILL; p.color = 0x22000000
@@ -186,10 +186,18 @@ class EpgView(context: Context) : View(context) {
         for (i in top until minOf(rows.size, top + visibleRows + 2)) {
             val y = headH + (i - firstRow) * rowH
             val sel = i == selRow
-            text.typeface = fontBold; text.textSize = 12 * d; text.color = if (sel) 0xFFFFFFFF.toInt() else 0x80FFFFFF.toInt()
-            c.drawText(rows[i].ch.num.toString(), 14 * d, y + rowH / 2 + 4 * d, text)
-            text.typeface = if (sel) fontBold else font; text.textSize = 13 * d; text.color = if (sel) 0xFFFFFFFF.toInt() else 0xCCFFFFFF.toInt()
-            c.drawText(ellipsize(rows[i].ch.name, chW - 62 * d, text), 52 * d, y + rowH / 2 + 4.5f * d, text)
+            if (sel) {
+                rect.set(6 * d, y + 3 * d, chW - 4 * d, y + rowH - 3 * d)
+                p.color = if (focused) 0xF5FFFFFF.toInt() else 0x59FFFFFF
+                c.drawRoundRect(rect, 9 * d, 9 * d, p)
+            }
+            val ink = if (sel && focused) GlassUi.INK else if (sel) 0xFFFFFFFF.toInt() else 0xCCFFFFFF.toInt()
+            text.typeface = if (sel) fontBold else font; text.textSize = 13 * d; text.color = ink
+            val num = rows[i].ch.num.toString()
+            val numW = text.measureText(num)
+            c.drawText(ellipsize(rows[i].ch.name, chW - numW - 34 * d, text), 14 * d, y + rowH / 2 + 4.5f * d, text)
+            text.color = if (sel && focused) 0x99000000.toInt() else 0x99FFFFFF.toInt()
+            c.drawText(num, chW - numW - 12 * d, y + rowH / 2 + 4.5f * d, text)
         }
         c.restore()
 
@@ -220,19 +228,20 @@ class EpgView(context: Context) : View(context) {
         if (right - left < 6 * d) return
         rect.set(left, y + 3 * d, right, y + h - 3 * d)
         p.style = Paint.Style.FILL
-        p.color = when {
-            selected && focused -> 0xF5FFFFFF.toInt()
-            selected -> 0x59FFFFFF
-            live -> 0x26FFFFFF
-            else -> 0x14FFFFFF
+        if (selected) {
+            p.color = if (focused) 0xF5FFFFFF.toInt() else 0x59FFFFFF
+            c.drawRoundRect(rect, 9 * d, 9 * d, p)
+        } else {
+            // A thin divider between programmes, rather than a box round each one.
+            p.color = 0x30FFFFFF
+            c.drawRect(left - gap, y + 6 * d, left - gap + 1 * d, y + h - 6 * d, p)
         }
-        c.drawRoundRect(rect, 9 * d, 9 * d, p)
-        text.typeface = if (selected) fontBold else font
+        text.typeface = if (selected || live) fontBold else font
         text.textSize = 12.5f * d
-        text.color = if (selected && focused) GlassUi.INK else 0xFFFFFFFF.toInt()
+        text.color = if (selected && focused) GlassUi.INK else if (live || selected) 0xFFFFFFFF.toInt() else 0xCCFFFFFF.toInt()
         c.drawText(ellipsize(title, rect.width() - 20 * d, text), rect.left + 10 * d, rect.centerY() + 4.5f * d, text)
         if (progress != null) {
-            p.color = if (selected && focused) (accent and 0x00FFFFFF) or 0xFF000000.toInt() else 0xB3FFFFFF.toInt()
+            p.color = if (selected && focused) (accent and 0x00FFFFFF) or 0xFF000000.toInt() else (accent and 0x00FFFFFF) or 0xCC000000.toInt()
             c.drawRoundRect(rect.left + 8 * d, rect.bottom - 5 * d, rect.left + 8 * d + (rect.width() - 16 * d) * progress, rect.bottom - 3 * d, 2 * d, 2 * d, p)
         }
     }

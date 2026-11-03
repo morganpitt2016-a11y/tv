@@ -585,7 +585,7 @@ class WatchActivity : AppCompatActivity() {
             val cats = Xtream.liveCategories(app)
             val first = cats.entries.firstOrNull { it.value.trim().startsWith("UK", true) && it.value.contains("entertainment", true) }?.key
                 ?: cats.keys.firstOrNull { cats[it].orEmpty().trim().startsWith("UK", true) } ?: cats.keys.firstOrNull()
-            val all = if (first == null) emptyList() else try { Xtream.liveInCategory(app, first) } catch (e: Exception) { emptyList() }
+            val all = if (first == null) emptyList() else try { Xtream.liveGroup(app, first) } catch (e: Exception) { emptyList() }
             runOnUiThread {
                 if (containerToken[host] != token || isDestroyed) return@runOnUiThread
                 host.removeView(loading)
