@@ -751,6 +751,7 @@ object TiviTuner {
     private val quietStreams = intArrayOf(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.STREAM_NOTIFICATION,
         android.media.AudioManager.STREAM_SYSTEM)
     private val mutedStreams = HashSet<Int>()
+    private var savedMusicVolume = -1
     private var mutedByUs = false
 
     /**
@@ -806,6 +807,12 @@ object TiviTuner {
         val am = c.getSystemService(android.media.AudioManager::class.java) ?: return
         holdAudio(c, on)
         if (on) {
+            try {
+                if (savedMusicVolume < 0) {
+                    savedMusicVolume = am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+                    am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, 0, 0)
+                }
+            } catch (e: Exception) {}
             for (st in quietStreams) try {
                 if (am.isStreamMute(st)) continue
                 am.adjustStreamVolume(st, android.media.AudioManager.ADJUST_MUTE, 0)
@@ -814,6 +821,8 @@ object TiviTuner {
             mutedByUs = mutedStreams.isNotEmpty()
         } else {
             for (st in mutedStreams.toList()) try { am.adjustStreamVolume(st, android.media.AudioManager.ADJUST_UNMUTE, 0) } catch (e: Exception) {}
+            try { if (savedMusicVolume >= 0) am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, savedMusicVolume, 0) } catch (e: Exception) {}
+            savedMusicVolume = -1
             mutedStreams.clear()
             mutedByUs = false
         }
@@ -867,6 +876,8 @@ object TiviTuner {
         setBusy(true)
         returnToWatch = true
         showCover(title, "Opening Dodgy Box…")
+        main.postDelayed({ note("Audio check (1.5s in): " + audioReport(app).replace("\n", " | ")) }, 1500)
+        main.postDelayed({ note("Audio check (4s in): " + audioReport(app).replace("\n", " | ")) }, 4000)
         hush(app)                                    // pause the live channel before TiviMate comes forward
         note("---- Find ${if (show) "show" else "film"} \"$title\" ($year) in TiviMate (looking for \"$wanted\")")
         try { app.startActivity(Intent(intent).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {}
@@ -887,8 +898,10 @@ object TiviTuner {
             if (cancelled) { cancelled = false; note("Cancelled"); hideCover(); return }
             note(why)
             HomeRedirectService.instance?.let { Diag.send(it, "film", "Result: ${if (ok) "playing" else "FAILED"} for \"$title\"\n" + logText().takeLast(60000)) }
-            if (ok) main.postDelayed({ hideCover() }, 500)
-            else {
+            if (ok) {
+                main.postDelayed({ note("Audio check (film starting): " + audioReport(app).replace("\n", " | ")) }, 2500)
+                main.postDelayed({ hideCover() }, 500)
+            } else {
                 note("What TiviMate showed:\n" + compactScreen())
                 // Back to the film's page rather than leaving you in TiviMate's search.
                 returnToWatch = false
