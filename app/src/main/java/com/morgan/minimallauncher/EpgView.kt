@@ -23,6 +23,7 @@ class EpgView(context: Context) : View(context) {
 
     class Row(val ch: Xtream.Live, val guide: LiveGuide.Channel?)
 
+    var accent: Int = 0xFFFF453A.toInt()
     var onSelect: ((Row, LiveGuide.Programme?) -> Unit)? = null
     var onPlay: ((Row) -> Unit)? = null
     var onProgramme: ((Row, LiveGuide.Programme) -> Unit)? = null
@@ -156,8 +157,8 @@ class EpgView(context: Context) : View(context) {
         val now = System.currentTimeMillis()
         val focused = isFocused
         // Panel
-        p.style = Paint.Style.FILL; p.color = 0x16FFFFFF
-        c.drawRoundRect(0f, 0f, w, height.toFloat(), 14 * d, 14 * d, p)
+        p.style = Paint.Style.FILL; p.color = 0x14FFFFFF
+        c.drawRoundRect(0f, 0f, w, height.toFloat(), 16 * d, 16 * d, p)
 
         // Programmes (clipped to the grid)
         c.save()
@@ -180,7 +181,7 @@ class EpgView(context: Context) : View(context) {
         // Channel column (over the programmes)
         c.save()
         c.clipRect(0f, headH, chW, height.toFloat())
-        p.style = Paint.Style.FILL; p.color = 0x30000000
+        p.style = Paint.Style.FILL; p.color = 0x22000000
         c.drawRect(0f, headH, chW, height.toFloat(), p)
         for (i in top until minOf(rows.size, top + visibleRows + 2)) {
             val y = headH + (i - firstRow) * rowH
@@ -209,7 +210,7 @@ class EpgView(context: Context) : View(context) {
         c.restore()
         // "Now" marker
         val nx = timeX(now)
-        if (nx > chW && nx < w) { p.color = 0xCCFF453A.toInt(); c.drawRect(nx, headH - 2 * d, nx + 1.5f * d, height.toFloat(), p) }
+        if (nx > chW && nx < w) { p.color = (accent and 0x00FFFFFF) or 0xE6000000.toInt(); c.drawRect(nx, headH - 2 * d, nx + 1.5f * d, height.toFloat(), p) }
     }
 
     private val rect = RectF()
@@ -220,18 +221,18 @@ class EpgView(context: Context) : View(context) {
         rect.set(left, y + 3 * d, right, y + h - 3 * d)
         p.style = Paint.Style.FILL
         p.color = when {
-            selected && focused -> 0xF2FFFFFF.toInt()
-            selected -> 0x66FFFFFF
-            live -> 0x30FFFFFF
-            else -> 0x1CFFFFFF
+            selected && focused -> 0xF5FFFFFF.toInt()
+            selected -> 0x59FFFFFF
+            live -> 0x26FFFFFF
+            else -> 0x14FFFFFF
         }
         c.drawRoundRect(rect, 9 * d, 9 * d, p)
         text.typeface = if (selected) fontBold else font
         text.textSize = 12.5f * d
-        text.color = if (selected && focused) 0xFF111114.toInt() else 0xFFFFFFFF.toInt()
+        text.color = if (selected && focused) GlassUi.INK else 0xFFFFFFFF.toInt()
         c.drawText(ellipsize(title, rect.width() - 20 * d, text), rect.left + 10 * d, rect.centerY() + 4.5f * d, text)
         if (progress != null) {
-            p.color = if (selected && focused) 0x66000000 else 0xB3FFFFFF.toInt()
+            p.color = if (selected && focused) (accent and 0x00FFFFFF) or 0xFF000000.toInt() else 0xB3FFFFFF.toInt()
             c.drawRoundRect(rect.left + 8 * d, rect.bottom - 5 * d, rect.left + 8 * d + (rect.width() - 16 * d) * progress, rect.bottom - 3 * d, 2 * d, 2 * d, p)
         }
     }

@@ -55,14 +55,13 @@ class LiveGuideActivity : Activity() {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         val c = this
-        val root = FrameLayout(c).apply { setBackgroundColor(0xFF0B0F1E.toInt()) }
-        // A soft gradient, like a guide's backdrop.
-        root.addView(View(c).apply {
-            background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(0xFF1B2A5A.toInt(), 0xFF0B0F1E.toInt()))
-        }, FrameLayout.LayoutParams(-1, -1))
+        val root = FrameLayout(c).apply { setBackgroundColor(0xFF000000.toInt()) }
+        // The same blurred, darkened wallpaper as the rest of the launcher.
+        GlassUi.installBackdrop(root)
+        val accent = try { ProfileStyle.of(c).accent } catch (e: Exception) { 0xFFFF453A.toInt() }
 
         // ---- left panel ----
-        val left = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL; background = GlassUi.panel(c, 0f, 0x18) }
+        val left = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL; background = GlassUi.panel(c, 0f, 0x14) }
         val top = LinearLayout(c).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(dp(c, 20f), dp(c, 14f), dp(c, 20f), dp(c, 8f)) }
         top.addView(GlassUi.text(c, "TV Guide", 13f, R.font.inter_semibold, 0xB3FFFFFF.toInt()), LinearLayout.LayoutParams(0, -2, 1f))
         clockView = GlassUi.text(c, "", 13f, R.font.inter_medium, 0xB3FFFFFF.toInt())
@@ -90,7 +89,7 @@ class LiveGuideActivity : Activity() {
         meta = GlassUi.text(c, "", 12f, R.font.inter_medium, 0x99FFFFFF.toInt())
         head.addView(title); head.addView(desc, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(c, 3f) }); head.addView(meta, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(c, 4f) })
         right.addView(head, LinearLayout.LayoutParams(-1, dp(c, 92f)))
-        epg = EpgView(c)
+        epg = EpgView(c).apply { this.accent = accent }
         right.addView(epg, LinearLayout.LayoutParams(-1, 0, 1f))
         root.addView(right, FrameLayout.LayoutParams(-1, -1).apply { marginStart = dp(c, 250f) })
         setContentView(root)
