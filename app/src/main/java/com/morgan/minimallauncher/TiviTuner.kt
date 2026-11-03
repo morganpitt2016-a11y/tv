@@ -856,7 +856,7 @@ object TiviTuner {
         return tiviRoots(service).firstNotNullOfOrNull { walk(it) }
     }
 
-    fun playVod(c: android.content.Context, title: String, year: Int, show: Boolean, episode: Pair<Int, Int>? = null) {
+    fun playVod(c: android.content.Context, title: String, year: Int, show: Boolean, episode: Pair<Int, Int>? = null, fromStart: Boolean = false) {
         val app = c.applicationContext
         fun say(t: String) = android.widget.Toast.makeText(app, t, android.widget.Toast.LENGTH_LONG).show()
         val intent = LiveGuide.launchIntent(app, PKG) ?: return say("TiviMate isn’t installed")
@@ -983,7 +983,11 @@ object TiviTuner {
                         if (list != null || stageTries > 4) { episodeGaveUp = true; note("Episode S$sn E$en not found - playing from TiviMate's own Play button") }
                         else { stageTries++; later(200, { finish(false, "Error") }) { step() }; return }
                     }
-                    val play = findNode(service) { n -> (n.text ?: n.contentDescription)?.toString()?.let(::isPlayLabel) == true }
+                    // Start over when asked to (TiviMate offers "Play from beginning" beside "Resume"); otherwise resume.
+                    val startOver = if (fromStart && !show) findNode(service) { n ->
+                        (n.text ?: n.contentDescription)?.toString()?.lowercase()?.let { it.startsWith("play from") || it.startsWith("start over") || it.startsWith("restart") } == true
+                    } else null
+                    val play = startOver ?: findNode(service) { n -> (n.text ?: n.contentDescription)?.toString()?.let(::isPlayLabel) == true }
                     if (play != null) {
                         note("TiviMate's page for it:\n" + compactScreen(onlyTivi = true))
                         note("Pressing \"${play.text ?: play.contentDescription}\"")
@@ -991,6 +995,7 @@ object TiviTuner {
                             WatchHistory.record(app, title, m.groupValues[1].toInt(), m.groupValues[2].toInt())
                         }
                         pressNode(service, play)
+                        if (!show) WatchHistory.markFilm(app, title)
                         main.postDelayed({ finish(true, "Playing") }, 450)
                         return
                     }

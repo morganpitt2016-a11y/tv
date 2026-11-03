@@ -15,6 +15,10 @@ object WatchHistory {
         if (it.size == 2) Last(it[0].toIntOrNull() ?: return null, it[1].toIntOrNull() ?: return null) else null
     }
 
+    /** Films played through TiviMate (it keeps the position itself and offers Resume / Play from beginning). */
+    fun markFilm(c: Context, title: String) = Prefs.setBool(c, key(title) + "_film", true)
+    fun playedFilm(c: Context, title: String) = Prefs.bool(c, key(title) + "_film", false)
+
     private fun posKey(url: String) = "pos_" + (url.hashCode().toLong() and 0xffffffffL)
 
     /** Seconds into [url] where playback stopped (0 if finished or never started). */

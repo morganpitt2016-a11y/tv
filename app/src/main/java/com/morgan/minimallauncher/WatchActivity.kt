@@ -863,6 +863,14 @@ class WatchActivity : AppCompatActivity() {
         val show = t.type == "SHOW"
         if (!Xtream.isSetUp(this)) {
             val last = if (show) WatchHistory.last(this, t.name) else null
+            if (!show && WatchHistory.playedFilm(this, t.name)) {
+                // Seen (some of) it before: TiviMate remembers how far, so the choice is just continue or restart.
+                GlassDialog(this).title(t.name).message("You've watched part of this before.")
+                    .button("Continue", GlassDialog.Style.BOLD) { TiviTuner.playVod(this, t.name, t.year, show) }
+                    .button("Start from the beginning") { TiviTuner.playVod(this, t.name, t.year, show, fromStart = true) }
+                    .button("Cancel").show()
+                return
+            }
             if (last == null) { TiviTuner.playVod(this, t.name, t.year, show); return }
             // Watched before: pick up where you were, move on, or start again - TiviMate alone starts at episode one.
             fun go(s: Int, e: Int) { TiviTuner.playVod(this, t.name, t.year, show, episode = s to e) }
