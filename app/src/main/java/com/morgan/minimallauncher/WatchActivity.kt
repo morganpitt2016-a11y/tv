@@ -576,14 +576,19 @@ class WatchActivity : AppCompatActivity() {
             runOnUiThread { LiveGuide.load(this) { ready.countDown() } }
             try { ready.await(4, java.util.concurrent.TimeUnit.SECONDS) } catch (e: Exception) {}
             val cats = Xtream.liveCategories(app)
-            // Every group, UK first (then US, then the rest), "Entertainment" leading each.
+            // Every group in the provider's own order, UK first, then live events, 24/7, US and the rest.
             fun rank(name: String): Int {
                 val n = name.trim()
-                val uk = Regex("(^|[^A-Za-z])UK([^A-Za-z]|$)|united kingdom|british", RegexOption.IGNORE_CASE).containsMatchIn(n)
-                val us = Regex("(^|[^A-Za-z])US([^A-Za-z]|$)", RegexOption.IGNORE_CASE).containsMatchIn(n)
-                return (if (uk) 0 else if (us) 20 else 40) + (if (n.contains("entertainment", true)) 0 else 1)
+                return when {
+                    n.startsWith("UK", true) -> 0
+                    n.startsWith("LIVE", true) -> 10
+                    n.startsWith("24/7", true) -> 20
+                    n.startsWith("US", true) -> 30
+                    else -> 40
+                }
             }
-            val catIds = cats.keys.sortedWith(compareBy({ rank(cats[it].orEmpty()) }, { cats[it].orEmpty() })).take(90)
+            val catIds = cats.keys.filterNot { cats[it].orEmpty().contains("radio", true) }
+                .sortedWith(compareBy { rank(cats[it].orEmpty()) }).take(110)     // stable: keeps the provider's order within each
             val first = catIds.firstOrNull()
             val all = if (first == null) emptyList() else try { Xtream.liveInCategory(app, first) } catch (e: Exception) { emptyList() }
             runOnUiThread {
