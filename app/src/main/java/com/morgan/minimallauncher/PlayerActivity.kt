@@ -46,6 +46,10 @@ class PlayerActivity : Activity() {
     private class Queued(val url: String, val season: Int, val episode: Int)
     private val queue = ArrayDeque<Queued>()
     private var counting = false
+    private var image: String? = null
+    private var curSeason = 0
+    private var curEpisode = 0
+    private var ticks = 0
     private val handler = Handler(Looper.getMainLooper())
     private var url = ""
     private var altUrl: String? = null
@@ -115,9 +119,12 @@ class PlayerActivity : Activity() {
         handler.postDelayed({ banner.animate().alpha(0f).setDuration(600).start() }, 4500)
 
         seriesTitle = intent.getStringExtra(EXTRA_SERIES)
+        image = intent.getStringExtra(EXTRA_IMAGE)
+        curSeason = intent.getIntExtra(EXTRA_SEASON, 0); curEpisode = intent.getIntExtra(EXTRA_EPISODE, 0)
         val qu = intent.getStringArrayExtra(EXTRA_Q_URLS); val qs = intent.getIntArrayExtra(EXTRA_Q_S); val qe = intent.getIntArrayExtra(EXTRA_Q_E)
         if (qu != null && qs != null && qe != null) for (i in qu.indices) queue.addLast(Queued(qu[i], qs[i], qe[i]))
         liveId = intent.getIntExtra(EXTRA_LIVE_ID, -1)
+        if (live && liveId >= 0) rememberLive()
         if (live && liveId >= 0) {
             val app = applicationContext
             Thread {
@@ -188,6 +195,7 @@ class PlayerActivity : Activity() {
                     nextView.visibility = View.VISIBLE
                 } else if (nextView.visibility == View.VISIBLE) nextView.visibility = View.GONE
             }
+            if (++ticks % 15 == 0) saveProgress()
             handler.postDelayed(this, 1000)
         }
     }
@@ -197,6 +205,7 @@ class PlayerActivity : Activity() {
     override fun onStop() {
         super.onStop()
         handler.removeCallbacks(progressTick)
+        saveProgress()
         player?.let { p ->
             // Remember where a film or episode was, to carry on next time.
             if (!live && p.duration > 0) {
@@ -206,6 +215,27 @@ class PlayerActivity : Activity() {
             p.release()
         }
         player = null
+    }
+
+    private fun rememberLive() {
+        ResumeStore.upsert(applicationContext, ResumeStore.Item(ResumeStore.keyOf("live", titleText), "live", titleText, null, 0, 0, url, null, 0, 0, System.currentTimeMillis(), liveId))
+    }
+
+    /** Remember where this film or episode is up to, for the Continue Watching rows. */
+    private fun saveProgress() {
+        val p = player ?: return
+        if (live || p.duration <= 0) return
+        val c = applicationContext
+        val pos = (p.currentPosition / 1000).toInt(); val dur = (p.duration / 1000).toInt()
+        val name = seriesTitle ?: titleText
+        val kind = if (seriesTitle != null) "episode" else "film"
+        val key = ResumeStore.keyOf(kind, name)
+        val now = System.currentTimeMillis()
+        if (dur - pos < 120) {
+            val n = queue.firstOrNull()
+            if (n != null && seriesTitle != null) ResumeStore.upsert(c, ResumeStore.Item(key, kind, name, seriesTitle, n.season, n.episode, n.url, image, 0, 0, now))
+            else ResumeStore.remove(c, key)
+        } else if (pos > 30) ResumeStore.upsert(c, ResumeStore.Item(key, kind, name, seriesTitle, curSeason, curEpisode, url, image, pos, dur, now))
     }
 
     private fun trackKey() = (seriesTitle ?: titleText).lowercase().replace(Regex("[^a-z0-9]+"), "")
@@ -225,6 +255,7 @@ class PlayerActivity : Activity() {
         url = Xtream.liveUrl(app, ch.id); altUrl = Xtream.liveUrl(app, ch.id, hls = true); triedAlt = false
         titleText = ch.name
         bannerTitle.text = ch.name
+        rememberLive()
         bannerSub.text = LiveGuide.nowNext(app, ch.name).orEmpty()
         showBanner()
         start(url, resume = false)
@@ -274,6 +305,7 @@ class PlayerActivity : Activity() {
         url = n.url
         bannerSub.text = "Season ${n.season}, Episode ${n.episode}"
         seriesTitle?.let { WatchHistory.record(applicationContext, it, n.season, n.episode) }
+        curSeason = n.season; curEpisode = n.episode
         WatchHistory.forget(applicationContext, n.url)
         showBanner(4500)
         start(n.url, resume = false)
@@ -414,6 +446,9 @@ class PlayerActivity : Activity() {
         const val EXTRA_EYEBROW = "eyebrow"
         const val EXTRA_FROM_START = "from_start"
         const val EXTRA_LIVE_ID = "live_id"
+        const val EXTRA_IMAGE = "image"
+        const val EXTRA_SEASON = "season"
+        const val EXTRA_EPISODE = "episode"
         const val EXTRA_SERIES = "series"
         const val EXTRA_Q_URLS = "q_urls"
         const val EXTRA_Q_S = "q_s"
@@ -422,11 +457,13 @@ class PlayerActivity : Activity() {
         fun play(
             c: Context, url: String, title: String, live: Boolean, subtitle: String? = null, eyebrow: String? = null, alt: String? = null,
             fromStart: Boolean = false, liveId: Int = -1, series: String? = null, queue: List<Triple<String, Int, Int>> = emptyList(),
+            image: String? = null, season: Int = 0, episode: Int = 0,
         ) {
             c.startActivity(Intent(c, PlayerActivity::class.java)
                 .putExtra(EXTRA_URL, url).putExtra(EXTRA_ALT_URL, alt).putExtra(EXTRA_LIVE, live)
                 .putExtra(EXTRA_TITLE, title).putExtra(EXTRA_SUBTITLE, subtitle).putExtra(EXTRA_EYEBROW, eyebrow).putExtra(EXTRA_FROM_START, fromStart)
-                .putExtra(EXTRA_LIVE_ID, liveId).putExtra(EXTRA_SERIES, series)
+                .putExtra(EXTRA_LIVE_ID, liveId).putExtra(EXTRA_SERIES, series).putExtra(EXTRA_IMAGE, image)
+                .putExtra(EXTRA_SEASON, season).putExtra(EXTRA_EPISODE, episode)
                 .putExtra(EXTRA_Q_URLS, queue.map { it.first }.toTypedArray())
                 .putExtra(EXTRA_Q_S, queue.map { it.second }.toIntArray())
                 .putExtra(EXTRA_Q_E, queue.map { it.third }.toIntArray())

@@ -207,7 +207,8 @@ class WatchActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         handler.postDelayed(rotateFeatured, FEATURE_MS)
-        if (tab == "home" && rows.childCount > 0 && detail == null) refreshPersonalRows()
+        if (tab == "home" && rows.childCount > 0 && detail == null) { refreshPersonalRows(); refreshResumeRow() }
+        else if (rows.childCount > 0 && detail == null) refreshResumeRow()
     }
 
     override fun onPause() {
@@ -273,6 +274,7 @@ class WatchActivity : AppCompatActivity() {
         if (cached != null) {
             swapRows(cached.first)
             if (id == "home") refreshPersonalRows()
+            refreshResumeRow()
             if (focusContent) rows.post { firstItem()?.requestFocus() }
             return
         }
@@ -287,6 +289,7 @@ class WatchActivity : AppCompatActivity() {
             "list" -> buildList()
             "search" -> lastSearch?.let { search(it) }
         }
+        refreshResumeRow()
         if (focusContent) rows.post { firstItem()?.requestFocus() }
     }
 
@@ -326,7 +329,7 @@ class WatchActivity : AppCompatActivity() {
         val history = WatchCatalog.history(this)
         val myList = WatchCatalog.myList(this)
         var at = 0
-        if (history.isNotEmpty()) { rows.addView(staticTitleRow("history", "Continue Watching", history).view, at++) }
+        if (history.isNotEmpty()) { rows.addView(staticTitleRow("history", "Recently Viewed", history).view, at++) }
         if (myList.isNotEmpty()) { rows.addView(staticTitleRow("mylist", "My List", myList).view, at++) }
         findRow("recordings")?.let { rows.removeView(it) }
         recordingsRow("recordings")?.let { rows.addView(it, at) }
@@ -953,7 +956,7 @@ class WatchActivity : AppCompatActivity() {
     private fun playFilm(t: WatchCatalog.Title, url: String) {
         fun go(fromStart: Boolean) {
             if (fromStart) WatchHistory.forget(applicationContext, url)
-            PlayerActivity.play(this, url, t.name, live = false, subtitle = t.year.takeIf { it > 0 }?.toString(), eyebrow = "FILM", fromStart = fromStart)
+            PlayerActivity.play(this, url, t.name, live = false, subtitle = t.year.takeIf { it > 0 }?.toString(), eyebrow = "FILM", fromStart = fromStart, image = t.backdrop ?: t.poster)
         }
         val at = WatchHistory.seconds(this, url)
         if (at <= 30) return go(false)
@@ -963,15 +966,18 @@ class WatchActivity : AppCompatActivity() {
             .button("Cancel").show()
     }
 
-    private fun playEpisode(t: WatchCatalog.Title, e: Xtream.Episode, fromStart: Boolean = false) {
+    private fun playEpisode(t: WatchCatalog.Title, e: Xtream.Episode, fromStart: Boolean = false) =
+        playEpisodeNamed(t.name, t.backdrop ?: t.poster, e, fromStart)
+
+    private fun playEpisodeNamed(name: String, image: String?, e: Xtream.Episode, fromStart: Boolean = false) {
         val app = applicationContext
         val url = Xtream.episodeUrl(app, e)
         if (fromStart) WatchHistory.forget(app, url)
-        WatchHistory.record(app, t.name, e.season, e.number)
+        WatchHistory.record(app, name, e.season, e.number)
         val all = lastEpisodes.takeIf { l -> l.any { it.id == e.id } } ?: listOf(e)
         val rest = all.dropWhile { it.id != e.id }.drop(1).map { Triple(Xtream.episodeUrl(app, it), it.season, it.number) }
-        PlayerActivity.play(this, url, t.name, live = false, subtitle = "Season ${e.season}, Episode ${e.number}", eyebrow = "SERIES",
-            fromStart = fromStart, series = t.name, queue = rest)
+        PlayerActivity.play(this, url, name, live = false, subtitle = "Season ${e.season}, Episode ${e.number}", eyebrow = "SERIES",
+            fromStart = fromStart, series = name, queue = rest, image = image, season = e.season, episode = e.number)
     }
 
     private fun chooseEpisode(t: WatchCatalog.Title, episodes: List<Xtream.Episode>) {
@@ -1236,6 +1242,58 @@ class WatchActivity : AppCompatActivity() {
         val r = row(key, title)
         r.list.adapter = CardAdapter(titles, { p -> posterCard(p) }) { h, t -> bindTitle(h, t) }
         return r
+    }
+
+    // ---------- Continue Watching ----------
+
+    private fun bindResume(h: Holder, it: ResumeStore.Item) {
+        val left = if (it.durSec > 0) ((it.durSec - it.posSec) / 60).coerceAtLeast(1) else 0
+        h.label.text = it.title
+        h.sub?.text = when {
+            it.kind == "live" -> "Live"
+            it.kind == "episode" && it.posSec == 0 -> "Up next · S${it.season} E${it.episode}"
+            it.kind == "episode" -> "S${it.season} E${it.episode}  ·  $left min left"
+            else -> "$left min left"
+        }
+        h.progress?.let { bar -> bar.post { bar.layoutParams.width = if (it.durSec > 0) (h.root.width * it.posSec.toFloat() / it.durSec).toInt() else 0; bar.requestLayout() } }
+        ImageLoader.load(h.image, it.image, ImageLoader.CARD)
+        h.root.contentDescription = "Continue ${it.title}"
+        h.root.setOnClickListener { openResume(it) }
+        focusEffect(h.root) { }
+    }
+
+    private fun openResume(it: ResumeStore.Item) {
+        val app = applicationContext
+        when (it.kind) {
+            "live" -> PlayerActivity.play(this, Xtream.liveUrl(app, it.liveId), it.title, live = true, eyebrow = "LIVE",
+                alt = Xtream.liveUrl(app, it.liveId, hls = true), liveId = it.liveId)
+            "film" -> PlayerActivity.play(this, it.url, it.title, live = false, eyebrow = "FILM", image = it.image)
+            else -> {
+                val name = it.series ?: it.title
+                // Rebuild the episode list so the next episode can follow on.
+                Thread {
+                    val eps = try { Xtream.findSeries(app, name, 0)?.let { s -> Xtream.episodes(app, s) } } catch (e: Exception) { null }.orEmpty()
+                    val ep = eps.firstOrNull { e -> e.season == it.season && e.number == it.episode }
+                    runOnUiThread {
+                        if (isDestroyed) return@runOnUiThread
+                        if (ep != null) { lastEpisodes = eps; playEpisodeNamed(name, it.image, ep) }
+                        else PlayerActivity.play(this, it.url, name, live = false, subtitle = "Season ${it.season}, Episode ${it.episode}", eyebrow = "SERIES",
+                            series = name, image = it.image, season = it.season, episode = it.episode)
+                    }
+                }.start()
+            }
+        }
+    }
+
+    /** The row at the top of Home, Films, Shows and Live TV: click to carry on where you left off. */
+    private fun refreshResumeRow() {
+        findRow("resume")?.let { rows.removeView(it) }
+        if (tab !in listOf("home", "films", "shows", "live")) return
+        val items = ResumeStore.forTab(this, tab)
+        if (items.isEmpty()) return
+        val r = row("resume", if (tab == "live") "Recently Watched" else "Continue Watching", height = 150f)
+        r.list.adapter = CardAdapter(items, { p -> wideCard(p) }) { h, item -> bindResume(h, item) }
+        rows.addView(r.view, 0)
     }
 
     private fun findRow(key: String): View? = (0 until rows.childCount).map { rows.getChildAt(it) }.firstOrNull { it.tag == key }
