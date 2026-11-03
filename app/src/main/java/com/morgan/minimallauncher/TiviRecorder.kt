@@ -83,6 +83,28 @@ object TiviRecorder {
         (c.getSystemService(AlarmManager::class.java)).cancel(pending(c, id))
     }
 
+    /** What is scheduled, for the remote diagnostics. */
+    fun describe(c: Context): String {
+        val fmt = java.text.SimpleDateFormat("EEE d MMM HH:mm", java.util.Locale.UK)
+        val one = list(c).sortedBy { it.start }.joinToString("\n") { "  ${fmt.format(java.util.Date(it.start))}  ${it.channel}: ${it.title}" }
+        val ser = seriesList(c).joinToString("\n") { "  ${it.channel}: ${it.title}" }
+        return "Scheduled recordings:\n${one.ifEmpty { "  none" }}\nSeries rules:\n${ser.ifEmpty { "  none" }}"
+    }
+
+    /** Cancel scheduled recordings and series rules (only those on channels matching [only], if given). */
+    fun clear(c: Context, only: String? = null): Int {
+        fun hit(name: String) = only.isNullOrBlank() || name.contains(only, true)
+        val items = list(c).filter { hit(it.channel) }
+        items.forEach { cancel(c, it.id) }
+        saveSeries(c, seriesList(c).filterNot { hit(it.channel) })
+        if (seriesList(c).isEmpty()) {
+            val am = c.getSystemService(AlarmManager::class.java)
+            am.cancel(PendingIntent.getBroadcast(c, SERIES_ID, Intent(c, RecordReceiver::class.java).putExtra("series", true),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
+        }
+        return items.size
+    }
+
     /** Set the alarms again (after a restart), dropping anything already over. */
     fun rearm(c: Context) {
         val now = System.currentTimeMillis()

@@ -124,6 +124,11 @@ object Diag {
             cmd == "perf" -> send(app, "perf", Perf.text())
             cmd == "screen" -> send(app, "screen", onMain { TiviTuner.tiviScreen() })
             cmd == "speedtest" -> main.post { Perf.runSpeedTest(app) { send(app, "speedtest", it) } }
+            cmd == "recs" -> send(app, "recs", TiviRecorder.describe(app))
+            cmd == "clearrec" || cmd.startsWith("clearrec:") -> {
+                val n = TiviRecorder.clear(app, cmd.substringAfter(":", "").trim().ifEmpty { null })
+                send(app, "recs", "Cleared $n scheduled recordings and the matching series rules.\n" + TiviRecorder.describe(app))
+            }
             cmd == "home" -> main.post { HomeRedirectService.instance?.press("home") }
             cmd == "back" -> main.post { HomeRedirectService.instance?.press("back") }
             cmd.startsWith("tune:") -> tune(app, cmd.removePrefix("tune:").trim())
