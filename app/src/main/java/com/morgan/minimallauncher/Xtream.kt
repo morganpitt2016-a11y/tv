@@ -59,6 +59,30 @@ object Xtream {
         }
     }
 
+    /** A quiet reminder when the subscription is about to run out (at most once a day). */
+    fun expiryNotice(activity: android.app.Activity) {
+        if (!isSetUp(activity)) return
+        val app = activity.applicationContext
+        val today = (System.currentTimeMillis() / 86_400_000L).toString()
+        if (Prefs.string(app, "xt_notice_day") == today) return
+        Thread {
+            try { check(app) } catch (e: Exception) { return@Thread }
+            val exp = Prefs.string(app, "xt_exp")?.toLongOrNull() ?: return@Thread
+            val days = ((exp - System.currentTimeMillis()) / 86_400_000L).toInt()
+            if (days <= 7) {
+                Prefs.setString(app, "xt_notice_day", today)
+                activity.runOnUiThread {
+                    if (!activity.isDestroyed) GlassUi.toast(activity, when {
+                        days < 0 -> "Your Dodgy Box subscription has ended - ask your seller to renew it"
+                        days == 0 -> "Your Dodgy Box subscription ends today"
+                        days == 1 -> "Your Dodgy Box subscription ends tomorrow"
+                        else -> "Your Dodgy Box subscription ends in $days days"
+                    })
+                }
+            }
+        }.start()
+    }
+
     fun signOut(c: Context) {
         listOf("xt_server", "xt_user", "xt_pass").forEach { Prefs.setString(c, it, null) }
         clearCache(c)
@@ -77,6 +101,7 @@ object Xtream {
         if (info.optInt("auth", 1) == 0) throw Exception("Wrong username or password")
         val status = info.optString("status", "Active")
         val exp = info.optString("exp_date").toLongOrNull()
+        if (exp != null) Prefs.setString(c, "xt_exp", (exp * 1000).toString())
         val until = exp?.let { " until " + java.text.SimpleDateFormat("d MMM yyyy", java.util.Locale.UK).format(java.util.Date(it * 1000)) }.orEmpty()
         return status + until
     }
