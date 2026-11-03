@@ -560,112 +560,45 @@ class WatchActivity : AppCompatActivity() {
             eyebrow = "LIVE", alt = Xtream.liveUrl(app, ch.id, hls = true), liveId = ch.id, liveCat = ch.category)
     }
 
-    /**
-     * Live TV straight from the provider: the popular channels first (like a set-top box's front page),
-     * then the channel groups, then a proper guide - channels down the side, time across the top.
-     */
+    /** Live TV: a big "TV Guide" button (opens the full-screen guide) and the popular channels, ready at once. */
     private fun buildLiveProvider(token: Int) {
         val host = rows
         val app = applicationContext
         val t0 = Perf.now()
+        // The guide button first: it works immediately, whatever else is still loading.
+        val guideBtn = GlassUi.text(this, "Open the TV Guide", 17f, R.font.inter_semibold, GlassUi.INK).apply {
+            gravity = Gravity.CENTER
+            background = GlassUi.rowBackground(this@WatchActivity, 16f)
+            isFocusable = true; isClickable = true
+            setPadding(dp(context, 30f), 0, dp(context, 30f), 0)
+            setOnClickListener { startActivity(android.content.Intent(this@WatchActivity, LiveGuideActivity::class.java)) }
+            setOnFocusChangeListener { v, has -> Motion.spring(v, if (has) 1.05f else 1f) }
+            contentDescription = "Open the TV Guide"
+        }
+        host.addView(guideBtn, LinearLayout.LayoutParams(-2, dp(this, 46f)).apply { setMargins(dp(this@WatchActivity, 56f), dp(this@WatchActivity, 6f), 0, dp(this@WatchActivity, 10f)) })
         val loading = GlassUi.text(this, "Loading channels…", 13f, R.font.inter_medium, 0x99FFFFFF.toInt())
-        host.addView(loading, LinearLayout.LayoutParams(-2, -2).apply { setMargins(dp(this@WatchActivity, 56f), dp(this@WatchActivity, 20f), 0, 0) })
+        host.addView(loading, LinearLayout.LayoutParams(-2, -2).apply { setMargins(dp(this@WatchActivity, 56f), dp(this@WatchActivity, 8f), 0, 0) })
         Thread {
-            // The free guide gives now / next; make sure it is ready before the rows are drawn.
             val ready = java.util.concurrent.CountDownLatch(1)
             runOnUiThread { LiveGuide.load(this) { ready.countDown() } }
-            try { ready.await(4, java.util.concurrent.TimeUnit.SECONDS) } catch (e: Exception) {}
+            try { ready.await(3, java.util.concurrent.TimeUnit.SECONDS) } catch (e: Exception) {}
             val cats = Xtream.liveCategories(app)
-            // Every group in the provider's own order, UK first, then live events, 24/7, US and the rest.
-            fun rank(name: String): Int {
-                val n = name.trim()
-                return when {
-                    n.startsWith("UK", true) -> 0
-                    n.startsWith("LIVE", true) -> 10
-                    n.startsWith("24/7", true) -> 20
-                    n.startsWith("US", true) -> 30
-                    else -> 40
-                }
-            }
-            val catIds = cats.keys.filterNot { cats[it].orEmpty().contains("radio", true) }
-                .sortedWith(compareBy { rank(cats[it].orEmpty()) }).take(110)     // stable: keeps the provider's order within each
-            val first = catIds.firstOrNull()
+            val first = cats.entries.firstOrNull { it.value.trim().startsWith("UK", true) && it.value.contains("entertainment", true) }?.key
+                ?: cats.keys.firstOrNull { cats[it].orEmpty().trim().startsWith("UK", true) } ?: cats.keys.firstOrNull()
             val all = if (first == null) emptyList() else try { Xtream.liveInCategory(app, first) } catch (e: Exception) { emptyList() }
             runOnUiThread {
                 if (containerToken[host] != token || isDestroyed) return@runOnUiThread
                 host.removeView(loading)
-                if (all.isEmpty() || first == null) {
-                    Diag.send(app, "livetab", "Falling back to the old guide: ${cats.size} groups, chosen ${catIds.size}, first channel list ${all.size} entries. Group names: ${cats.values.take(25)}")
-                    buildLiveGuide(token); return@runOnUiThread
-                }
-
-                // ---- Popular ----
-                val byGroupFirst = all.sortedWith(compareBy({ if ((cats[it.category] ?: "").contains("entertainment", true)) 0 else 1 }, { it.num }))
                 val popular = popularNames.mapNotNull { n ->
                     val k = TextMatch.normalise(n)
-                    byGroupFirst.firstOrNull { TextMatch.normalise(it.name) == k }
-                        ?: byGroupFirst.firstOrNull { TextMatch.normalise(it.name).let { x -> TextMatch.matches(x, k) } }
+                    all.firstOrNull { TextMatch.normalise(it.name) == k } ?: all.firstOrNull { TextMatch.normalise(it.name).let { x -> TextMatch.matches(x, k) } }
                 }.distinctBy { it.id }
                 if (popular.isNotEmpty()) {
                     val r = row("popular", "Popular", height = 150f)
                     r.list.adapter = CardAdapter(popular, { p -> wideCard(p) }) { h, ch -> bindLiveCard(h, ch) }
                     host.addView(r.view)
                 }
-
-                // ---- Groups + guide ----
-                host.addView(GlassUi.text(this, "Guide", 15f, R.font.inter_semibold),
-                    LinearLayout.LayoutParams(-2, -2).apply { setMargins(dp(this@WatchActivity, 56f), dp(this@WatchActivity, 14f), 0, dp(this@WatchActivity, 6f)) })
-                val heads = LinearLayout(this).apply { clipChildren = false; clipToPadding = false; setPadding(dp(context, 56f), dp(context, 4f), dp(context, 56f), dp(context, 8f)) }
-                val headScroll = android.widget.HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; clipChildren = false; clipToPadding = false; isFillViewport = false; addView(heads) }
-                val pills = mutableListOf<TextView>()
-                val infoTitle = GlassUi.text(this, "", 17f, R.font.inter_semibold).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
-                val infoSub = GlassUi.text(this, "", 12f, R.font.inter_medium, 0xCCFFFFFF.toInt()).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END }
-                val epg = EpgView(this)
-                epg.onSelect = { row, prog ->
-                    val fmt = java.text.SimpleDateFormat("h:mma", java.util.Locale.UK)
-                    infoTitle.text = prog?.title ?: row.ch.name
-                    infoSub.text = if (prog == null) "Live on ${row.ch.name}"
-                        else "${row.ch.name}  ·  ${fmt.format(java.util.Date(prog.start)).lowercase()} – ${fmt.format(java.util.Date(prog.stop)).lowercase()}" +
-                            (if (prog.desc.isNotBlank()) "\n${prog.desc.take(220)}" else "")
-                }
-                epg.onPlay = { row -> playLive(row.ch) }
-                epg.onProgramme = { row, prog ->
-                    val g = row.guide
-                    if (g != null) programmeDialog(g, prog) else playLive(row.ch)
-                }
-                var current: String? = null
-                fun show(catId: String) {
-                    current = catId
-                    pills.forEach { it.isSelected = it.tag == catId; it.alpha = if (it.tag == catId) 1f else 0.7f }
-                    infoTitle.text = "Loading…"; infoSub.text = ""
-                    Thread {
-                        val list = (if (catId == first) all else try { Xtream.liveInCategory(app, catId) } catch (e: Exception) { emptyList() }).sortedBy { it.num }
-                        runOnUiThread {
-                            if (current != catId || containerToken[host] != token || isDestroyed) return@runOnUiThread
-                            epg.setRows(list.take(120).map { EpgView.Row(it, LiveGuide.guideFor(it.name)) })
-                        }
-                    }.start()
-                }
-                for (catId in catIds) {
-                    val name = (cats[catId] ?: "Channels").replace(Regex("\\s*[~|]+\\s*"), " · ").trim().ifBlank { "Channels" }
-                    val pill = GlassUi.text(this, name, 13f, R.font.inter_medium).apply {
-                        tag = catId
-                        background = GlassUi.panel(context, 16f, 0x20)
-                        setPadding(dp(context, 16f), dp(context, 8f), dp(context, 16f), dp(context, 8f))
-                        isFocusable = true; isClickable = true
-                        setOnClickListener { show(catId) }
-                        setOnFocusChangeListener { v, has -> Motion.spring(v, if (has) 1.06f else 1f); if (has) show(catId) }
-                    }
-                    pills += pill
-                    heads.addView(pill, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(this@WatchActivity, 8f) })
-                }
-                host.addView(headScroll, LinearLayout.LayoutParams(-1, -2))
-                val infoBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(context, 4f), 0, dp(context, 4f), dp(context, 8f)) }
-                infoBox.addView(infoTitle); infoBox.addView(infoSub)
-                host.addView(infoBox, LinearLayout.LayoutParams(-1, -2).apply { marginStart = dp(this@WatchActivity, 60f); marginEnd = dp(this@WatchActivity, 56f) })
-                host.addView(epg, LinearLayout.LayoutParams(-1, -2).apply { marginStart = dp(this@WatchActivity, 56f); marginEnd = dp(this@WatchActivity, 56f) })
-                show(first)
-                Perf.note("Live TV: front page and guide ready", t0)
+                Perf.note("Live TV: front page ready", t0)
                 if (host === rows && rows.findFocus() == null) rows.post { firstItem()?.requestFocus() }
             }
         }.start()

@@ -28,8 +28,8 @@ class EpgView(context: Context) : View(context) {
     var onProgramme: ((Row, LiveGuide.Programme) -> Unit)? = null
 
     private val d = resources.displayMetrics.density
-    private val visibleRows = 7
-    private val rowH = 50 * d
+    private var visibleRows = 7
+    private val rowH = 52 * d
     private val headH = 30 * d
     private val chW = 190 * d
     private val pxPerMin = 4.4f * d
@@ -67,8 +67,17 @@ class EpgView(context: Context) : View(context) {
     }
 
     override fun onMeasure(w: Int, h: Int) {
-        setMeasuredDimension(MeasureSpec.getSize(w), (headH + rowH * visibleRows).toInt())
+        if (MeasureSpec.getMode(h) == MeasureSpec.EXACTLY) {
+            visibleRows = ((MeasureSpec.getSize(h) - headH) / rowH).toInt().coerceAtLeast(3)
+            setMeasuredDimension(MeasureSpec.getSize(w), MeasureSpec.getSize(h))
+        } else setMeasuredDimension(MeasureSpec.getSize(w), (headH + rowH * visibleRows).toInt())
     }
+
+    /** Move the highlight to a given channel (used when the category changes or the guide opens on a channel). */
+    fun selectChannel(id: Int) { rows.indexOfFirst { it.ch.id == id }.takeIf { it >= 0 }?.let { selRow = it; reveal(); notifySelect(); invalidate() } }
+
+    var onLeftEdge: (() -> Unit)? = null
+    var onRecord: ((Row, LiveGuide.Programme?) -> Unit)? = null
 
     // ---- selection ----
 
@@ -112,11 +121,14 @@ class EpgView(context: Context) : View(context) {
             }
             KeyEvent.KEYCODE_DPAD_LEFT -> {
                 val prev = progs.filter { it.start < (cur?.start ?: selTime) && it.stop > System.currentTimeMillis() - 1_800_000L }.maxByOrNull { it.start }
-                if (prev == null) return true
+                if (prev == null) { onLeftEdge?.invoke(); return true }
                 selTime = prev.start.coerceAtLeast(winStart)
             }
             KeyEvent.KEYCODE_DPAD_DOWN -> { if (selRow >= rows.size - 1) return false; selRow++ }
             KeyEvent.KEYCODE_DPAD_UP -> { if (selRow <= 0) return false; selRow-- }
+            KeyEvent.KEYCODE_PAGE_DOWN, KeyEvent.KEYCODE_CHANNEL_DOWN -> { selRow = minOf(rows.size - 1, selRow + visibleRows - 1) }
+            KeyEvent.KEYCODE_PAGE_UP, KeyEvent.KEYCODE_CHANNEL_UP -> { selRow = maxOf(0, selRow - (visibleRows - 1)) }
+            KeyEvent.KEYCODE_MEDIA_RECORD, KeyEvent.KEYCODE_PROG_RED -> { onRecord?.invoke(r, cur); return true }
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
                 val now = System.currentTimeMillis()
                 if (cur == null || cur.isOn(now)) onPlay?.invoke(r) else onProgramme?.invoke(r, cur)

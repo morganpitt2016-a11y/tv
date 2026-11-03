@@ -69,6 +69,7 @@ object TiviRecorder {
     }
 
     private fun idOf(channel: String, start: Long) = (channel + start).hashCode()
+    fun idFor(channel: String, start: Long) = idOf(channel, start)
 
     fun isScheduled(c: Context, ch: LiveGuide.Channel, p: LiveGuide.Programme) = list(c).any { it.id == idOf(ch.name, p.start) }
 

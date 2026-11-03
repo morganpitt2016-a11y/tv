@@ -335,6 +335,9 @@ object LiveGuide {
         return options.firstOrNull { (pkg, _) -> launchIntent(c, pkg) != null }
     }
 
+    /** The guide already in memory, if any. */
+    fun cached(): List<Channel>? = shown ?: memory
+
     private val matchCache = java.util.concurrent.ConcurrentHashMap<String, Any>()
     @Volatile private var cacheList: Any? = null
 

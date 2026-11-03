@@ -54,7 +54,21 @@ object Recordings {
         save(c, list(c).filter { it.id != r.id })
     }
 
-    fun dir(c: Context): File = File(c.getExternalFilesDir(null) ?: c.filesDir, "recordings").apply { mkdirs() }
+    /** Recordings go on the roomiest storage the TV has: a USB drive or SD card if one is plugged in, else the TV itself. */
+    fun dir(c: Context): File {
+        val roots = try { c.getExternalFilesDirs(null).filterNotNull() } catch (e: Exception) { emptyList() }
+        val best = roots.filter { it.exists() || it.mkdirs() }.maxByOrNull { try { it.usableSpace } catch (e: Exception) { 0L } } ?: c.filesDir
+        return File(best, "recordings").apply { mkdirs() }
+    }
+
+    /** "12.4 GB free on the TV" / "on the USB drive", for the guide. */
+    fun storageSummary(c: Context): String {
+        val d = dir(c)
+        val internal = c.getExternalFilesDir(null)
+        val where = if (internal != null && d.path.startsWith(internal.path)) "on the TV" else "on the USB drive"
+        val gb = d.usableSpace / 1_000_000_000.0
+        return "%.1f GB free %s".format(gb, where)
+    }
 
     /** Start recording [channel] now until [stop] (plus a couple of minutes, in case it overruns). */
     fun start(c: Context, channel: String, title: String, stop: Long, image: String?): Boolean {
