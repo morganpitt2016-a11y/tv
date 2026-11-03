@@ -33,6 +33,19 @@ class PlayerActivity : Activity() {
     private lateinit var view: PlayerView
     private lateinit var banner: LinearLayout
     private lateinit var optionsPill: android.widget.TextView
+    private lateinit var bannerTitle: android.widget.TextView
+    private lateinit var bannerSub: android.widget.TextView
+    private lateinit var numberView: android.widget.TextView
+    private lateinit var nextView: android.widget.TextView
+    private var titleText = ""
+    private var seriesTitle: String? = null
+    private var liveId = -1
+    private var zapList: List<Xtream.Live> = emptyList()
+    private var zapIndex = 0
+    private var numberBuf = ""
+    private class Queued(val url: String, val season: Int, val episode: Int)
+    private val queue = ArrayDeque<Queued>()
+    private var counting = false
     private val handler = Handler(Looper.getMainLooper())
     private var url = ""
     private var altUrl: String? = null
@@ -78,11 +91,42 @@ class PlayerActivity : Activity() {
             setPadding(dp(context, 22f), dp(context, 14f), dp(context, 26f), dp(context, 16f))
         }
         intent.getStringExtra(EXTRA_EYEBROW)?.let { banner.addView(GlassUi.text(this, it, 11f, R.font.inter_semibold, 0x99FFFFFF.toInt()).apply { letterSpacing = 0.12f }) }
-        banner.addView(GlassUi.text(this, intent.getStringExtra(EXTRA_TITLE).orEmpty(), 22f, R.font.inter_semibold))
-        intent.getStringExtra(EXTRA_SUBTITLE)?.let { banner.addView(GlassUi.text(this, it, 13f, R.font.inter_medium, 0xCCFFFFFF.toInt())) }
+        titleText = intent.getStringExtra(EXTRA_TITLE).orEmpty()
+        bannerTitle = GlassUi.text(this, titleText, 22f, R.font.inter_semibold)
+        bannerSub = GlassUi.text(this, intent.getStringExtra(EXTRA_SUBTITLE).orEmpty(), 13f, R.font.inter_medium, 0xCCFFFFFF.toInt())
+        banner.addView(bannerTitle)
+        banner.addView(bannerSub)
         root.addView(banner, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START).apply { setMargins(dp(this@PlayerActivity, 48f), dp(this@PlayerActivity, 36f), 0, 0) })
+        // Channel number being typed (live TV).
+        numberView = GlassUi.text(this, "", 44f, R.font.inter_semibold).apply {
+            background = GlassUi.panel(context, 18f, 0x40)
+            setPadding(dp(context, 26f), dp(context, 10f), dp(context, 26f), dp(context, 10f))
+            visibility = View.GONE
+        }
+        root.addView(numberView, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply { setMargins(0, dp(this@PlayerActivity, 36f), dp(this@PlayerActivity, 48f), 0) })
+        // "Next episode" countdown.
+        nextView = GlassUi.text(this, "", 15f, R.font.inter_medium).apply {
+            background = GlassUi.panel(context, 18f, 0x50)
+            setPadding(dp(context, 24f), dp(context, 16f), dp(context, 24f), dp(context, 16f))
+            visibility = View.GONE
+        }
+        root.addView(nextView, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, dp(this@PlayerActivity, 48f), dp(this@PlayerActivity, 56f)) })
         setContentView(root)
         handler.postDelayed({ banner.animate().alpha(0f).setDuration(600).start() }, 4500)
+
+        seriesTitle = intent.getStringExtra(EXTRA_SERIES)
+        val qu = intent.getStringArrayExtra(EXTRA_Q_URLS); val qs = intent.getIntArrayExtra(EXTRA_Q_S); val qe = intent.getIntArrayExtra(EXTRA_Q_E)
+        if (qu != null && qs != null && qe != null) for (i in qu.indices) queue.addLast(Queued(qu[i], qs[i], qe[i]))
+        liveId = intent.getIntExtra(EXTRA_LIVE_ID, -1)
+        if (live && liveId >= 0) {
+            val app = applicationContext
+            Thread {
+                val all = try { Xtream.live(app) } catch (e: Exception) { emptyList() }
+                val cur = all.firstOrNull { it.id == liveId }
+                val group = if (cur == null) emptyList() else all.filter { it.category == cur.category }.sortedBy { it.num }
+                runOnUiThread { zapList = group; zapIndex = group.indexOfFirst { it.id == liveId }.coerceAtLeast(0) }
+            }.start()
+        }
     }
 
     override fun onStart() {
@@ -96,6 +140,15 @@ class PlayerActivity : Activity() {
         player = p
         view.player = p
         p.setMediaItem(MediaItem.fromUri(u))
+        // Pick up the subtitle and audio language you chose last time for this title.
+        val key = trackKey()
+        val tl = Prefs.string(this, "trk_t_$key"); val al = Prefs.string(this, "trk_a_$key")
+        if (tl != null || al != null) {
+            val b = p.trackSelectionParameters.buildUpon()
+            al?.let { b.setPreferredAudioLanguage(it) }
+            if (tl == "off") b.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true) else if (tl != null) b.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false).setPreferredTextLanguage(tl)
+            p.trackSelectionParameters = b.build()
+        }
         if (resume) Prefs.int(this, posKey(), 0).takeIf { it > 30 }?.let { p.seekTo(it * 1000L) }
         p.addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
@@ -105,7 +158,10 @@ class PlayerActivity : Activity() {
                 GlassUi.toast(this@PlayerActivity, "This won’t play right now (${error.errorCodeName})")
             }
             override fun onPlaybackStateChanged(state: Int) {
-                if (state == Player.STATE_ENDED && !live) { Prefs.setInt(this@PlayerActivity, posKey(), 0); finish() }
+                if (state == Player.STATE_ENDED && !live) {
+                    Prefs.setInt(this@PlayerActivity, posKey(), 0)
+                    if (queue.isNotEmpty()) startCountdown() else finish()
+                }
             }
         })
         p.playWhenReady = true
@@ -127,7 +183,94 @@ class PlayerActivity : Activity() {
         player = null
     }
 
+    private fun trackKey() = (seriesTitle ?: titleText).lowercase().replace(Regex("[^a-z0-9]+"), "")
+
+    private fun showBanner(ms: Long = 3500) {
+        banner.animate().cancel(); banner.alpha = 1f
+        handler.removeCallbacks(hideBanner)
+        handler.postDelayed(hideBanner, ms)
+    }
+    private val hideBanner = Runnable { banner.animate().alpha(0f).setDuration(600).start() }
+
+    // ---------- Live: channel up / down / number ----------
+
+    private fun tuneTo(ch: Xtream.Live) {
+        val app = applicationContext
+        liveId = ch.id
+        url = Xtream.liveUrl(app, ch.id); altUrl = Xtream.liveUrl(app, ch.id, hls = true); triedAlt = false
+        titleText = ch.name
+        bannerTitle.text = ch.name
+        bannerSub.text = LiveGuide.nowNext(app, ch.name).orEmpty()
+        showBanner()
+        start(url, resume = false)
+    }
+
+    private fun zap(delta: Int) {
+        if (zapList.isEmpty()) return
+        zapIndex = (zapIndex + delta + zapList.size) % zapList.size
+        tuneTo(zapList[zapIndex])
+    }
+
+    private fun typeDigit(d: Int) {
+        numberBuf = (numberBuf + d).takeLast(4)
+        numberView.text = numberBuf; numberView.visibility = View.VISIBLE
+        handler.removeCallbacks(commitNumber)
+        handler.postDelayed(commitNumber, 1600)
+    }
+    private val commitNumber = Runnable { commitNumberNow() }
+    private fun commitNumberNow() {
+        handler.removeCallbacks(commitNumber)
+        val n = numberBuf.toIntOrNull(); numberBuf = ""; numberView.visibility = View.GONE
+        if (n == null) return
+        val i = zapList.indexOfFirst { it.num == n }.takeIf { it >= 0 } ?: zapList.getOrNull(n - 1)?.let { n - 1 } ?: return GlassUi.toast(this, "No channel $n")
+        zapIndex = i; tuneTo(zapList[i])
+    }
+
+    // ---------- Series: next episode ----------
+
+    private fun startCountdown() {
+        val next = queue.first()
+        counting = true
+        var left = 8
+        fun tick() {
+            if (!counting) return
+            nextView.text = "Next episode · S${next.season} E${next.episode}\nPlaying in ${left}s   ·   OK to play now   ·   Back to stop"
+            nextView.visibility = View.VISIBLE
+            if (left-- <= 0) { playNext(); return }
+            handler.postDelayed({ tick() }, 1000)
+        }
+        tick()
+    }
+
+    private fun playNext() {
+        counting = false
+        nextView.visibility = View.GONE
+        val n = queue.removeFirstOrNull() ?: return finish()
+        url = n.url
+        bannerSub.text = "Season ${n.season}, Episode ${n.episode}"
+        seriesTitle?.let { WatchHistory.record(applicationContext, it, n.season, n.episode) }
+        WatchHistory.forget(applicationContext, n.url)
+        showBanner(4500)
+        start(n.url, resume = false)
+    }
+
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (counting && event.action == KeyEvent.ACTION_DOWN) {
+            when (event.keyCode) {
+                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> { handler.removeCallbacksAndMessages(null); playNext(); return true }
+                KeyEvent.KEYCODE_BACK -> { counting = false; finish(); return true }
+            }
+            return true
+        }
+        if (live && event.action == KeyEvent.ACTION_DOWN && !optionsPill.isFocused) {
+            val k = event.keyCode
+            when {
+                k == KeyEvent.KEYCODE_DPAD_UP || k == KeyEvent.KEYCODE_CHANNEL_UP -> { zap(1); return true }
+                k == KeyEvent.KEYCODE_DPAD_DOWN || k == KeyEvent.KEYCODE_CHANNEL_DOWN -> { zap(-1); return true }
+                k in KeyEvent.KEYCODE_0..KeyEvent.KEYCODE_9 -> { typeDigit(k - KeyEvent.KEYCODE_0); return true }
+                (k == KeyEvent.KEYCODE_DPAD_CENTER || k == KeyEvent.KEYCODE_ENTER) && numberBuf.isNotEmpty() -> { commitNumberNow(); return true }
+            }
+        }
         if (event.action == KeyEvent.ACTION_DOWN && event.keyCode in listOf(KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_CAPTIONS, KeyEvent.KEYCODE_SETTINGS, KeyEvent.KEYCODE_INFO)) {
             options(); return true
         }
@@ -191,14 +334,22 @@ class PlayerActivity : Activity() {
         if (list.isEmpty()) d.message(if (type == C.TRACK_TYPE_TEXT) "This film has no subtitles in the file." else "Only one audio track.")
         if (type == C.TRACK_TYPE_TEXT) d.button("Off") {
             p.trackSelectionParameters = p.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
+            rememberTrack(C.TRACK_TYPE_TEXT, "off")
         }
         for (c in list) d.button(c.label + if (c.group.isTrackSelected(c.index)) "  ✓" else "") {
             p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
                 .setTrackTypeDisabled(type, false)
                 .setOverrideForType(TrackSelectionOverride(c.group.mediaTrackGroup, c.index)).build()
+            rememberTrack(type, c.group.getTrackFormat(c.index).language?.takeIf { it != "und" })
         }
         d.button("Back") { options() }
         d.show()
+    }
+
+    private fun rememberTrack(type: Int, language: String?) {
+        val k = trackKey()
+        if (type == C.TRACK_TYPE_TEXT) Prefs.setString(this, "trk_t_$k", language)
+        else if (language != null) Prefs.setString(this, "trk_a_$k", language)
     }
 
     private fun pickPicture() {
@@ -234,11 +385,23 @@ class PlayerActivity : Activity() {
         const val EXTRA_SUBTITLE = "sub"
         const val EXTRA_EYEBROW = "eyebrow"
         const val EXTRA_FROM_START = "from_start"
+        const val EXTRA_LIVE_ID = "live_id"
+        const val EXTRA_SERIES = "series"
+        const val EXTRA_Q_URLS = "q_urls"
+        const val EXTRA_Q_S = "q_s"
+        const val EXTRA_Q_E = "q_e"
 
-        fun play(c: Context, url: String, title: String, live: Boolean, subtitle: String? = null, eyebrow: String? = null, alt: String? = null, fromStart: Boolean = false) {
+        fun play(
+            c: Context, url: String, title: String, live: Boolean, subtitle: String? = null, eyebrow: String? = null, alt: String? = null,
+            fromStart: Boolean = false, liveId: Int = -1, series: String? = null, queue: List<Triple<String, Int, Int>> = emptyList(),
+        ) {
             c.startActivity(Intent(c, PlayerActivity::class.java)
                 .putExtra(EXTRA_URL, url).putExtra(EXTRA_ALT_URL, alt).putExtra(EXTRA_LIVE, live)
                 .putExtra(EXTRA_TITLE, title).putExtra(EXTRA_SUBTITLE, subtitle).putExtra(EXTRA_EYEBROW, eyebrow).putExtra(EXTRA_FROM_START, fromStart)
+                .putExtra(EXTRA_LIVE_ID, liveId).putExtra(EXTRA_SERIES, series)
+                .putExtra(EXTRA_Q_URLS, queue.map { it.first }.toTypedArray())
+                .putExtra(EXTRA_Q_S, queue.map { it.second }.toIntArray())
+                .putExtra(EXTRA_Q_E, queue.map { it.third }.toIntArray())
                 .addFlags(if (c is Activity) 0 else Intent.FLAG_ACTIVITY_NEW_TASK))
         }
     }

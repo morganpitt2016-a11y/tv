@@ -907,6 +907,8 @@ class WatchActivity : AppCompatActivity() {
         }.start()
     }
 
+    private var lastEpisodes: List<Xtream.Episode> = emptyList()
+
     private fun playFilm(t: WatchCatalog.Title, url: String) {
         fun go(fromStart: Boolean) {
             if (fromStart) WatchHistory.forget(applicationContext, url)
@@ -925,12 +927,16 @@ class WatchActivity : AppCompatActivity() {
         val url = Xtream.episodeUrl(app, e)
         if (fromStart) WatchHistory.forget(app, url)
         WatchHistory.record(app, t.name, e.season, e.number)
-        PlayerActivity.play(this, url, t.name, live = false, subtitle = "Season ${e.season}, Episode ${e.number}", eyebrow = "SERIES", fromStart = fromStart)
+        val all = lastEpisodes.takeIf { l -> l.any { it.id == e.id } } ?: listOf(e)
+        val rest = all.dropWhile { it.id != e.id }.drop(1).map { Triple(Xtream.episodeUrl(app, it), it.season, it.number) }
+        PlayerActivity.play(this, url, t.name, live = false, subtitle = "Season ${e.season}, Episode ${e.number}", eyebrow = "SERIES",
+            fromStart = fromStart, series = t.name, queue = rest)
     }
 
     private fun chooseEpisode(t: WatchCatalog.Title, episodes: List<Xtream.Episode>) {
         val app = applicationContext
         val sorted = episodes.sortedWith(compareBy({ it.season }, { it.number }))
+        lastEpisodes = sorted
         val last = WatchHistory.last(app, t.name)?.let { l -> sorted.indexOfFirst { it.season == l.season && it.number == l.episode } }?.takeIf { it >= 0 }
         if (last == null) return episodeList(t, sorted)
         // Been here before: offer to pick up where you were, move on, or start again - not always episode one.

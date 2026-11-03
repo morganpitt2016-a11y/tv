@@ -335,6 +335,17 @@ object LiveGuide {
         return options.firstOrNull { (pkg, _) -> launchIntent(c, pkg) != null }
     }
 
+    /** "Now  ·  Next: …" for a channel (by its provider name), from the guide already in memory. */
+    fun nowNext(c: Context, providerName: String): String? {
+        val list = shown ?: memory ?: return null
+        val k = TextMatch.normalise(providerName)
+        val ch = list.firstOrNull { TextMatch.normalise(it.name) == k }
+            ?: list.firstOrNull { TextMatch.normalise(it.name).let { n -> n.isNotEmpty() && TextMatch.matches(k, n) } } ?: return null
+        val now = ch.now() ?: return null
+        val next = ch.upcoming().firstOrNull { it.start >= now.stop }
+        return listOfNotNull(now.title, next?.let { "Next: ${it.title}" }).joinToString("  ·  ")
+    }
+
     fun hasTiviMate(c: Context) = launchIntent(c, TIVIMATE) != null
 
     /** Opens TiviMate (it resumes on the last channel you watched). */
@@ -348,7 +359,7 @@ object LiveGuide {
                     if (activity.isDestroyed) return@runOnUiThread
                     if (hit != null) {
                         PlayerActivity.play(activity, Xtream.liveUrl(app, hit.id), channel.name, live = true,
-                            subtitle = channel.now()?.title, eyebrow = "LIVE", alt = Xtream.liveUrl(app, hit.id, hls = true))
+                            subtitle = channel.now()?.title, eyebrow = "LIVE", alt = Xtream.liveUrl(app, hit.id, hls = true), liveId = hit.id)
                     } else openViaTiviMate(activity, channel, null)
                 }
             }.start()
