@@ -125,6 +125,17 @@ object Diag {
             cmd == "screen" -> send(app, "screen", onMain { TiviTuner.tiviScreen() })
             cmd == "speedtest" -> main.post { Perf.runSpeedTest(app) { send(app, "speedtest", it) } }
             cmd == "xtream_from_guide" -> send(app, "xtream", try { "Signed in from the guide link: " + Xtream.signInFromGuideLink(app) } catch (e: Exception) { "Couldn't sign in from the guide link: ${e.message}" })
+            cmd.startsWith("xfilm:") -> thread(isDaemon = true) {
+                val title = cmd.removePrefix("xfilm:").trim()
+                val t0 = android.os.SystemClock.uptimeMillis()
+                val v = try { Xtream.findVod(app, title, 0) } catch (e: Exception) { null }
+                val ms = android.os.SystemClock.uptimeMillis() - t0
+                if (v == null) send(app, "xfilm", "\"$title\" not found in the provider's films ($ms ms)")
+                else {
+                    send(app, "xfilm", "Found \"$title\" in $ms ms - starting the player")
+                    main.post { PlayerActivity.play(app, Xtream.vodUrl(app, v), title, live = false, eyebrow = "FILM") }
+                }
+            }
             cmd == "audio" -> send(app, "audio", TiviTuner.audioReport(app))
             cmd == "recs" -> send(app, "recs", TiviRecorder.describe(app))
             cmd == "clearrec" || cmd.startsWith("clearrec:") -> {
