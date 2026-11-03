@@ -849,7 +849,19 @@ class WatchActivity : AppCompatActivity() {
      */
     private fun watchOnDodgyBox(t: WatchCatalog.Title) {
         val show = t.type == "SHOW"
-        if (!Xtream.isSetUp(this)) { TiviTuner.playVod(this, t.name, t.year, show); return }
+        if (!Xtream.isSetUp(this)) {
+            val last = if (show) WatchHistory.last(this, t.name) else null
+            if (last == null) { TiviTuner.playVod(this, t.name, t.year, show); return }
+            // Watched before: pick up where you were, move on, or start again - TiviMate alone starts at episode one.
+            fun go(s: Int, e: Int) { TiviTuner.playVod(this, t.name, t.year, show, episode = s to e) }
+            GlassDialog(this).title(t.name).message("You last watched S${last.season} E${last.episode}.")
+                .button("Continue S${last.season} E${last.episode}", GlassDialog.Style.BOLD) { go(last.season, last.episode) }
+                .button("Next episode · S${last.season} E${last.episode + 1}") { go(last.season, last.episode + 1) }
+                .button("Start from the beginning") { go(1, 1) }
+                .button("Choose in TiviMate") { TiviTuner.playVod(this, t.name, t.year, show) }
+                .button("Cancel").show()
+            return
+        }
         GlassUi.toast(this, "Finding ${t.name} on Dodgy Box…")
         val app = applicationContext
         Thread {

@@ -715,6 +715,7 @@ object TiviTuner {
                 cover = box
                 note("Cover is up")
                 mute(c, true)
+                hush(c)
                 box.animate().alpha(1f).setDuration(150).start()
                 // Never leave it up by mistake.
                 main.postDelayed({ hideCover() }, 25_000)
@@ -722,6 +723,34 @@ object TiviTuner {
         }
     }
 
+    /** Is [t] the row for season [sn] episode [en] in TiviMate's episode list ("E4. Show - S01E04 - Title")? */
+    private fun episodeRow(t: String, sn: Int, en: Int): Boolean {
+        Regex("S0*(\\d+)E0*(\\d+)").find(t)?.let { m -> return m.groupValues[1].toInt() == sn && m.groupValues[2].toInt() == en }
+        return sn == 1 && Regex("^E0*$en\\.").containsMatchIn(t)
+    }
+
+    // Hold audio focus while the cover is up: players that respect it (TiviMate's live channel does) pause
+    // instead of being heard underneath. Muting the stream alone doesn't work on every TV.
+    private var focusRequest: android.media.AudioFocusRequest? = null
+
+    private fun holdAudio(c: android.content.Context, on: Boolean) {
+        val am = c.getSystemService(android.media.AudioManager::class.java) ?: return
+        try {
+            if (on && focusRequest == null) {
+                val req = android.media.AudioFocusRequest.Builder(android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
+                    .setAudioAttributes(android.media.AudioAttributes.Builder().setUsage(android.media.AudioAttributes.USAGE_MEDIA).build())
+                    .setOnAudioFocusChangeListener { }.build()
+                if (am.requestAudioFocus(req) == android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED) focusRequest = req
+            } else if (!on) {
+                focusRequest?.let { am.abandonAudioFocusRequest(it) }
+                focusRequest = null
+            }
+        } catch (e: Exception) {}
+    }
+
+    private val quietStreams = intArrayOf(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.STREAM_NOTIFICATION,
+        android.media.AudioManager.STREAM_SYSTEM)
+    private val mutedStreams = HashSet<Int>()
     private var mutedByUs = false
 
     /**
@@ -754,19 +783,22 @@ object TiviTuner {
         } catch (e: Exception) {}
     }
 
-    /** Silence the TV while TiviMate is being driven, so the old channel isn't heard. */
+    /** Silence the TV while TiviMate is being driven, so the old channel and search chimes aren't heard. */
     private fun mute(c: android.content.Context, on: Boolean) {
         val am = c.getSystemService(android.media.AudioManager::class.java) ?: return
-        try {
-            if (on) {
-                if (am.isStreamMute(android.media.AudioManager.STREAM_MUSIC)) return
-                am.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_MUTE, 0)
-                mutedByUs = true
-            } else if (mutedByUs) {
-                mutedByUs = false
-                am.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_UNMUTE, 0)
-            }
-        } catch (e: Exception) {}
+        holdAudio(c, on)
+        if (on) {
+            for (st in quietStreams) try {
+                if (am.isStreamMute(st)) continue
+                am.adjustStreamVolume(st, android.media.AudioManager.ADJUST_MUTE, 0)
+                mutedStreams += st
+            } catch (e: Exception) {}
+            mutedByUs = mutedStreams.isNotEmpty()
+        } else {
+            for (st in mutedStreams.toList()) try { am.adjustStreamVolume(st, android.media.AudioManager.ADJUST_UNMUTE, 0) } catch (e: Exception) {}
+            mutedStreams.clear()
+            mutedByUs = false
+        }
     }
 
     fun hideCover() {
@@ -806,7 +838,7 @@ object TiviTuner {
         return tiviRoots(service).firstNotNullOfOrNull { walk(it) }
     }
 
-    fun playVod(c: android.content.Context, title: String, year: Int, show: Boolean) {
+    fun playVod(c: android.content.Context, title: String, year: Int, show: Boolean, episode: Pair<Int, Int>? = null) {
         val app = c.applicationContext
         fun say(t: String) = android.widget.Toast.makeText(app, t, android.widget.Toast.LENGTH_LONG).show()
         val intent = LiveGuide.launchIntent(app, PKG) ?: return say("TiviMate isn’t installed")
@@ -817,6 +849,7 @@ object TiviTuner {
         setBusy(true)
         returnToWatch = true
         showCover(title, "Opening Dodgy Box…")
+        hush(app)                                    // pause the live channel before TiviMate comes forward
         note("---- Find ${if (show) "show" else "film"} \"$title\" ($year) in TiviMate (looking for \"$wanted\")")
         try { app.startActivity(Intent(intent).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {}
 
@@ -826,6 +859,8 @@ object TiviTuner {
         var lefts = 0
         var backs = 0
         var typed = false
+        var episodeScrolls = 0
+        var episodeGaveUp = false
         var finished = false
         fun finish(ok: Boolean, why: String) {
             if (finished) return
@@ -884,7 +919,10 @@ object TiviTuner {
                         val t = (n.text ?: n.contentDescription)?.toString()
                         if (t != null && !n.isEditable && t.length < 90) {
                             val k = vodKey(t)
+                            val otherYear = Regex("\\((19|20)\\d\\d\\)").find(t)?.value?.let { y -> !(year > 0 && y.contains(year.toString())) } == true
                             val score = when {
+                                k == wanted && show && otherYear -> 0          // a film of the same name, not the series
+                                k == wanted && otherYear && stageTries < 8 -> 0 // wrong year: keep looking a moment
                                 k == wanted && year > 0 && t.contains(year.toString()) -> 3
                                 k == wanted -> 2
                                 k.startsWith("$wanted ") && k.length <= wanted.length + 12 -> 1
@@ -906,10 +944,34 @@ object TiviTuner {
                     later(150, { finish(false, "Error") }) { step() }
                 }
                 else -> {
+                    val want = episode
+                    if (want != null && !episodeGaveUp) {
+                        val (sn, en) = want
+                        val row = findNode(service) { n -> (n.text ?: n.contentDescription)?.toString()?.let { episodeRow(it, sn, en) } == true }
+                        if (row != null) {
+                            note("TiviMate's page for it:\n" + compactScreen(onlyTivi = true))
+                            note("Pressing episode S$sn E$en: \"${row.text ?: row.contentDescription}\"")
+                            WatchHistory.record(app, title, sn, en)
+                            pressNode(service, row)
+                            main.postDelayed({ finish(true, "Playing S$sn E$en") }, 450)
+                            return
+                        }
+                        // Not in the few rows showing: scroll TiviMate's episode list.
+                        val list = findNode(service) { n -> n.isScrollable && texts(n).any { Regex("^E\\d+\\.").containsMatchIn(it) } }
+                        if (list != null && episodeScrolls++ < 12) {
+                            list.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
+                            later(220, { finish(false, "Error") }) { step() }; return
+                        }
+                        if (list != null || stageTries > 4) { episodeGaveUp = true; note("Episode S$sn E$en not found - playing from TiviMate's own Play button") }
+                        else { stageTries++; later(200, { finish(false, "Error") }) { step() }; return }
+                    }
                     val play = findNode(service) { n -> (n.text ?: n.contentDescription)?.toString()?.let(::isPlayLabel) == true }
                     if (play != null) {
                         note("TiviMate's page for it:\n" + compactScreen(onlyTivi = true))
                         note("Pressing \"${play.text ?: play.contentDescription}\"")
+                        Regex("S(\\d+)\\s*E(\\d+)").find((play.text ?: play.contentDescription).toString())?.let { m ->
+                            WatchHistory.record(app, title, m.groupValues[1].toInt(), m.groupValues[2].toInt())
+                        }
                         pressNode(service, play)
                         main.postDelayed({ finish(true, "Playing") }, 450)
                         return
