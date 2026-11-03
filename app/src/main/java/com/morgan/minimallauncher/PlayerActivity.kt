@@ -12,7 +12,11 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.Tracks
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -28,6 +32,7 @@ class PlayerActivity : Activity() {
     private var player: ExoPlayer? = null
     private lateinit var view: PlayerView
     private lateinit var banner: LinearLayout
+    private lateinit var optionsPill: android.widget.TextView
     private val handler = Handler(Looper.getMainLooper())
     private var url = ""
     private var altUrl: String? = null
@@ -49,6 +54,22 @@ class PlayerActivity : Activity() {
             keepScreenOn = true
         }
         root.addView(view, FrameLayout.LayoutParams(-1, -1))
+        view.resizeMode = Prefs.int(this, "player_resize", AspectRatioFrameLayout.RESIZE_MODE_FIT)
+
+        // "Subtitles · Audio · Picture": shown with the playback controls (and by the Menu key).
+        optionsPill = GlassUi.text(this, "Subtitles · Audio · Picture", 13f, R.font.inter_medium).apply {
+            background = GlassUi.panel(context, 18f, 0x40)
+            setPadding(dp(context, 18f), dp(context, 10f), dp(context, 18f), dp(context, 10f))
+            isFocusable = true
+            isClickable = true
+            visibility = View.GONE
+            setOnClickListener { options() }
+            setOnFocusChangeListener { v, has -> Motion.spring(v, if (has) 1.06f else 1f) }
+        }
+        root.addView(optionsPill, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply { setMargins(0, dp(this@PlayerActivity, 36f), dp(this@PlayerActivity, 48f), 0) })
+        view.setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { v ->
+            optionsPill.visibility = if (v == View.VISIBLE) View.VISIBLE else View.GONE
+        })
 
         // Title card, like tvOS: fades away after a few seconds.
         banner = LinearLayout(this).apply {
@@ -107,13 +128,97 @@ class PlayerActivity : Activity() {
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.action == KeyEvent.ACTION_DOWN && event.keyCode in listOf(KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_CAPTIONS, KeyEvent.KEYCODE_SETTINGS, KeyEvent.KEYCODE_INFO)) {
+            options(); return true
+        }
         if (event.action == KeyEvent.ACTION_DOWN && event.keyCode in listOf(KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER) && live) {
             banner.animate().cancel(); banner.alpha = 1f
+            optionsPill.visibility = View.VISIBLE; optionsPill.requestFocus()
+            handler.postDelayed({ if (!optionsPill.isFocused) optionsPill.visibility = View.GONE }, 6000)
             handler.removeCallbacksAndMessages(null)
             handler.postDelayed({ banner.animate().alpha(0f).setDuration(600).start() }, 3500)
             return true
         }
         return super.dispatchKeyEvent(event)
+    }
+
+    // ---------- Subtitles, audio, picture, speed ----------
+
+    private class Choice(val group: Tracks.Group, val index: Int, val label: String)
+
+    private fun trackLabel(f: androidx.media3.common.Format, n: Int): String {
+        val lang = f.language?.takeIf { it.isNotBlank() && it != "und" }?.let { java.util.Locale(it).displayLanguage }?.takeIf { it.isNotBlank() }
+        val base = f.label?.takeIf { it.isNotBlank() } ?: lang ?: "Track $n"
+        val extra = if (f.channelCount > 2) " · ${if (f.channelCount == 6) "5.1" else "${f.channelCount}ch"}" else ""
+        return base + extra
+    }
+
+    private fun choices(type: Int): List<Choice> {
+        val out = mutableListOf<Choice>()
+        player?.currentTracks?.groups?.filter { it.type == type }?.forEach { g ->
+            for (i in 0 until g.length) if (g.isTrackSupported(i)) out += Choice(g, i, trackLabel(g.getTrackFormat(i), out.size + 1))
+        }
+        return out
+    }
+
+    private fun selectedLabel(type: Int, off: String?): String {
+        val p = player ?: return off ?: "-"
+        if (type == C.TRACK_TYPE_TEXT && p.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)) return off ?: "Off"
+        val c = choices(type)
+        return c.firstOrNull { it.group.isTrackSelected(it.index) }?.label ?: if (type == C.TRACK_TYPE_TEXT) (off ?: "Off") else (c.firstOrNull()?.label ?: "-")
+    }
+
+    private fun resizeName(m: Int) = when (m) {
+        AspectRatioFrameLayout.RESIZE_MODE_FILL -> "Stretch to fill"
+        AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Zoom (crop edges)"
+        else -> "Original shape"
+    }
+
+    private fun options() {
+        val p = player ?: return
+        GlassDialog(this).title("Playback")
+            .button("Subtitles · ${selectedLabel(C.TRACK_TYPE_TEXT, "Off")}") { pickTrack(C.TRACK_TYPE_TEXT, "Subtitles") }
+            .button("Audio · ${selectedLabel(C.TRACK_TYPE_AUDIO, null)}") { pickTrack(C.TRACK_TYPE_AUDIO, "Audio") }
+            .button("Picture · ${resizeName(view.resizeMode)}") { pickPicture() }
+            .button("Speed · ${p.playbackParameters.speed}x") { pickSpeed() }
+            .button("Close").show()
+    }
+
+    private fun pickTrack(type: Int, title: String) {
+        val p = player ?: return
+        val list = choices(type)
+        val d = GlassDialog(this).title(title).scrolling()
+        if (list.isEmpty()) d.message(if (type == C.TRACK_TYPE_TEXT) "This film has no subtitles in the file." else "Only one audio track.")
+        if (type == C.TRACK_TYPE_TEXT) d.button("Off") {
+            p.trackSelectionParameters = p.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
+        }
+        for (c in list) d.button(c.label + if (c.group.isTrackSelected(c.index)) "  ✓" else "") {
+            p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
+                .setTrackTypeDisabled(type, false)
+                .setOverrideForType(TrackSelectionOverride(c.group.mediaTrackGroup, c.index)).build()
+        }
+        d.button("Back") { options() }
+        d.show()
+    }
+
+    private fun pickPicture() {
+        val d = GlassDialog(this).title("Picture")
+        for (m in listOf(AspectRatioFrameLayout.RESIZE_MODE_FIT, AspectRatioFrameLayout.RESIZE_MODE_ZOOM, AspectRatioFrameLayout.RESIZE_MODE_FILL)) {
+            d.button(resizeName(m) + if (view.resizeMode == m) "  ✓" else "") {
+                view.resizeMode = m
+                Prefs.setInt(this, "player_resize", m)
+            }
+        }
+        d.button("Back") { options() }
+        d.show()
+    }
+
+    private fun pickSpeed() {
+        val p = player ?: return
+        val d = GlassDialog(this).title("Speed")
+        for (sp in listOf(0.75f, 1f, 1.25f, 1.5f, 2f)) d.button("${sp}x" + if (p.playbackParameters.speed == sp) "  ✓" else "") { p.setPlaybackSpeed(sp) }
+        d.button("Back") { options() }
+        d.show()
     }
 
     override fun onDestroy() {

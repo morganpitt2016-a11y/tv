@@ -111,10 +111,46 @@ object Xtream {
         dir(c).listFiles()?.forEach { it.delete() }
     }
 
-    /** Downloads a list once (kept for 12 hours), then reads it as a stream - provider lists can be huge. */
-    private fun <T> list(c: Context, action: String, parse: (JsonReader) -> T?): List<T> {
+    private const val MAGIC = 0x58544931
+
+    /**
+     * Provider lists can be huge (a hundred thousand films), so the first read downloads and parses the JSON
+     * once and keeps a compact binary copy; every later start reads that in a fraction of the time, and an
+     * old copy is refreshed quietly in the background.
+     */
+    private fun <T> list(
+        c: Context, action: String, enc: (java.io.DataOutputStream, T) -> Unit, dec: (java.io.DataInputStream) -> T, parse: (JsonReader) -> T?,
+    ): List<T> {
+        val bin = File(dir(c), "$action.bin")
+        fun write(items: List<T>) {
+            if (items.isEmpty()) return
+            val tmp = File(bin.path + ".part")
+            java.io.DataOutputStream(java.io.BufferedOutputStream(tmp.outputStream(), 64 * 1024)).use { o ->
+                o.writeInt(MAGIC); o.writeInt(items.size); items.forEach { enc(o, it) }
+            }
+            tmp.renameTo(bin)
+        }
+        if (bin.exists()) {
+            val items = try {
+                java.io.DataInputStream(java.io.BufferedInputStream(bin.inputStream(), 64 * 1024)).use { i ->
+                    if (i.readInt() != MAGIC) throw java.io.IOException("format")
+                    List(i.readInt()) { dec(i) }
+                }
+            } catch (e: Exception) { bin.delete(); null }
+            if (!items.isNullOrEmpty()) {
+                if (System.currentTimeMillis() - bin.lastModified() > 12 * 3600_000L) {
+                    bin.setLastModified(System.currentTimeMillis())      // one refresh at a time
+                    Thread { try { write(listJson(c, action, parse, force = true)) } catch (e: Exception) {} }.start()
+                }
+                return items
+            }
+        }
+        return listJson(c, action, parse, force = false).also { write(it) }
+    }
+
+    private fun <T> listJson(c: Context, action: String, parse: (JsonReader) -> T?, force: Boolean): List<T> {
         val f = File(dir(c), "$action.json")
-        fun download() {
+        if (force || !f.exists() || System.currentTimeMillis() - f.lastModified() > 12 * 3600_000L) {
             val tmp = File(dir(c), "$action.tmp")
             val conn = URL(api(c, action)).openConnection() as HttpURLConnection
             conn.connectTimeout = 15_000; conn.readTimeout = 60_000
@@ -122,9 +158,6 @@ object Xtream {
             try { conn.inputStream.use { input -> tmp.outputStream().use { input.copyTo(it) } } } finally { conn.disconnect() }
             tmp.renameTo(f)
         }
-        val stale = System.currentTimeMillis() - f.lastModified() > 12 * 3600_000L
-        if (!f.exists()) download()
-        else if (stale) Thread { try { download() } catch (e: Exception) {} }.start()   // use the old copy now, refresh quietly
         val out = ArrayList<T>()
         JsonReader(InputStreamReader(f.inputStream(), Charsets.UTF_8)).use { r ->
             if (r.peek() != JsonToken.BEGIN_ARRAY) { f.delete(); return out }
@@ -133,6 +166,7 @@ object Xtream {
             r.endArray()
         }
         if (out.isEmpty()) f.delete()   // an empty answer is probably an error - ask again next time
+        f.delete()                      // the binary copy replaces it; keeps the cache small
         return out
     }
 
@@ -155,19 +189,27 @@ object Xtream {
 
     private fun icon(s: String?) = s?.takeIf { it.startsWith("http") }
 
-    fun live(c: Context): List<Live> = liveMem ?: list(c, "get_live_streams") { r ->
+    private fun java.io.DataOutputStream.str(x: String?) = writeUTF((x ?: "").take(600))
+
+    fun live(c: Context): List<Live> = liveMem ?: list(c, "get_live_streams",
+        { o, v: Live -> o.writeInt(v.id); o.writeInt(v.num); o.str(v.name); o.str(v.icon); o.str(v.category) },
+        { i -> Live(i.readInt(), i.readInt(), i.readUTF(), i.readUTF().ifEmpty { null }, i.readUTF()) }) { r ->
         val m = obj(r)
         val id = m["stream_id"]?.toIntOrNull() ?: return@list null
         Live(id, m["num"]?.toIntOrNull() ?: 0, m["name"].orEmpty().trim(), icon(m["stream_icon"]), m["category_id"].orEmpty())
     }.also { liveMem = it }
 
-    fun vod(c: Context): List<Vod> = vodMem ?: list(c, "get_vod_streams") { r ->
+    fun vod(c: Context): List<Vod> = vodMem ?: list(c, "get_vod_streams",
+        { o, v: Vod -> o.writeInt(v.id); o.str(v.name); o.str(v.ext); o.str(v.icon); o.str(v.category) },
+        { i -> Vod(i.readInt(), i.readUTF(), i.readUTF(), i.readUTF().ifEmpty { null }, i.readUTF()) }) { r ->
         val m = obj(r)
         val id = m["stream_id"]?.toIntOrNull() ?: return@list null
         Vod(id, m["name"].orEmpty().trim(), m["container_extension"]?.takeIf { it.isNotBlank() } ?: "mp4", icon(m["stream_icon"]), m["category_id"].orEmpty())
     }.also { vodMem = it }
 
-    fun series(c: Context): List<Series> = seriesMem ?: list(c, "get_series") { r ->
+    fun series(c: Context): List<Series> = seriesMem ?: list(c, "get_series",
+        { o, v: Series -> o.writeInt(v.id); o.str(v.name); o.str(v.cover); o.str(v.category) },
+        { i -> Series(i.readInt(), i.readUTF(), i.readUTF().ifEmpty { null }, i.readUTF()) }) { r ->
         val m = obj(r)
         val id = m["series_id"]?.toIntOrNull() ?: return@list null
         Series(id, m["name"].orEmpty().trim(), icon(m["cover"]), m["category_id"].orEmpty())
