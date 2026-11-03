@@ -1173,12 +1173,31 @@ class WatchActivity : AppCompatActivity() {
         d.show()
     }
 
+    /** Seasons first, then that season's episodes - no scrolling through every episode of a long series. */
     private fun episodeList(t: WatchCatalog.Title, episodes: List<Xtream.Episode>) {
-        val d = GlassDialog(this).title(t.name).message("${episodes.size} episodes on Dodgy Box").scrolling()
-        for (e in episodes) {
-            val name = e.title.takeIf { it.isNotBlank() && !it.contains(t.name, ignoreCase = true) }?.let { " · $it" }.orEmpty()
-            d.button("S${e.season} E${e.number}$name") { playEpisode(t, e) }
+        val seasons = episodes.groupBy { it.season }.toSortedMap()
+        if (seasons.size <= 1) { episodesOf(t, episodes, null); return }
+        val last = WatchHistory.last(applicationContext, t.name)
+        val d = GlassDialog(this).title(t.name).message("Choose a season").scrolling()
+        for ((season, eps) in seasons) {
+            val mark = if (last?.season == season) "  ·  you were here" else ""
+            d.button("Season $season  ·  ${eps.size} episodes$mark", if (last?.season == season) GlassDialog.Style.BOLD else GlassDialog.Style.NORMAL) {
+                episodesOf(t, eps, episodes)
+            }
         }
+        d.button("Cancel")
+        d.show()
+    }
+
+    private fun episodesOf(t: WatchCatalog.Title, eps: List<Xtream.Episode>, allSeasons: List<Xtream.Episode>?) {
+        val season = eps.firstOrNull()?.season
+        val d = GlassDialog(this).title(if (season != null && allSeasons != null) "${t.name} · Season $season" else t.name)
+            .message("${eps.size} episodes").scrolling()
+        for (e in eps) {
+            val name = e.title.takeIf { it.isNotBlank() && !it.contains(t.name, ignoreCase = true) }?.let { " · $it" }.orEmpty()
+            d.button("Episode ${e.number}$name") { playEpisode(t, e) }
+        }
+        if (allSeasons != null) d.button("Back to seasons") { episodeList(t, allSeasons) }
         d.button("Cancel")
         d.show()
     }
