@@ -216,7 +216,7 @@ class MainActivity : AppCompatActivity() {
         handler.post(clockTick)
         rotator.start()
         widgets.start()
-        refreshAll()
+        refreshAll(onlyIfChanged = true)
         applyDimming(animate = false)
         handler.post(ambientTick)
         if (::claudePet.isInitialized) claudePet.resume()
@@ -250,16 +250,25 @@ class MainActivity : AppCompatActivity() {
      * would make Android jump focus somewhere else, so remember which
      * row/position had focus and put it back afterwards.
      */
-    private fun refreshAll(focusActiveProfile: Boolean = false) {
+    private var lastRefreshAt = 0L
+    private var lastRefreshSig = 0
+
+    private fun refreshAll(focusActiveProfile: Boolean = false, onlyIfChanged: Boolean = false) {
         val perfStart = Perf.now()
+        val allApps = AppListHelper.loadLaunchableTvApps(this)
+        // Coming straight back (from a dialog or an app that closed quickly): nothing changed, so don't rebuild.
+        val sig = allApps.joinToString("|") { it.packageName }.hashCode() * 31 + ProfileManager.getActiveProfile(this).hashCode()
+        if (onlyIfChanged && perfStart - lastRefreshAt < 4_000L && sig == lastRefreshSig) { Perf.note("Home: refresh skipped", perfStart); return }
+        lastRefreshAt = perfStart; lastRefreshSig = sig
         val saved = savedFocus()
         applyProfileStyle()
-        val allApps = AppListHelper.loadLaunchableTvApps(this)
-        buildProfileSwitch()
-        buildDock(allApps)
-        buildKeepWatching(allApps)
-        buildAppGrid(allApps)
-        buildDeviceRow()
+        var t = Perf.now()
+        fun lap(name: String) { val n = Perf.now(); Perf.note("  home $name", t); t = n }
+        buildProfileSwitch(); lap("profiles")
+        buildDock(allApps); lap("dock")
+        buildKeepWatching(allApps); lap("keep watching")
+        buildAppGrid(allApps); lap("app grid")
+        buildDeviceRow(); lap("devices")
         fetchDevicesIfNeeded()
         if (focusActiveProfile) {
             val i = ProfileManager.getProfiles(this).indexOf(ProfileManager.getActiveProfile(this))

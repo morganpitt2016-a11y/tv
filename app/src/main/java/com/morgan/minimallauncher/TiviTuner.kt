@@ -301,6 +301,7 @@ object TiviTuner {
         var attempts = 0
         var okPresses = 0
         var emptyWaits = 0
+        var lastOkAt = 0L
         var menuPressed = false
         val tried = HashSet<String>()
         val visited = HashSet<String>()
@@ -328,11 +329,13 @@ object TiviTuner {
                 // Playing full screen: let playback settle, then press OK to bring up the channel list.
                 if (settle++ < 1) { later(100, { done(false) }) { step() }; return }
                 if (okPresses >= 2) { note("No channel list appeared. On screen: ${texts.take(15)}"); done(false); return }
+                if (okPresses == 1 && android.os.SystemClock.uptimeMillis() - lastOkAt < 1600) { later(150, { done(false) }) { step() }; return }
                 okPresses++
+                lastOkAt = android.os.SystemClock.uptimeMillis()
                 note("No list showing - pressing OK (#$okPresses). On screen: ${texts.take(10)}")
                 service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_DPAD_CENTER)
                 settle = 0
-                later(1100, { done(false) }) { step() }; return
+                later(220, { done(false) }) { step() }; return
             }
             // The channel list (or TV guide grid) is the biggest list on screen - not the group list beside it.
             val list = lists.maxByOrNull { descendants(it) }!!
@@ -363,12 +366,12 @@ object TiviTuner {
                     note("TiviMate's menu is up - opening the TV guide")
                     pressNode(service, item)
                     emptyWaits = 0
-                    later(900, { done(false) }) { step() }; return
+                    later(350, { done(false) }) { step() }; return
                 }
             }
             // TiviMate draws the group list first and fills the channel rows a moment later:
             // don't press anything until rows exist, or a stray Right/OK closes the guide.
-            if (rowNumbers(list).isEmpty() && emptyWaits < 15) {
+            if (rowNumbers(list).isEmpty() && emptyWaits < 25) {
                 emptyWaits++
                 if (emptyWaits == 1) note("Channel rows not drawn yet - waiting")
                 later(200, { done(false) }) { step() }; return
@@ -416,8 +419,8 @@ object TiviTuner {
                     val presses = dist.coerceIn(1, 40)
                     note("Channel ${if (learned) "is" else "is probably around"} $num, guide shows ${range.first}-${range.last} - ${if (up) "up" else "down"} $presses")
                     val key = if (up) AccessibilityService.GLOBAL_ACTION_DPAD_UP else AccessibilityService.GLOBAL_ACTION_DPAD_DOWN
-                    for (i in 0 until presses) main.postDelayed({ service.performGlobalAction(key) }, i * 25L)
-                    later(presses * 25L + 120, { done(false) }) { step() }
+                    for (i in 0 until presses) main.postDelayed({ service.performGlobalAction(key) }, i * 18L)
+                    later(presses * 18L + 90, { done(false) }) { step() }
                     return
                 }
                 // It should be on screen but isn't (a guess was off): search outwards from here.
@@ -461,7 +464,7 @@ object TiviTuner {
             }
             note("Done")
             done(true)
-        }, 200)
+        }, 120)
     }
 
     private fun descendants(n: AccessibilityNodeInfo): Int {
@@ -545,7 +548,7 @@ object TiviTuner {
                         service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_DPAD_CENTER)
                         done(true)
                     } else check()
-                }, 60)
+                }, 40)
                 return
             }
             if (++rounds > 40) { note("Couldn't get the highlight onto it (on ${rowNames(focused)})"); done(false); return }
@@ -558,12 +561,12 @@ object TiviTuner {
             if (stuck >= 4) { note("Highlight won't move (on ${rowNames(focused)})"); done(false); return }
             val dy = t.centerY() - f.centerY()
             // Small moves, re-checking after each, so it never overshoots.
-            val steps = (kotlin.math.abs(dy) / f.height().coerceAtLeast(1)).coerceIn(1, 5)
+            val steps = (kotlin.math.abs(dy) / f.height().coerceAtLeast(1)).coerceIn(1, 7)
             val key = if (dy > 0) AccessibilityService.GLOBAL_ACTION_DPAD_DOWN else AccessibilityService.GLOBAL_ACTION_DPAD_UP
             lastKey = key
             if (rounds == 1) note("Highlight is on ${rowNames(focused)} - moving ${if (dy > 0) "down" else "up"} to it")
-            for (i in 0 until steps) main.postDelayed({ service.performGlobalAction(key) }, i * 25L)
-            later(steps * 25L + 90, { done(false) }) { check() }
+            for (i in 0 until steps) main.postDelayed({ service.performGlobalAction(key) }, i * 20L)
+            later(steps * 20L + 70, { done(false) }) { check() }
         }
         later(40, { done(false) }) { check() }
     }
