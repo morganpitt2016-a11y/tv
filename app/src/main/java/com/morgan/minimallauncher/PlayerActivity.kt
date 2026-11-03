@@ -132,24 +132,15 @@ class PlayerActivity : Activity() {
     override fun onStart() {
         super.onStart()
         start(url, resume = !live && !intent.getBooleanExtra(EXTRA_FROM_START, false))
+        handler.removeCallbacks(progressTick); handler.postDelayed(progressTick, 1000)
     }
 
-    private fun start(u: String, resume: Boolean) {
-        player?.release()
-        val p = ExoPlayer.Builder(this).build()
-        player = p
-        view.player = p
-        p.setMediaItem(MediaItem.fromUri(u))
-        // Pick up the subtitle and audio language you chose last time for this title.
-        val key = trackKey()
-        val tl = Prefs.string(this, "trk_t_$key"); val al = Prefs.string(this, "trk_a_$key")
-        if (tl != null || al != null) {
-            val b = p.trackSelectionParameters.buildUpon()
-            al?.let { b.setPreferredAudioLanguage(it) }
-            if (tl == "off") b.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true) else if (tl != null) b.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false).setPreferredTextLanguage(tl)
-            p.trackSelectionParameters = b.build()
-        }
-        if (resume) Prefs.int(this, posKey(), 0).takeIf { it > 30 }?.let { p.seekTo(it * 1000L) }
+    private fun newPlayer(): ExoPlayer {
+        // Start sooner than the defaults: a small buffer to begin with, then it fills while you watch.
+        val load = androidx.media3.exoplayer.DefaultLoadControl.Builder()
+            .setBufferDurationsMs(if (live) 2_000 else 15_000, if (live) 20_000 else 60_000, if (live) 500 else 900, if (live) 1_500 else 2_000)
+            .build()
+        val p = ExoPlayer.Builder(this).setLoadControl(load).build()
         p.addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
                 // Some providers only serve live TV one way: try the other before giving up.
@@ -164,14 +155,48 @@ class PlayerActivity : Activity() {
                 }
             }
         })
+        return p
+    }
+
+    private fun start(u: String, resume: Boolean) {
+        val p = player ?: newPlayer().also { player = it; view.player = it }   // changing channel reuses the player
+        p.stop()
+        p.setMediaItem(MediaItem.fromUri(u))
+        // Pick up the subtitle and audio language you chose last time for this title.
+        val key = trackKey()
+        val tl = Prefs.string(this, "trk_t_$key"); val al = Prefs.string(this, "trk_a_$key")
+        if (tl != null || al != null) {
+            val b = p.trackSelectionParameters.buildUpon()
+            al?.let { b.setPreferredAudioLanguage(it) }
+            if (tl == "off") b.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true) else if (tl != null) b.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false).setPreferredTextLanguage(tl)
+            p.trackSelectionParameters = b.build()
+        }
+        if (resume) Prefs.int(this, posKey(), 0).takeIf { it > 30 }?.let { p.seekTo(it * 1000L) }
         p.playWhenReady = true
         p.prepare()
+    }
+
+    // Near the end of an episode, offer the next one (rather than only when the picture stops).
+    private val progressTick = object : Runnable {
+        override fun run() {
+            val p = player
+            if (p != null && !live && queue.isNotEmpty() && !counting && p.duration > 0) {
+                val left = p.duration - p.currentPosition
+                val next = queue.first()
+                if (left in 1..25_000) {
+                    nextView.text = "Next episode · S${next.season} E${next.episode}\nPress OK to play it now"
+                    nextView.visibility = View.VISIBLE
+                } else if (nextView.visibility == View.VISIBLE) nextView.visibility = View.GONE
+            }
+            handler.postDelayed(this, 1000)
+        }
     }
 
     private fun posKey() = "pos_" + (url.hashCode().toLong() and 0xffffffffL)
 
     override fun onStop() {
         super.onStop()
+        handler.removeCallbacks(progressTick)
         player?.let { p ->
             // Remember where a film or episode was, to carry on next time.
             if (!live && p.duration > 0) {
@@ -252,6 +277,7 @@ class PlayerActivity : Activity() {
         WatchHistory.forget(applicationContext, n.url)
         showBanner(4500)
         start(n.url, resume = false)
+        handler.removeCallbacks(progressTick); handler.postDelayed(progressTick, 1000)
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
@@ -262,6 +288,8 @@ class PlayerActivity : Activity() {
             }
             return true
         }
+        if (!live && !counting && queue.isNotEmpty() && nextView.visibility == View.VISIBLE && event.action == KeyEvent.ACTION_DOWN &&
+            (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER)) { playNext(); return true }
         if (live && event.action == KeyEvent.ACTION_DOWN && !optionsPill.isFocused) {
             val k = event.keyCode
             when {

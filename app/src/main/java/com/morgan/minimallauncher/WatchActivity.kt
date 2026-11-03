@@ -77,6 +77,24 @@ class WatchActivity : AppCompatActivity() {
     private var pendingHero: Runnable? = null
     private var lastSearch: String? = null
     private var buildToken = 0
+    // Each tab keeps its own rows, so switching back is instant instead of rebuilding everything.
+    private val tabViews = HashMap<String, Pair<LinearLayout, Long>>()
+    private val containerToken = java.util.WeakHashMap<LinearLayout, Int>()
+    private fun cacheTtl(id: String) = when (id) { "home", "films", "shows" -> 20 * 60_000L; "live" -> 3 * 60_000L; else -> 0L }
+    private fun newBuild(): Int { val t = ++buildToken; containerToken[rows] = t; return t }
+
+    private fun makeRows() = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        clipChildren = false; clipToPadding = false
+        setPadding(0, 0, 0, dp(this@WatchActivity, 320f))
+    }
+    private fun swapRows(c: LinearLayout) {
+        (c.parent as? ViewGroup)?.removeView(c)
+        scroll.removeAllViews()
+        scroll.addView(c)
+        rows = c
+    }
+    private fun freshRows() = swapRows(makeRows())
 
     private val voice = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
         r.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.let { search(it) }
@@ -236,7 +254,7 @@ class WatchActivity : AppCompatActivity() {
         if (q != null) { search(q, focusResults = false); return }
         tab = "search"
         for (i in 0 until nav.childCount) nav.getChildAt(i).isSelected = nav.getChildAt(i).tag == "search"
-        rows.removeAllViews()
+        freshRows()
         ++buildToken
         showPlainHero("SEARCH", "Find anything", "Press OK to search films, shows and what’s on TV, by typing or by voice.")
     }
@@ -248,9 +266,19 @@ class WatchActivity : AppCompatActivity() {
         collectionFrom = null
         focusFirstLoaded = false
         for (i in 0 until nav.childCount) nav.getChildAt(i).isSelected = nav.getChildAt(i).tag == id
-        rows.removeAllViews()
+        ++buildToken                      // anything still loading for a search or "See All" page is dropped
         scroll.scrollTo(0, 0)
-        val token = ++buildToken
+        val ttl = cacheTtl(id)
+        val cached = tabViews[id]?.takeIf { ttl > 0 && System.currentTimeMillis() - it.second < ttl }
+        if (cached != null) {
+            swapRows(cached.first)
+            if (id == "home") refreshPersonalRows()
+            if (focusContent) rows.post { firstItem()?.requestFocus() }
+            return
+        }
+        freshRows()
+        val token = newBuild()
+        if (ttl > 0) tabViews[id] = rows to System.currentTimeMillis()
         when (id) {
             "home" -> buildHome(token)
             "films" -> buildCategory(token, "MOVIE")
@@ -319,7 +347,7 @@ class WatchActivity : AppCompatActivity() {
         fun newest(l: List<WatchCatalog.Title>?) = l?.filter { it.year >= year - 1 }?.take(30)
         fun row(key: String, title: String, genres: List<String>, sort: String = "POPULAR", pick: (List<WatchCatalog.Title>?) -> List<WatchCatalog.Title>?) =
             list.add(Triple<String, String, TitleLoader>(key, title) { d ->
-                WatchCatalog.titles(this, sort = sort, packages = shorts(), types = listOf(type), genres = genres, first = 100) { l -> d(pick(l)) }
+                WatchCatalog.titles(this, sort = sort, packages = shorts(), types = listOf(type), genres = genres, first = 60) { l -> d(pick(l)) }
             })
         row("trend", "Trending $what", emptyList(), "TRENDING") { it?.take(30) }
         row("new", "New $what", emptyList(), "TRENDING") { newest(it) }
@@ -366,9 +394,9 @@ class WatchActivity : AppCompatActivity() {
     private fun openCollection(title: String, sections: List<Triple<String, String, TitleLoader>>) {
         if (collectionFrom == null) collectionFrom = tab
         tab = "collection"
-        rows.removeAllViews()
+        freshRows()
         scroll.scrollTo(0, 0)
-        val token = ++buildToken
+        val token = newBuild()
         showPlainHero("SEE ALL", title, "Everything, by category.")
         focusFirstLoaded = true
         for ((key, name, load) in sections) titleRow(token, key, name, quietFail = true, load = load)
@@ -426,9 +454,9 @@ class WatchActivity : AppCompatActivity() {
         if (collectionFrom == null) collectionFrom = tab
         tab = "collection"
         providerType = type
-        rows.removeAllViews()
+        freshRows()
         scroll.scrollTo(0, 0)
-        val token = ++buildToken
+        val token = newBuild()
         showPlainHero(if (p.installed != null) "YOUR APP" else "GET THE APP", p.displayName,
             "Everything on ${p.displayName}" + if (p.installed == null) ". Choose a title to get the app." else ", by category.")
         // Films | Series
@@ -452,7 +480,8 @@ class WatchActivity : AppCompatActivity() {
         val items = mutableListOf<WatchCatalog.Title>()
         val adapter = CardAdapter(items.toList(), { p -> posterCard(p) }) { h, t -> bindTitle(h, t) }
         r.list.adapter = adapter
-        rows.addView(r.view)
+        val host = rows
+        host.addView(r.view)
         var cursor: String? = null
         var loading = false
         var finished = false
@@ -461,9 +490,9 @@ class WatchActivity : AppCompatActivity() {
             loading = true
             WatchCatalog.page(this, packages, types, genres, after = cursor) { list, next, total ->
                 loading = false
-                if (token != buildToken || isDestroyed) return@page
-                if (list == null) { if (items.isEmpty()) rows.removeView(r.view); finished = true; return@page }
-                if (list.isEmpty() && items.isEmpty()) { rows.removeView(r.view); finished = true; return@page }
+                if (containerToken[host] != token || isDestroyed) return@page
+                if (list == null) { if (items.isEmpty()) host.removeView(r.view); finished = true; return@page }
+                if (list.isEmpty() && items.isEmpty()) { host.removeView(r.view); finished = true; return@page }
                 val first = items.isEmpty()
                 items += list
                 if (first) adapter.update(items.toList()) else adapter.append(list)
@@ -485,14 +514,24 @@ class WatchActivity : AppCompatActivity() {
 
     private fun buildCategory(token: Int, type: String) {
         val what = if (type == "MOVIE") "Films" else "Series"
-        for ((key, title, load) in categoryLoads(type)) {
-            val more: () -> Unit = if (key.startsWith("g")) {
-                { openCollection("$title $what", catalogue(shorts(), types = listOf(type), genre = key.substringAfter("_"))) }
-            } else {
-                { openCollection("All $what", catalogue(shorts(), types = listOf(type), sort = if (key == "trend") "TRENDING" else "POPULAR")) }
+        val all = categoryLoads(type)
+        val host = rows
+        fun add(from: Int, to: Int) {
+            if (containerToken[host] != token || isDestroyed) return
+            val saved = rows; rows = host           // rows may point at another tab by now
+            for (i in from until minOf(to, all.size)) {
+                val (key, title, load) = all[i]
+                val more: () -> Unit = if (key.startsWith("g")) {
+                    { openCollection("$title $what", catalogue(shorts(), types = listOf(type), genre = key.substringAfter("_"))) }
+                } else {
+                    { openCollection("All $what", catalogue(shorts(), types = listOf(type), sort = if (key == "trend") "TRENDING" else "POPULAR")) }
+                }
+                titleRow(token, key, title, quietFail = key.startsWith("g"), more = more, load = load)
             }
-            titleRow(token, key, title, quietFail = key.startsWith("g"), more = more, load = load)
+            rows = saved
+            if (to < all.size) handler.postDelayed({ add(to, to + 4) }, 90)
         }
+        add(0, 6)                                    // first screenful straight away, the rest fill in behind it
     }
 
     /** Quietly load the other tabs (and their first posters) so switching is instant. */
@@ -506,14 +545,15 @@ class WatchActivity : AppCompatActivity() {
 
     private fun buildLive(token: Int) {
         val t0 = Perf.now()
+        val host = rows
         // Just the TV guide (the live TV apps are on the home screen).
         val loading = GlassUi.text(this, "Loading the TV guide…", 13f, R.font.inter_medium, 0x99FFFFFF.toInt())
-        rows.addView(loading, LinearLayout.LayoutParams(-2, -2).apply { setMargins(dp(this@WatchActivity, 56f), dp(this@WatchActivity, 20f), 0, 0) })
+        host.addView(loading, LinearLayout.LayoutParams(-2, -2).apply { setMargins(dp(this@WatchActivity, 56f), dp(this@WatchActivity, 20f), 0, 0) })
         LiveGuide.load(this) { channels ->
-            if (token != buildToken || isDestroyed) return@load
-            rows.removeView(loading)
+            if (containerToken[host] != token || isDestroyed) return@load
+            host.removeView(loading)
             if (channels.isNullOrEmpty()) {
-                rows.addView(GlassUi.text(this, "The TV guide couldn’t be loaded. Check the internet connection.", 13f, R.font.inter_medium, 0x99FFFFFF.toInt()),
+                host.addView(GlassUi.text(this, "The TV guide couldn’t be loaded. Check the internet connection.", 13f, R.font.inter_medium, 0x99FFFFFF.toInt()),
                     LinearLayout.LayoutParams(-2, -2).apply { setMargins(dp(this@WatchActivity, 56f), dp(this@WatchActivity, 20f), 0, 0) })
                 return@load
             }
@@ -522,22 +562,22 @@ class WatchActivity : AppCompatActivity() {
             if (onNow.isNotEmpty()) {
                 val r = row("onnow", "On Now", height = 150f)
                 r.list.adapter = CardAdapter(onNow, { p -> wideCard(p) }) { h, (ch, prog) -> bindProgramme(h, ch, prog) }
-                rows.addView(r.view)
+                host.addView(r.view)
             }
-            rows.addView(GlassUi.text(this, "Guide", 15f, R.font.inter_semibold),
+            host.addView(GlassUi.text(this, "Guide", 15f, R.font.inter_semibold),
                 LinearLayout.LayoutParams(-2, -2).apply { setMargins(dp(this@WatchActivity, 56f), dp(this@WatchActivity, 16f), 0, dp(this@WatchActivity, 4f)) })
             // Channel rows are added in small batches: the first screenful is up immediately and
             // the rest fill in behind it, instead of building 150 rows before anything draws.
             val list = channels.take(150)
             var next = 0
             fun addBatch() {
-                if (token != buildToken || isDestroyed) return
+                if (containerToken[host] != token || isDestroyed) return
                 val first = next == 0
                 val end = minOf(next + (if (first) 10 else 8), list.size)
-                while (next < end) { try { rows.addView(guideRow(list[next])) } catch (e: Exception) {}; next++ }
+                while (next < end) { try { host.addView(guideRow(list[next])) } catch (e: Exception) {}; next++ }
                 if (first) {
                     Perf.note("Live TV: first rows on screen", t0)
-                    if (rows.findFocus() == null) rows.post { firstItem()?.requestFocus() }
+                    if (host === rows && rows.findFocus() == null) rows.post { firstItem()?.requestFocus() }
                 }
                 if (next < list.size) handler.postDelayed({ addBatch() }, 10) else Perf.note("Live TV: all ${list.size} rows built", t0)
             }
@@ -717,9 +757,9 @@ class WatchActivity : AppCompatActivity() {
         if (detail != null) closeDetail()
         tab = "search"
         for (i in 0 until nav.childCount) nav.getChildAt(i).isSelected = nav.getChildAt(i).tag == "search"
-        rows.removeAllViews()
+        freshRows()
         scroll.scrollTo(0, 0)
-        val token = ++buildToken
+        val token = newBuild()
         showPlainHero("SEARCH", "“$query”", "")
         titleRow(token, "results", "Films & Shows") { done -> WatchCatalog.titles(this, search = query, first = 30, done = done) }
         LiveGuide.load(this) { channels ->
@@ -744,6 +784,7 @@ class WatchActivity : AppCompatActivity() {
 
     private fun openDetail(t: WatchCatalog.Title, from: View?) {
         val c = this
+        if (Xtream.isSetUp(this) && t.type == "SHOW") Xtream.prefetchSeries(applicationContext, t.name, t.year)   // so the episode list is ready when you press Watch
         if (detail == null) detailReturn = from
         detail?.let { root.removeView(it) }
         // The browse screen fades away underneath, so nothing shows through.
@@ -1173,11 +1214,12 @@ class WatchActivity : AppCompatActivity() {
         val moreCard: ((ViewGroup) -> Holder)? = if (more != null) { p -> seeMoreCard(p) } else null
         val adapter = CardAdapter(emptyList<WatchCatalog.Title>(), { p -> posterCard(p, ranked) }, more, moreCard) { h, t -> bindTitle(h, t) }
         r.list.adapter = adapter
-        rows.addView(r.view)
+        val host = rows
+        host.addView(r.view)
         load { titles ->
-            if (token != buildToken || isDestroyed) return@load
+            if (containerToken[host] != token || isDestroyed) return@load
             when {
-                titles.isNullOrEmpty() && (quietFail || titles != null) -> rows.removeView(r.view)
+                titles.isNullOrEmpty() && (quietFail || titles != null) -> host.removeView(r.view)
                 titles == null -> r.view.addView(GlassUi.text(this, "Couldn’t load - check the internet connection", 12f, R.font.inter_regular, 0x99FFFFFF.toInt()),
                     LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(this@WatchActivity, 56f) })
                 else -> {

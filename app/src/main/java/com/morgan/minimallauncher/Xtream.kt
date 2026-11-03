@@ -215,7 +215,19 @@ object Xtream {
         Series(id, m["name"].orEmpty().trim(), icon(m["cover"]), m["category_id"].orEmpty())
     }.also { seriesMem = it }
 
+    private val episodeMem = java.util.concurrent.ConcurrentHashMap<Int, Pair<Long, List<Episode>>>()
+
+    /** Look the series up and fetch its episodes in the background, ready for when Watch is pressed. */
+    fun prefetchSeries(c: Context, title: String, year: Int) {
+        Thread { try { findSeries(c, title, year)?.let { episodes(c, it) } } catch (e: Exception) {} }.start()
+    }
+
     fun episodes(c: Context, s: Series): List<Episode> {
+        episodeMem[s.id]?.let { (at, list) -> if (System.currentTimeMillis() - at < 30 * 60_000L) return list }
+        return fetchEpisodes(c, s).also { if (it.isNotEmpty()) episodeMem[s.id] = System.currentTimeMillis() to it }
+    }
+
+    private fun fetchEpisodes(c: Context, s: Series): List<Episode> {
         val o = org.json.JSONObject(Net.get(api(c, "get_series_info", "&series_id=${s.id}"), timeoutMs = 20_000))
         val eps = o.optJSONObject("episodes") ?: return emptyList()
         val out = mutableListOf<Episode>()
