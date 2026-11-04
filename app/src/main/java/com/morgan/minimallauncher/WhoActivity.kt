@@ -156,8 +156,10 @@ class WhoActivity : Activity() {
         var focus: View? = null
         people.forEachIndexed { i, name ->
             val cell = avatarCell(name, Accounts.GRADIENTS[(i + account.colour) % Accounts.GRADIENTS.size]) {
-                ProfileManager.setActiveProfile(this, name)
-                close()
+                Kids.guardLeave(this, name) {
+                    ProfileManager.setActiveProfile(this, name)
+                    close()
+                }
             }
             cell.setOnLongClickListener { personMenu(name); true }
             row.addView(cell, cellLp(i > 0))

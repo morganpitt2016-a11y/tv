@@ -316,6 +316,11 @@ class WatchActivity : AppCompatActivity() {
 
     private fun buildHome(token: Int) {
         refreshPersonalRows()
+        if (Kids.isOn(this)) {
+            dodgyHomeRows(token)
+            for (type in listOf("MOVIE", "SHOW")) categoryLoads(type).forEach { (key, title, load) -> titleRow(token, "h_${type}_$key", title, quietFail = true, load = load) }
+            return
+        }
         titleRow(token, "top10", "Top 10 on Your Apps", ranked = true,
             more = { openCollection("Trending on Your Apps", catalogue(shorts(), sort = "TRENDING")) }) { done ->
             WatchCatalog.titles(this, sort = "TRENDING", packages = shorts(), first = 10) { list ->
@@ -370,6 +375,14 @@ class WatchActivity : AppCompatActivity() {
             list.add(Triple<String, String, TitleLoader>(key, title) { d ->
                 WatchCatalog.titles(this, sort = sort, packages = shorts(), types = listOf(type), genres = genres, first = 60) { l -> d(pick(l)) }
             })
+        if (Kids.isOn(this)) {
+            // Kids profile: family and animation only.
+            row("k_fml", "Family $what", listOf("fml")) { it?.take(40) }
+            row("k_ani", "Animated $what", listOf("ani")) { it?.take(40) }
+            row("k_new", "New Family $what", listOf("fml"), "TRENDING") { newest(it) }
+            row("k_best", "Best Family $what", listOf("fml")) { best(it) }
+            return list
+        }
         row("trend", "Trending $what", emptyList(), "TRENDING") { it?.take(30) }
         row("new", "New $what", emptyList(), "TRENDING") { newest(it) }
         row("best", "Best Rated $what", emptyList()) { best(it) }
@@ -530,6 +543,19 @@ class WatchActivity : AppCompatActivity() {
         focusEffect(h.root) { showPlainHero("DODGY BOX  ·  SERIES", name, "Press OK for the episodes.") }
     }
 
+    /** On a Kids profile: only what's in children's categories (call off the main thread). */
+    private fun kidsFilms(l: List<Xtream.Vod>): List<Xtream.Vod> {
+        if (!Kids.isOn(this)) return l
+        val names = Xtream.vodCategories(applicationContext)
+        return l.filter { Kids.isKidsCategory(names[it.category].orEmpty()) }
+    }
+
+    private fun kidsSeries(l: List<Xtream.Series>): List<Xtream.Series> {
+        if (!Kids.isOn(this)) return l
+        val names = Xtream.seriesCategories(applicationContext)
+        return l.filter { Kids.isKidsCategory(names[it.category].orEmpty()) }
+    }
+
     /** A row of Dodgy Box films or series. */
     private fun <T> libRow(key: String, title: String, items: List<T>, bind: (Holder, T) -> Unit): Row {
         val r = row(key, title, height = 196f)
@@ -543,8 +569,8 @@ class WatchActivity : AppCompatActivity() {
         val host = rows
         val app = applicationContext
         Thread {
-            val films = try { Xtream.newestFilms(app, 30) } catch (e: Exception) { emptyList() }
-            val shows = try { Xtream.newestSeries(app, 30) } catch (e: Exception) { emptyList() }
+            val films = kidsFilms(try { Xtream.newestFilms(app, if (Kids.isOn(app)) 600 else 30) } catch (e: Exception) { emptyList() }).take(30)
+            val shows = kidsSeries(try { Xtream.newestSeries(app, if (Kids.isOn(app)) 600 else 30) } catch (e: Exception) { emptyList() }).take(30)
             runOnUiThread {
                 if (containerToken[host] != token || isDestroyed) return@runOnUiThread
                 // Just under Your Apps.
@@ -590,8 +616,9 @@ class WatchActivity : AppCompatActivity() {
         Thread {
             val newest: List<Any>; val groups: List<Pair<String, List<Any>>>
             try {
-                if (type == "MOVIE") { newest = Xtream.newestFilms(app, 40); groups = Xtream.filmsByCategory(app) }
-                else { newest = Xtream.newestSeries(app, 40); groups = Xtream.seriesByCategory(app) }
+                val kids = Kids.isOn(app)
+                if (type == "MOVIE") { newest = kidsFilms(Xtream.newestFilms(app, if (kids) 600 else 40)).take(40); groups = Xtream.filmsByCategory(app).filter { !kids || Kids.isKidsCategory(it.first) } }
+                else { newest = kidsSeries(Xtream.newestSeries(app, if (kids) 600 else 40)).take(40); groups = Xtream.seriesByCategory(app).filter { !kids || Kids.isKidsCategory(it.first) } }
             } catch (e: Exception) {
                 runOnUiThread { if (containerToken[host] == token) loading.text = "Couldn’t reach Dodgy Box - check the internet and VPN" }
                 return@Thread
@@ -626,7 +653,8 @@ class WatchActivity : AppCompatActivity() {
         val host = rows
         val app = applicationContext
         Thread {
-            val (films, shows) = try { Xtream.searchLibrary(app, query) } catch (e: Exception) { emptyList<Xtream.Vod>() to emptyList() }
+            val found = try { Xtream.searchLibrary(app, query) } catch (e: Exception) { emptyList<Xtream.Vod>() to emptyList() }
+            val films = kidsFilms(found.first); val shows = kidsSeries(found.second)
             runOnUiThread {
                 if (containerToken[host] != token || isDestroyed) return@runOnUiThread
                 var at = 0
@@ -1055,7 +1083,9 @@ class WatchActivity : AppCompatActivity() {
         val token = newBuild()
         showPlainHero("SEARCH", "“$query”", "")
         dodgySearchRows(token, query)
-        titleRow(token, "results", if (Xtream.isSetUp(this)) "On Your Other Apps" else "Films & Shows") { done -> WatchCatalog.titles(this, search = query, first = 30, done = done) }
+        titleRow(token, "results", if (Xtream.isSetUp(this)) "On Your Other Apps" else "Films & Shows") { done ->
+            WatchCatalog.titles(this, search = query, first = 30) { l -> done(if (Kids.isOn(this)) l?.filter { t -> t.genres.any { g -> Kids.isKidsCategory(g) } } else l) }
+        }
         LiveGuide.load(this) { channels ->
             if (token != buildToken || channels == null) return@load
             val q = query.lowercase()

@@ -162,7 +162,7 @@ class LiveGuideActivity : Activity() {
                 otherIds = others
                 allUk = listOf("Entertainment", "Documentaries", "Kids", "Movies", "News", "Music", "Sport").flatMap { mainMap[it].orEmpty() }.distinct()
                 showCategories(sub = false)
-                selectCategory("_all", focusGrid = true)
+                selectCategory(if (Kids.isOn(this) && mainMap.containsKey("Kids")) "m:Kids" else "_all", focusGrid = true)
             }
         }.start()
     }
@@ -177,7 +177,11 @@ class LiveGuideActivity : Activity() {
     /** The main list (Favourites, All channels, HD, +1 ... International, Others) or, under "Others", everything else. */
     private fun showCategories(sub: Boolean) {
         catList.removeAllViews(); catViews.clear(); cats.clear()
-        if (!sub) {
+        if (!sub && Kids.isOn(this)) {
+            // Kids profile: children's channels only.
+            if (mainMap.containsKey("Kids")) addCategory("m:Kids", "Kids")
+            addCategory("_fav", "Favourites")
+        } else if (!sub) {
             addCategory("_rec", "Recordings"); addCategory("_fav", "Favourites"); addCategory("_all", "All channels"); addCategory("_hd", "HD")
             mainMap.keys.forEach { addCategory("m:$it", it) }
             if (otherIds.isNotEmpty()) addCategory("_others", "Others  ›")
@@ -294,6 +298,16 @@ class LiveGuideActivity : Activity() {
         d.button("Record", GlassDialog.Style.BOLD) { record(row, prog, series = false) }
         if (prog != null) d.button("Record series") { record(row, prog, series = true) }
         if (prog == null || prog.isOn()) d.button("Watch now") { watch(row.ch) }
+        if (prog != null && prog.start > System.currentTimeMillis()) {
+            val set = Reminders.has(this, row.ch.id, prog.start)
+            d.button(if (set) "Cancel Reminder" else "Remind Me") {
+                if (set) { Reminders.remove(this, row.ch.id, prog.start); GlassUi.toast(this, "Reminder cancelled") }
+                else {
+                    Reminders.add(this, Reminders.Item(row.ch.id, row.ch.name, row.ch.category, prog.title, prog.start))
+                    GlassUi.toast(this, "We’ll remind you when ${prog.title} starts")
+                }
+            }
+        }
         d.button(if (fav) "Remove from Favourites" else "Add to Favourites") {
             val added = Xtream.toggleFavourite(applicationContext, row.ch.id)
             GlassUi.toast(this, if (added) "${row.ch.name} added to Favourites" else "${row.ch.name} removed from Favourites")

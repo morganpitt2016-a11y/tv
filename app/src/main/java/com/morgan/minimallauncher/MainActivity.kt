@@ -224,6 +224,7 @@ class MainActivity : AppCompatActivity() {
         Coach.resume(this, "home") { coachTarget(it) }
         Updater.maybeUpdate(this)                      // new builds arrive by themselves (rate limited)
         Xtream.expiryNotice(this)
+        Health.mention(this)
         applyDimming(animate = false)
         handler.post(ambientTick)
         if (::claudePet.isInitialized) claudePet.resume()
@@ -507,6 +508,7 @@ class MainActivity : AppCompatActivity() {
                 contentDescription = if (isActive) "$name, selected profile" else "Switch to $name"
                 setOnClickListener {
                     if (name == ProfileManager.getActiveProfile(this@MainActivity)) return@setOnClickListener
+                    if (Kids.isOn(this@MainActivity)) { Kids.guardLeave(this@MainActivity, name) { ProfileManager.setActiveProfile(this@MainActivity, name); rotator.reload(); refreshAll(focusActiveProfile = true) }; return@setOnClickListener }
                     ProfileManager.setActiveProfile(this@MainActivity, name)
                     rotator.reload()
                     refreshAll(focusActiveProfile = true)

@@ -250,6 +250,7 @@ class SettingsActivity : AppCompatActivity() {
         section("Account Type")
         group {
             vrow("This Profile Is", { if (isBase(this)) "Base" else "Master" }) { switchAccountType() }
+            vrow("Kids Profile", { if (Kids.isOn(this)) "On" else "Off" }) { switchKids() }
         }
         footnote(if (base) "Base shows the everyday settings. To see everything, switch to Master (needs the PIN)."
                  else "Master shows every setting. Base hides the technical ones (Dodgy Box login, remote, Claude, lights, copying) - good for family profiles. Each profile has its own type.")
@@ -265,6 +266,7 @@ class SettingsActivity : AppCompatActivity() {
         section("About")
         group {
             row("Check for Updates", chevron = true) { checkForUpdates() }
+            row("Health Check", chevron = true) { Health.show(this) }
             row("Photo Credits", chevron = true) {
                 GlassDialog(this).title("Photo Credits").message(getString(R.string.wallpaper_credits))
                     .button("Done", GlassDialog.Style.BOLD).show()
@@ -350,8 +352,7 @@ class SettingsActivity : AppCompatActivity() {
         val d = GlassDialog(this).title("Profile").message("Each person has their own dock apps.").scrolling()
         for (p in profiles) {
             d.button(if (p == active) "$p  ✓" else p, if (p == active) GlassDialog.Style.BOLD else GlassDialog.Style.NORMAL) {
-                ProfileManager.setActiveProfile(this, p)
-                refreshValues()
+                Kids.guardLeave(this, p) { ProfileManager.setActiveProfile(this, p); refreshValues() }
             }
         }
         d.button("Add Person…") { showAddProfile() }
@@ -545,6 +546,32 @@ class SettingsActivity : AppCompatActivity() {
     private fun setBase(on: Boolean) {
         Prefs.setBool(this, ProfileManager.scope(this, "settings_base"), on)
         recreate()
+    }
+
+    /** Kids on: children's channels and titles only, and leaving the profile needs the PIN. */
+    private fun switchKids() {
+        val pin = Prefs.string(this, "settings_pin")
+        if (!Kids.isOn(this)) {
+            fun on() { Kids.set(this, true); setBase(true); GlassUi.toast(this, "This is now a Kids profile") }
+            if (pin == null) {
+                val d = GlassDialog(this).title("Choose a PIN").message("4 numbers. You'll need it to leave the Kids profile or turn it off.").input("PIN", secret = true)
+                d.button("Save", GlassDialog.Style.BOLD) {
+                    val p = d.inputText.filter { it.isDigit() }
+                    if (p.length < 4) { GlassUi.toast(this, "The PIN needs 4 numbers"); return@button }
+                    Prefs.setString(this, "settings_pin", p.take(8)); on()
+                }
+                d.button("Cancel").show()
+            } else GlassDialog(this).title("Make This a Kids Profile?")
+                .message("Only children's channels, films and series. Leaving the profile or turning this off needs the PIN.")
+                .button("Make Kids", GlassDialog.Style.BOLD) { on() }.button("Cancel").show()
+        } else {
+            val d = GlassDialog(this).title("Enter PIN").message("Enter the PIN to turn off Kids for this profile.").input("PIN", secret = true)
+            d.button("Turn Off", GlassDialog.Style.BOLD) {
+                if (pin == null || d.inputText.filter { it.isDigit() } == pin) { Kids.set(this, false); refreshValues(); GlassUi.toast(this, "Kids profile off") }
+                else GlassUi.toast(this, "That PIN isn’t right")
+            }
+            d.button("Cancel").show()
+        }
     }
 
     private fun switchAccountType() {

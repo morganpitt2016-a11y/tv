@@ -49,6 +49,7 @@ class HomeRedirectService : AccessibilityService() {
         detector = HomeDetector(this).also { RedirectDiag.watching(this, it.describe()) }
         addKeepAliveWindow()
         setNightDim(NightDim.isOn(this))
+        mainHandler.removeCallbacks(minder); mainHandler.postDelayed(minder, 5_000)
         RedirectDiag.connected(this, keepAliveWindow != null)
         if (!wakeReceiverRegistered) {
             ContextCompat.registerReceiver(
@@ -208,6 +209,16 @@ class HomeRedirectService : AccessibilityService() {
             }
         }
         return true
+    }
+
+    // ---------- Reminders and the nightly check ----------
+
+    private val minder = object : Runnable {
+        override fun run() {
+            try { Reminders.tick(this@HomeRedirectService) } catch (_: Exception) {}
+            try { Health.nightly(this@HomeRedirectService) } catch (_: Exception) {}
+            mainHandler.postDelayed(this, 30_000)
+        }
     }
 
     // ---------- Night mode across the whole screen ----------
