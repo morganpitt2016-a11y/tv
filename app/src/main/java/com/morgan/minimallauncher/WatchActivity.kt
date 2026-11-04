@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.speech.RecognizerIntent
+import android.animation.ValueAnimator
 import android.text.TextUtils
 import android.text.format.DateFormat
 import android.view.Gravity
@@ -1018,6 +1019,60 @@ class WatchActivity : AppCompatActivity() {
      * Play a film or show from the provider directly (signed in), or through TiviMate's
      * search otherwise. Shows offer their episodes to choose from.
      */
+    /**
+     * While Dodgy Box is searched: a glass card with the title's poster, "Finding ..." and a shimmering
+     * placeholder, so it's obvious something is happening. Returns a function that removes it.
+     */
+    private fun showFinding(t: WatchCatalog.Title): () -> Unit {
+        val c = this
+        val overlay = FrameLayout(c).apply { setBackgroundColor(0x99000000.toInt()); isClickable = true; alpha = 0f }
+        val card = LinearLayout(c).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = android.graphics.drawable.LayerDrawable(arrayOf(
+                GradientDrawable().apply { cornerRadius = dp(c, 24f).toFloat(); setColor(0xE61C1C1F.toInt()) }, GlassUi.panel(c, 24f, 0x20)))
+            setPadding(dp(c, 22f), dp(c, 22f), dp(c, 30f), dp(c, 22f))
+        }
+        val poster = ImageView(c).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            background = GradientDrawable().apply { cornerRadius = dp(c, 12f).toFloat(); setColor(0xFF2A2A2F.toInt()) }
+            clipToOutline = true; outlineProvider = ViewOutlineProvider.BACKGROUND
+        }
+        ImageLoader.load(poster, t.poster, ImageLoader.CARD)
+        card.addView(poster, LinearLayout.LayoutParams(dp(c, 104f), dp(c, 156f)))
+        val col = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL }
+        col.addView(GlassUi.text(c, "DODGY BOX", 11f, R.font.inter_semibold, 0x99FFFFFF.toInt()).apply { letterSpacing = 0.12f })
+        col.addView(GlassUi.text(c, "Finding ${t.name}", 21f, R.font.inter_semibold).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END },
+            LinearLayout.LayoutParams(dp(c, 360f), -2).apply { topMargin = dp(c, 6f) })
+        col.addView(GlassUi.text(c, if (t.type == "SHOW") "Getting the seasons and episodes ready…" else "Getting it ready to play…", 13f, R.font.inter_medium, 0xB3FFFFFF.toInt()),
+            LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(c, 6f) })
+        // Placeholder lines that shimmer while it works.
+        val bars = listOf(300f, 240f, 270f).map { w ->
+            View(c).apply { background = GradientDrawable().apply { cornerRadius = dp(c, 6f).toFloat(); setColor(0x33FFFFFF) } }.also {
+                col.addView(it, LinearLayout.LayoutParams(dp(c, w), dp(c, 12f)).apply { topMargin = dp(c, 14f) })
+            }
+        }
+        card.addView(col, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(c, 22f) })
+        overlay.addView(card, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
+        root.addView(overlay, FrameLayout.LayoutParams(-1, -1))
+        overlay.animate().alpha(1f).setDuration(160).start()
+        card.scaleX = 0.96f; card.scaleY = 0.96f
+        card.animate().scaleX(1f).scaleY(1f).setDuration(260).setInterpolator(DecelerateInterpolator(2f)).start()
+        val shimmer = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 900; repeatMode = ValueAnimator.REVERSE; repeatCount = ValueAnimator.INFINITE
+            addUpdateListener { a -> val f = a.animatedValue as Float; bars.forEachIndexed { i, b -> b.alpha = 0.35f + 0.65f * ((f + i * 0.25f) % 1f) } }
+            start()
+        }
+        var gone = false
+        return {
+            if (!gone) {
+                gone = true
+                shimmer.cancel()
+                overlay.animate().alpha(0f).setDuration(160).withEndAction { root.removeView(overlay) }.start()
+            }
+        }
+    }
+
     private fun watchOnDodgyBox(t: WatchCatalog.Title) {
         val show = t.type == "SHOW"
         if (!Xtream.isSetUp(this)) {
@@ -1041,7 +1096,7 @@ class WatchActivity : AppCompatActivity() {
                 .button("Cancel").show()
             return
         }
-        GlassUi.toast(this, "Finding ${t.name} on Dodgy Box…")
+        val dismiss = showFinding(t)
         val app = applicationContext
         Thread {
             var film: Xtream.Vod? = null
@@ -1052,6 +1107,7 @@ class WatchActivity : AppCompatActivity() {
                 else film = Xtream.findVod(app, t.name, t.year)
             } catch (e: Exception) {}
             runOnUiThread {
+                dismiss()
                 if (isDestroyed) return@runOnUiThread
                 val f = film
                 when {

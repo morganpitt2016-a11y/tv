@@ -51,6 +51,8 @@ class LiveGuideActivity : Activity() {
     private val pipJob = Runnable { playPip() }
     private var selected: EpgView.Row? = null
     private var allUk: List<String> = emptyList()
+    private lateinit var recScroll: ScrollView
+    private lateinit var recList: LinearLayout
     private var catNames: Map<String, String> = emptyMap()
     private val mainMap = LinkedHashMap<String, List<String>>()
     private var otherIds: List<String> = emptyList()
@@ -95,6 +97,9 @@ class LiveGuideActivity : Activity() {
         right.addView(head, LinearLayout.LayoutParams(-1, dp(c, 92f)))
         epg = EpgView(c).apply { this.accent = accent; fetcher = { row, cb -> ProviderEpg.fetch(applicationContext, row.ch, cb) } }
         right.addView(epg, LinearLayout.LayoutParams(-1, 0, 1f))
+        recList = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL; clipChildren = false; clipToPadding = false; setPadding(dp(c, 6f), dp(c, 4f), dp(c, 6f), dp(c, 30f)) }
+        recScroll = ScrollView(c).apply { isVerticalScrollBarEnabled = false; clipChildren = false; clipToPadding = false; visibility = View.GONE; addView(recList) }
+        right.addView(recScroll, LinearLayout.LayoutParams(-1, 0, 1f))
         root.addView(right, FrameLayout.LayoutParams(-1, -1).apply { marginStart = dp(c, 250f) })
         setContentView(root)
 
@@ -172,7 +177,7 @@ class LiveGuideActivity : Activity() {
     private fun showCategories(sub: Boolean) {
         catList.removeAllViews(); catViews.clear(); cats.clear()
         if (!sub) {
-            addCategory("_fav", "Favourites"); addCategory("_all", "All channels"); addCategory("_hd", "HD")
+            addCategory("_rec", "Recordings"); addCategory("_fav", "Favourites"); addCategory("_all", "All channels"); addCategory("_hd", "HD")
             mainMap.keys.forEach { addCategory("m:$it", it) }
             if (otherIds.isNotEmpty()) addCategory("_others", "Others  ›")
         } else {
@@ -200,14 +205,16 @@ class LiveGuideActivity : Activity() {
             if (has && id != "_others" && id != "_back") selectCategory(id, focusGrid = false)
         }
         setOnKeyListener { _, k, e ->
-            if (e.action == KeyEvent.ACTION_DOWN && (k == KeyEvent.KEYCODE_DPAD_RIGHT)) { epg.requestFocus(); true } else false
+            if (e.action == KeyEvent.ACTION_DOWN && (k == KeyEvent.KEYCODE_DPAD_RIGHT)) { if (current == "_rec") recList.getChildAt(0)?.requestFocus() else epg.requestFocus(); true } else false
         }
     }
 
     private fun selectCategory(id: String, focusGrid: Boolean) {
-        if (id == current) { if (focusGrid) epg.requestFocus(); return }
+        if (id == current) { if (focusGrid) (if (id == "_rec") recList.getChildAt(0) else epg)?.requestFocus(); return }
         current = id
         catViews.forEach { (k, v) -> if (!v.isFocused) v.background = if (k == id) GlassUi.panel(this, 10f, 0x24) else null }
+        if (id == "_rec") { showRecordings(focusGrid); return }
+        recScroll.visibility = View.GONE; epg.visibility = View.VISIBLE
         val app = applicationContext
         Thread {
             val list: List<Xtream.Live> = try {
@@ -274,21 +281,18 @@ class LiveGuideActivity : Activity() {
             eyebrow = "LIVE", alt = Xtream.liveUrl(app, ch.id, hls = true), liveId = ch.id, liveCat = ch.category)
     }
 
+    /**
+     * Hold OK on a channel (or press Record / Menu): Record, Record series, Favourites.
+     * If the programme is already on Dodgy Box, "recording" saves it to Recordings straight away - the episode,
+     * or with Record series the whole series - so it is ready at once. Otherwise it records the broadcast.
+     */
     private fun recordDialog(row: EpgView.Row, prog: LiveGuide.Programme?) {
         val g = row.guide
         val fav = row.ch.id in Xtream.favourites(this)
-        val d = GlassDialog(this).title(prog?.title ?: row.ch.name).message("${row.ch.name}\n${storageNote()}")
-        d.button("Watch", GlassDialog.Style.BOLD) { watch(row.ch) }
-        if (g != null && prog != null) {
-            val scheduled = TiviRecorder.isScheduled(this, g, prog)
-            if (prog.isOn()) d.button("Record now") { Recordings.start(applicationContext, g.name, prog.title, prog.stop, prog.image); GlassUi.toast(this, "Recording ${prog.title}") }
-            else if (scheduled) d.button("Cancel recording", GlassDialog.Style.DESTRUCTIVE) { TiviRecorder.cancel(this, TiviRecorder.idFor(applicationContext, g.name, prog.start)); GlassUi.toast(this, "Recording cancelled") }
-            else d.button("Record") { TiviRecorder.schedule(this, g, prog); GlassUi.toast(this, "Will record ${prog.title}") }
-            d.button("Record series") {
-                val n = TiviRecorder.addSeries(this, g, prog, LiveGuide.cached() ?: listOf(g))
-                GlassUi.toast(this, if (n > 0) "Series linked - $n episode${if (n == 1) "" else "s"} scheduled" else "Series linked")
-            }
-        }
+        val d = GlassDialog(this).title(prog?.title ?: row.ch.name).message(row.ch.name + (prog?.let { "  ·  " + SimpleDateFormat("h.mma", Locale.UK).format(Date(it.start)).lowercase() } ?: ""))
+        d.button("Record", GlassDialog.Style.BOLD) { record(row, prog, series = false) }
+        if (prog != null) d.button("Record series") { record(row, prog, series = true) }
+        if (prog == null || prog.isOn()) d.button("Watch now") { watch(row.ch) }
         d.button(if (fav) "Remove from Favourites" else "Add to Favourites") {
             val added = Xtream.toggleFavourite(applicationContext, row.ch.id)
             GlassUi.toast(this, if (added) "${row.ch.name} added to Favourites" else "${row.ch.name} removed from Favourites")
@@ -296,6 +300,138 @@ class LiveGuideActivity : Activity() {
         }
         d.button("Cancel")
         d.show()
+    }
+
+    private fun record(row: EpgView.Row, prog: LiveGuide.Programme?, series: Boolean) {
+        val app = applicationContext
+        val title = prog?.let { LibraryRecordings.cleanTitle(it.title) } ?: row.ch.name
+        val se = prog?.let { LibraryRecordings.seasonEpisode(it) }
+        GlassUi.toast(this, "Looking for $title on Dodgy Box…")
+        Thread {
+            val show = try { if (prog != null) Xtream.findSeries(app, title, 0) else null } catch (e: Exception) { null }
+            val eps = try { show?.let { Xtream.episodes(app, it) } } catch (e: Exception) { null }.orEmpty()
+            val film = if (show == null && prog != null) try { Xtream.findVod(app, title, 0) } catch (e: Exception) { null } else null
+            runOnUiThread {
+                if (isDestroyed) return@runOnUiThread
+                val now = System.currentTimeMillis()
+                when {
+                    show != null && series -> {
+                        LibraryRecordings.add(app, LibraryRecordings.Item("series", title, 0, 0, show.cover ?: prog?.image, row.ch.name, now))
+                        GlassUi.toast(this, "$title recorded - the whole series (${eps.size} episodes) is in Recordings")
+                    }
+                    show != null && se != null && eps.any { it.season == se.first && it.number == se.second } -> {
+                        val e = eps.first { it.season == se.first && it.number == se.second }
+                        LibraryRecordings.add(app, LibraryRecordings.Item("episode", title, e.season, e.number, e.image ?: show.cover, row.ch.name, now))
+                        GlassUi.toast(this, "$title S${e.season} E${e.number} recorded - it's in Recordings")
+                    }
+                    film != null -> {
+                        LibraryRecordings.add(app, LibraryRecordings.Item("film", title, 0, 0, film.icon ?: prog?.image, row.ch.name, now))
+                        GlassUi.toast(this, "$title recorded - it's in Recordings")
+                    }
+                    else -> recordBroadcast(row, prog, series)       // not in the library: record it off air
+                }
+            }
+        }.start()
+    }
+
+    /** Records the programme as it's broadcast (or links the series in the guide) when Dodgy Box doesn't have it. */
+    private fun recordBroadcast(row: EpgView.Row, prog: LiveGuide.Programme?, series: Boolean) {
+        val g = row.guide
+        when {
+            series && g != null && prog != null -> {
+                val n = TiviRecorder.addSeries(this, g, prog, LiveGuide.cached() ?: listOf(g))
+                GlassUi.toast(this, "Series linked - ${if (n > 0) "$n episode${if (n == 1) "" else "s"} will record" else "new episodes will record"}")
+            }
+            prog == null || prog.isOn() -> {
+                Recordings.start(applicationContext, g?.name ?: row.ch.name, prog?.title ?: row.ch.name, prog?.stop ?: (System.currentTimeMillis() + 3_600_000L), prog?.image)
+                GlassUi.toast(this, "Recording ${prog?.title ?: row.ch.name}")
+            }
+            g != null && prog != null -> { TiviRecorder.schedule(this, g, prog); GlassUi.toast(this, "Will record ${prog.title}") }
+            else -> GlassUi.toast(this, "Can't record this channel")
+        }
+    }
+
+    // ---- Recordings (above Favourites) ----
+
+    private fun showRecordings(focus: Boolean) {
+        epg.visibility = View.GONE
+        recScroll.visibility = View.VISIBLE
+        recList.removeAllViews()
+        val lib = LibraryRecordings.all(this)
+        val files = Recordings.shown(this)
+        title.text = "Recordings"
+        desc.text = if (lib.isEmpty() && files.isEmpty()) "Nothing yet. Hold OK on any programme in the guide and choose Record or Record series." else "Everything you've recorded, ready to watch. Hold OK on one to remove it."
+        meta.text = Recordings.storageSummary(this)
+        for (it in lib) {
+            val sub = when (it.kind) { "series" -> "Whole series  ·  from ${it.channel}"; "episode" -> "S${it.season} E${it.episode}  ·  from ${it.channel}"; else -> "Film  ·  from ${it.channel}" }
+            recList.addView(recRow(it.name, sub, it.image, { playLibrary(it) }) {
+                GlassDialog(this).title(it.name).message(sub).button("Remove from Recordings", GlassDialog.Style.DESTRUCTIVE) {
+                    LibraryRecordings.remove(applicationContext, it); showRecordings(true)
+                }.button("Cancel").show()
+            })
+        }
+        val df = SimpleDateFormat("EEE d MMM, h.mma", Locale.UK)
+        for (r in files) {
+            val sub = (if (Recordings.isRecording(r)) "● Recording now  ·  " else "") + "${r.channel}  ·  ${df.format(Date(r.start)).replace("AM", "am").replace("PM", "pm")}"
+            recList.addView(recRow(r.title, sub, r.image, {
+                PlayerActivity.play(this, android.net.Uri.fromFile(java.io.File(r.file)).toString(), r.title, live = false, subtitle = r.channel, eyebrow = "RECORDING")
+            }) {
+                GlassDialog(this).title(r.title).message(sub).button("Delete recording", GlassDialog.Style.DESTRUCTIVE) {
+                    Recordings.delete(applicationContext, r); showRecordings(true)
+                }.button("Cancel").show()
+            })
+        }
+        if (focus) recList.post { recList.getChildAt(0)?.requestFocus() ?: catViews["_rec"]?.requestFocus() }
+    }
+
+    private fun recRow(name: String, sub: String, image: String?, open: () -> Unit, hold: () -> Unit): View {
+        val c = this
+        val row = LinearLayout(c).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            background = GlassUi.rowBackground(c, 14f)
+            setPadding(dp(c, 10f), dp(c, 8f), dp(c, 16f), dp(c, 8f))
+            isFocusable = true; isClickable = true; isLongClickable = true
+            setOnClickListener { open() }
+            setOnLongClickListener { hold(); true }
+            setOnKeyListener { _, k, e -> if (k == KeyEvent.KEYCODE_DPAD_LEFT && e.action == KeyEvent.ACTION_DOWN) { catViews["_rec"]?.requestFocus(); true } else false }
+        }
+        val img = android.widget.ImageView(c).apply {
+            scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+            background = GradientDrawable().apply { cornerRadius = dp(c, 8f).toFloat(); setColor(0xFF26262B.toInt()) }
+            clipToOutline = true; outlineProvider = ViewOutlineProvider.BACKGROUND
+        }
+        if (image != null) ImageLoader.load(img, image, ImageLoader.CARD)
+        row.addView(img, LinearLayout.LayoutParams(dp(c, 112f), dp(c, 63f)))
+        val col = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL; isDuplicateParentStateEnabled = true }
+        col.addView(GlassUi.rowText(c, name, 15f, R.font.inter_semibold, GlassUi.primaryText()))
+        col.addView(GlassUi.rowText(c, sub, 12f, R.font.inter_medium, GlassUi.secondaryText()), LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(c, 4f) })
+        row.addView(col, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(c, 14f) })
+        row.layoutParams = LinearLayout.LayoutParams(-1, dp(c, 80f)).apply { bottomMargin = dp(c, 4f) }
+        return row
+    }
+
+    private fun playLibrary(item: LibraryRecordings.Item) {
+        val app = applicationContext
+        if (item.kind == "series") {
+            startActivity(android.content.Intent(this, EpisodesActivity::class.java).putExtra(EpisodesActivity.EXTRA_NAME, item.name).putExtra(EpisodesActivity.EXTRA_IMAGE, item.image))
+            return
+        }
+        Thread {
+            if (item.kind == "film") {
+                val v = try { Xtream.findVod(app, item.name, 0) } catch (e: Exception) { null }
+                runOnUiThread { if (v != null) PlayerActivity.play(this, Xtream.vodUrl(app, v), item.name, live = false, eyebrow = "RECORDING", image = item.image) else GlassUi.toast(this, "${item.name} is no longer on Dodgy Box") }
+                return@Thread
+            }
+            val eps = try { Xtream.findSeries(app, item.name, 0)?.let { Xtream.episodes(app, it) } } catch (e: Exception) { null }.orEmpty().sortedWith(compareBy({ it.season }, { it.number }))
+            val e = eps.firstOrNull { it.season == item.season && it.number == item.episode }
+            runOnUiThread {
+                if (e == null) { GlassUi.toast(this, "That episode is no longer on Dodgy Box"); return@runOnUiThread }
+                WatchHistory.record(app, item.name, e.season, e.number)
+                val rest = eps.dropWhile { it.id != e.id }.drop(1).map { Triple(Xtream.episodeUrl(app, it), it.season, it.number) }
+                PlayerActivity.play(this, Xtream.episodeUrl(app, e), item.name, live = false, subtitle = "Season ${e.season}, Episode ${e.number}", eyebrow = "RECORDING",
+                    series = item.name, queue = rest, image = item.image, season = e.season, episode = e.number)
+            }
+        }.start()
     }
 
     private fun storageNote() = "Recordings are kept on this TV: ${Recordings.storageSummary(this)}. Plug in a USB drive for more room."

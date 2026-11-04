@@ -154,8 +154,8 @@ class EpgView(context: Context) : View(context) {
             KeyEvent.KEYCODE_PAGE_UP, KeyEvent.KEYCODE_CHANNEL_UP -> { selRow = maxOf(0, selRow - (visibleRows - 1)) }
             KeyEvent.KEYCODE_MEDIA_RECORD, KeyEvent.KEYCODE_PROG_RED, KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_INFO -> { onRecord?.invoke(r, cur); return true }
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
-                val now = System.currentTimeMillis()
-                if (cur == null || cur.isOn(now)) onPlay?.invoke(r) else onProgramme?.invoke(r, cur)
+                // Acted on when released, so holding OK can open the record menu instead.
+                if (event.repeatCount == 0) { event.startTracking(); longPressed = false }
                 return true
             }
             else -> return super.onKeyDown(keyCode, event)
@@ -163,6 +163,25 @@ class EpgView(context: Context) : View(context) {
         // Keep the same moment in time when moving between channels.
         if (keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_DOWN) selTime = selTime.coerceAtLeast(winStart)
         reveal(); notifySelect(); invalidate()
+        return true
+    }
+
+    private var longPressed = false
+
+    override fun onKeyLongPress(keyCode: Int, event: KeyEvent): Boolean {
+        if (keyCode != KeyEvent.KEYCODE_DPAD_CENTER && keyCode != KeyEvent.KEYCODE_ENTER) return super.onKeyLongPress(keyCode, event)
+        val r = rows.getOrNull(selRow) ?: return true
+        longPressed = true
+        onRecord?.invoke(r, progAt(r, selTime) ?: r.guide?.now())
+        return true
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        if (keyCode != KeyEvent.KEYCODE_DPAD_CENTER && keyCode != KeyEvent.KEYCODE_ENTER) return super.onKeyUp(keyCode, event)
+        if (longPressed || event.isCanceled) { longPressed = false; return true }
+        val r = rows.getOrNull(selRow) ?: return true
+        val cur = progAt(r, selTime)
+        if (cur == null || cur.isOn(System.currentTimeMillis())) onPlay?.invoke(r) else onProgramme?.invoke(r, cur)
         return true
     }
 
