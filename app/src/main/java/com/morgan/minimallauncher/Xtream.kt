@@ -122,8 +122,11 @@ object Xtream {
         }
     }
 
+    /** Some providers turn away anything that doesn't look like a video player, so ask as one. */
+    val PLAYER_AGENT = "MinimalLauncher/1.0 (Linux;Android ${android.os.Build.VERSION.RELEASE}) AndroidXMedia3/1.3.1"
+
     private fun apiGet(c: Context, action: String? = null, extra: String = "", timeoutMs: Int = 15_000): String =
-        gated { Net.get(api(c, action, extra), timeoutMs = timeoutMs) }
+        gated { Net.get(api(c, action, extra), mapOf("User-Agent" to PLAYER_AGENT), timeoutMs = timeoutMs) }
 
     fun apiForDiag(c: Context, action: String) = api(c, action)
 
@@ -226,7 +229,7 @@ object Xtream {
             gated {
                 val conn = URL(api(c, action, extra)).openConnection() as HttpURLConnection
                 conn.connectTimeout = 15_000; conn.readTimeout = 60_000
-                conn.setRequestProperty("User-Agent", Net.USER_AGENT)
+                conn.setRequestProperty("User-Agent", PLAYER_AGENT)
                 try {
                     val code = conn.responseCode
                     if (code !in 200..299) throw java.io.IOException("HTTP $code")

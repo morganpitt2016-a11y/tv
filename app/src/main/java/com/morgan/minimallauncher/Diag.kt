@@ -142,7 +142,7 @@ object Diag {
                 fun clean(e: Exception) = "${e.javaClass.simpleName}: ${e.message.orEmpty().replace(Regex("https?://\\S+"), "<link>").take(200)}"
                 val login = try { "OK - " + Xtream.check(app) } catch (e: Exception) { clean(e) }
                 val cats = try {
-                    val raw = Xtream.gated { Net.get(Xtream.apiForDiag(app, "get_live_categories"), timeoutMs = 15_000) }
+                    val raw = Xtream.gated { Net.get(Xtream.apiForDiag(app, "get_live_categories"), mapOf("User-Agent" to Xtream.PLAYER_AGENT), timeoutMs = 15_000) }
                     val t = raw.trim()
                     "${t.length} chars, starts with '${t.take(1)}', groups=${try { org.json.JSONArray(t).length() } catch (e: Exception) { -1 }}"
                 } catch (e: Exception) { clean(e) }
