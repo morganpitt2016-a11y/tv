@@ -1427,7 +1427,25 @@ class WatchActivity : AppCompatActivity() {
         ImageLoader.load(h.image, item.image, ImageLoader.CARD)
         h.root.contentDescription = "Continue ${item.title}"
         h.root.setOnClickListener { openResume(item) }
+        // Hold OK: take it off the row (or start it again).
+        h.root.setOnLongClickListener { resumeOptions(item); true }
         focusEffect(h.root) { }
+    }
+
+    private fun resumeOptions(item: ResumeStore.Item) {
+        val rowName = if (item.kind == "live") "Recently Watched" else "Continue Watching"
+        val d = GlassDialog(this).title(item.title)
+        if (item.kind != "live" && item.posSec > 0) d.button("Start from the beginning", GlassDialog.Style.BOLD) {
+            Prefs.setInt(this, WatchHistory.posKey(this, item.url), 0)
+            openResume(item.copy(posSec = 0))
+        }
+        d.button("Remove from $rowName", GlassDialog.Style.DESTRUCTIVE) {
+            ResumeStore.remove(this, item.key)
+            if (item.kind != "live") Prefs.setInt(this, WatchHistory.posKey(this, item.url), 0)
+            refreshResumeRow()
+            GlassUi.toast(this, "Removed from $rowName")
+        }
+        d.button("Cancel").show()
     }
 
     private fun openResume(it: ResumeStore.Item) {
