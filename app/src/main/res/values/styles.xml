@@ -5,6 +5,15 @@
         <item name="android:colorBackground">@color/background_black</item>
         <item name="android:navigationBarColor">@color/background_black</item>
         <item name="android:statusBarColor">@color/background_black</item>
+        <item name="android:windowAnimationStyle">@style/ScreenAnimations</item>
+    </style>
+
+    <!-- One motion for every screen change, instead of Android's default slide. -->
+    <style name="ScreenAnimations" parent="@android:style/Animation.Activity">
+        <item name="android:activityOpenEnterAnimation">@anim/screen_in</item>
+        <item name="android:activityOpenExitAnimation">@anim/screen_dim</item>
+        <item name="android:activityCloseEnterAnimation">@anim/screen_back_in</item>
+        <item name="android:activityCloseExitAnimation">@anim/screen_out</item>
     </style>
 
     <style name="QuickSettingButton">
