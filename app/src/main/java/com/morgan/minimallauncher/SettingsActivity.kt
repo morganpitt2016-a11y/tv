@@ -264,6 +264,7 @@ class SettingsActivity : AppCompatActivity() {
 
         section("About")
         group {
+            row("Check for Updates", chevron = true) { checkForUpdates() }
             row("Photo Credits", chevron = true) {
                 GlassDialog(this).title("Photo Credits").message(getString(R.string.wallpaper_credits))
                     .button("Done", GlassDialog.Style.BOLD).show()
@@ -515,6 +516,25 @@ class SettingsActivity : AppCompatActivity() {
             startActivity(intent)
         } catch (e: Exception) {
             GlassUi.toast(this, "$what isn’t available on this TV")
+        }
+    }
+
+    /** Check GitHub now and install a newer version straight away (the automatic check waits until nobody is watching). */
+    private fun checkForUpdates() {
+        GlassUi.toast(this, "Checking for updates…")
+        Updater.maybeUpdate(this, force = true, asked = true) { msg ->
+            runOnUiThread {
+                if (isDestroyed) return@runOnUiThread
+                val text = when {
+                    msg.startsWith("Up to date") -> "You’re on the latest version (1.${Updater.installedBuild(this)})."
+                    msg.startsWith("Installing build") -> "Version 1.${msg.removePrefix("Installing build ").substringBefore(' ')} is installing. The launcher will restart in a moment" +
+                        " - if Android asks, press Install."
+                    msg.contains("hasn't allowed") -> "A new version is ready, but this TV needs to allow the launcher to install updates first (Settings › Apps › Special app access › Install unknown apps)."
+                    msg.contains("download failed") -> "A new version is out but it didn’t download - check the internet and try again."
+                    else -> msg
+                }
+                GlassDialog(this).title("Updates").message(text).button("OK", GlassDialog.Style.BOLD).show()
+            }
         }
     }
 

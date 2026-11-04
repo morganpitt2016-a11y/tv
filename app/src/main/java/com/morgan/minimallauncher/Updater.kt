@@ -31,21 +31,21 @@ object Updater {
         c.packageManager.getPackageInfo(c.packageName, 0).let { if (Build.VERSION.SDK_INT >= 28) it.longVersionCode.toInt() else @Suppress("DEPRECATION") it.versionCode }
 
     /** Check now (or at most every 20 minutes). Returns immediately; [report] gets the outcome. */
-    fun maybeUpdate(c: Context, force: Boolean = false, report: ((String) -> Unit)? = null) {
+    fun maybeUpdate(c: Context, force: Boolean = false, asked: Boolean = false, report: ((String) -> Unit)? = null) {
         val app = c.applicationContext
         val now = System.currentTimeMillis()
         if (!force && now - (Prefs.string(app, "upd_last")?.toLongOrNull() ?: 0L) < 20 * 60_000L) return
-        if (running) return
+        if (running) { report?.invoke("Already checking for an update - try again in a minute"); return }
         running = true
         Prefs.setString(app, "upd_last", now.toString())
         thread(isDaemon = true) {
-            val msg = try { run(app) } catch (e: Exception) { "Update check failed: ${e.javaClass.simpleName} ${e.message}" }
+            val msg = try { run(app, asked) } catch (e: Exception) { "Update check failed: ${e.javaClass.simpleName} ${e.message}" }
             running = false
             report?.invoke(msg)
         }
     }
 
-    private fun run(c: Context): String {
+    private fun run(c: Context, asked: Boolean = false): String {
         val stamp = System.currentTimeMillis()
         val latest = JSONObject(Net.get("$BASE/version.json?t=$stamp", timeoutMs = 15_000)).getInt("build")
         val have = installedBuild(c)
@@ -56,10 +56,10 @@ object Updater {
         val got = info?.let { if (Build.VERSION.SDK_INT >= 28) it.longVersionCode.toInt() else @Suppress("DEPRECATION") it.versionCode } ?: -1
         if (got <= have) { file.delete(); return "Downloaded file is build $got, not newer than $have - waiting for the next one" }
         val pending = Prefs.string(c, "upd_pending")?.split(":")
-        if (pending != null && pending.size == 2 && pending[0].toIntOrNull() == latest && System.currentTimeMillis() - (pending[1].toLongOrNull() ?: 0L) < 3 * 60_000L)
+        if (!asked && pending != null && pending.size == 2 && pending[0].toIntOrNull() == latest && System.currentTimeMillis() - (pending[1].toLongOrNull() ?: 0L) < 3 * 60_000L)
             return "Build $latest was already sent to the installer - waiting for it to finish"
         // Never cut into what someone is watching: it installs when the screen goes off or the TV is idle.
-        if (busy(c)) return "Build $latest is downloaded - it will install when nobody is watching"
+        if (!asked && busy(c)) return "Build $latest is downloaded - it will install when nobody is watching"
         if (Build.VERSION.SDK_INT >= 26 && !c.packageManager.canRequestPackageInstalls())
             return "Build $latest is ready but this TV hasn't allowed the launcher to install updates yet"
         Prefs.setString(c, "upd_pending", "$latest:${System.currentTimeMillis()}")
