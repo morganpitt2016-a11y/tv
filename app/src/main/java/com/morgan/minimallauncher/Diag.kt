@@ -137,6 +137,17 @@ object Diag {
                 }
             }
             cmd == "update" -> Updater.maybeUpdate(app, force = true) { send(app, "update", it) }
+            cmd == "xcheck" -> thread(isDaemon = true) {
+                // The result only - never the server, username or password.
+                fun clean(e: Exception) = "${e.javaClass.simpleName}: ${e.message.orEmpty().replace(Regex("https?://\\S+"), "<link>").take(200)}"
+                val login = try { "OK - " + Xtream.check(app) } catch (e: Exception) { clean(e) }
+                val cats = try {
+                    val raw = Net.get(Xtream.apiForDiag(app, "get_live_categories"), timeoutMs = 15_000)
+                    val t = raw.trim()
+                    "${t.length} chars, starts with '${t.take(1)}', groups=${try { org.json.JSONArray(t).length() } catch (e: Exception) { -1 }}"
+                } catch (e: Exception) { clean(e) }
+                send(app, "xcheck", "Login: $login\nLive groups: $cats")
+            }
             cmd == "livecats" -> thread(isDaemon = true) {
                 val t0 = android.os.SystemClock.uptimeMillis()
                 val cats = try { Xtream.liveCategories(app) } catch (e: Exception) { emptyMap() }

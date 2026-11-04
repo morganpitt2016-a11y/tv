@@ -91,6 +91,8 @@ object Xtream {
 
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
 
+    fun apiForDiag(c: Context, action: String) = api(c, action)
+
     private fun api(c: Context, action: String? = null, extra: String = ""): String =
         "${server(c)}/player_api.php?username=${enc(user(c))}&password=${enc(pass(c))}" +
             (action?.let { "&action=$it" } ?: "") + extra
