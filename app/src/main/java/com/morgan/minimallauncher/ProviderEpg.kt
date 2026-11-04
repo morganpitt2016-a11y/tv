@@ -49,6 +49,9 @@ object ProviderEpg {
             out += LiveGuide.Programme(title, text(e.optString("description")), start, stop, null, "")
         }
         if (out.isEmpty()) return null
-        return LiveGuide.Channel(ch.id.toString(), ch.name, ch.icon, out.sortedBy { it.start })
+        // One programme at a time: where two overlap, keep the first (the provider sometimes lists duplicates).
+        val clean = ArrayList<LiveGuide.Programme>()
+        for (p in out.sortedBy { it.start }) if (clean.isEmpty() || p.start >= clean.last().stop) clean += p
+        return LiveGuide.Channel(ch.id.toString(), ch.name, ch.icon, clean)
     }
 }
