@@ -43,7 +43,11 @@ class SettingsActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_settings)
-        GlassUi.installBackdrop(findViewById<FrameLayout>(R.id.settingsRoot))
+        val settingsRoot = findViewById<FrameLayout>(R.id.settingsRoot)
+        GlassUi.installBackdrop(settingsRoot)
+        // Which build is installed, small in the top-right corner.
+        settingsRoot.addView(GlassUi.text(this, "Version 1.${Updater.installedBuild(this)}", 11.5f, R.font.inter_medium, 0x80FFFFFF.toInt()),
+            FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply { topMargin = dp(this@SettingsActivity, 18f); marginEnd = dp(this@SettingsActivity, 28f) })
         findViewById<View>(R.id.settingsIconTile).background = GlassUi.panel(this, 34f, 0x30)
         list = findViewById(R.id.settingsList)
         UiSounds.attach(this)
