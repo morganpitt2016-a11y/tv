@@ -1,116 +1,55 @@
 package com.morgan.minimallauncher
 
-import android.animation.Animator
-import android.animation.AnimatorListenerAdapter
-import android.animation.ValueAnimator
 import android.app.Activity
 import android.app.ActivityOptions
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Outline
 import android.graphics.Rect
-import android.graphics.drawable.ColorDrawable
 import android.view.View
 import android.view.ViewGroup
-import android.view.ViewOutlineProvider
 import android.view.animation.PathInterpolator
-import android.widget.FrameLayout
-import android.widget.ImageView
 
 /**
- * Opening an app (or Settings, Watch...): the tile's outline grows out of its place until it fills the screen,
- * the icon fades in place, and only then does the app take over - so the whole motion is always seen.
- * Coming back, the screen shrinks into the tile it came from.
- *
- * Smoothness: nothing is resized or re-laid-out while it moves. One full-screen surface is clipped to an
- * animated rounded outline (a cheap redraw), and the icon only changes alpha and scale.
+ * Opening an app (or Settings, Watch...): Android zooms the app's own window out of the tile you pressed - the
+ * real page, from its very first frame, with nothing in between - while the home screen zooms forward into that
+ * tile and fades. Coming back, the home screen settles back out to its normal size.
  */
 object LaunchTransition {
-    private const val OPEN_MS = 300L
-    private const val CLOSE_MS = 340L
     private val ease = PathInterpolator(0.3f, 0f, 0f, 1f)
+    private const val ZOOM = 1.12f
 
-    private class State(
-        val root: FrameLayout, val surface: View, val icon: ImageView, val fill: ColorDrawable,
-        val rect: Rect, val w: Int, val h: Int, val radius: Float, val avg: Int,
-    ) {
-        var progress = 0f
-        val cur = Rect()
-        var curRadius = radius
-    }
-
-    private var state: State? = null
+    private var zoomed: View? = null
 
     fun open(activity: Activity, from: View?, start: (android.os.Bundle?) -> Unit) {
-        val content = activity.findViewById<ViewGroup>(android.R.id.content)
-        if (from == null || from.width <= 0 || from.height <= 0 || content == null || state != null || content.width <= 0) { start(null); return }
-        val r = Rect()
-        if (!from.getGlobalVisibleRect(r)) { start(null); return }
-        val cl = IntArray(2); content.getLocationOnScreen(cl)
-        r.offset(-cl[0], -cl[1])
-        val bmp = try {
-            Bitmap.createBitmap(from.width, from.height, Bitmap.Config.ARGB_8888).also { from.draw(Canvas(it)) }
-        } catch (e: Exception) { start(null); return }
-        val avg = try { Bitmap.createScaledBitmap(bmp, 1, 1, true).getPixel(0, 0) or 0xFF000000.toInt() } catch (e: Exception) { 0xFF2A2A2E.toInt() }
-
-        val radius = 10f * activity.resources.displayMetrics.density
-        val root = FrameLayout(activity).apply { isClickable = true; isFocusable = false }
-        val fill = ColorDrawable(avg)
-        val surface = View(activity).apply { background = fill; clipToOutline = true }
-        val icon = ImageView(activity).apply { setImageBitmap(bmp); scaleType = ImageView.ScaleType.FIT_XY }
-        root.addView(surface, FrameLayout.LayoutParams(-1, -1))
-        root.addView(icon, FrameLayout.LayoutParams(r.width(), r.height()).apply { leftMargin = r.left; topMargin = r.top })
-        content.addView(root, ViewGroup.LayoutParams(-1, -1))
-        root.elevation = 100f
-
-        val st = State(root, surface, icon, fill, r, content.width, content.height, radius, avg)
-        surface.outlineProvider = object : ViewOutlineProvider() {
-            override fun getOutline(v: View, o: Outline) { o.setRoundRect(st.cur, st.curRadius) }
+        val options = from?.takeIf { it.width > 0 && it.height > 0 }?.let {
+            try { ActivityOptions.makeScaleUpAnimation(it, 0, 0, it.width, it.height).toBundle() } catch (e: Exception) { null }
         }
-        state = st
-        apply(st, 0f)
-        ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = OPEN_MS; interpolator = ease
-            addUpdateListener { apply(st, it.animatedValue as Float) }
-            addListener(object : AnimatorListenerAdapter() {
-                override fun onAnimationEnd(a: Animator) {
-                    // The screen is now one plain colour: the app appears over it with no jump.
-                    try { start(ActivityOptions.makeCustomAnimation(activity, 0, android.R.anim.fade_out).toBundle()) }
-                    catch (e: Exception) { start(null) }
-                }
-            })
-            start()
+        // The home screen leans in towards the tile while the app grows out of it.
+        val content = activity.findViewById<ViewGroup>(android.R.id.content)?.getChildAt(0)
+        if (content != null && from != null) {
+            val r = Rect(); val c = IntArray(2)
+            if (from.getGlobalVisibleRect(r)) {
+                content.getLocationOnScreen(c)
+                content.pivotX = (r.exactCenterX() - c[0]); content.pivotY = (r.exactCenterY() - c[1])
+                content.animate().cancel()
+                content.animate().scaleX(ZOOM).scaleY(ZOOM).alpha(0f).setDuration(260).setInterpolator(ease).start()
+                zoomed = content
+            }
         }
+        start(options)
     }
 
-    private fun lerp(a: Int, b: Int, f: Float) = (a + (b - a) * f).toInt()
-
-    private fun apply(st: State, f: Float) {
-        st.progress = f
-        st.cur.set(lerp(st.rect.left, 0, f), lerp(st.rect.top, 0, f), lerp(st.rect.right, st.w, f), lerp(st.rect.bottom, st.h, f))
-        st.curRadius = st.radius * (1f - f)
-        st.surface.invalidateOutline()
-        val k = ((f - 0.3f) / 0.7f).coerceIn(0f, 1f)
-        st.fill.color = Color.rgb(lerp(Color.red(st.avg), 0, k), lerp(Color.green(st.avg), 0, k), lerp(Color.blue(st.avg), 0, k))
-        st.icon.alpha = (1f - f / 0.45f).coerceIn(0f, 1f)
-        val s = 1f + 0.1f * f
-        st.icon.scaleX = s; st.icon.scaleY = s
-    }
-
+    /** Call when the screen comes back to the front: it settles back out from the tile it zoomed into. */
     fun close(activity: Activity) {
-        val st = state ?: return
-        if (!st.root.isAttachedToWindow) { state = null; return }
-        state = null
-        ValueAnimator.ofFloat(st.progress.coerceAtLeast(0.001f), 0f).apply {
-            duration = CLOSE_MS; interpolator = ease
-            addUpdateListener { apply(st, it.animatedValue as Float) }
-            addListener(object : AnimatorListenerAdapter() {
-                override fun onAnimationEnd(a: Animator) { (st.root.parent as? ViewGroup)?.removeView(st.root) }
-            })
-            start()
-        }
+        val v = zoomed ?: return
+        zoomed = null
+        if (!v.isAttachedToWindow) return
+        v.animate().cancel()
+        v.scaleX = ZOOM; v.scaleY = ZOOM; v.alpha = 0f
+        v.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(380).setInterpolator(ease).start()
     }
 
-    fun reset() { state?.let { (it.root.parent as? ViewGroup)?.removeView(it.root) }; state = null }
+    /** Puts the screen straight back (e.g. the app couldn't be opened). */
+    fun reset() {
+        zoomed?.let { it.animate().cancel(); it.scaleX = 1f; it.scaleY = 1f; it.alpha = 1f }
+        zoomed = null
+    }
 }
