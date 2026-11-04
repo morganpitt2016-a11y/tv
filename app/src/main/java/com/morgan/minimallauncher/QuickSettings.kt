@@ -121,7 +121,7 @@ class QuickSettings(private val activity: AppCompatActivity, private val host: H
             openSettings(Settings.ACTION_WIFI_SETTINGS)
         }
         // Sound: hold Left / Right to turn it down / up; OK opens the sound settings.
-        val sound = tile(R.drawable.ic_lucide_volume, "Sound", soundSummary() + "  ·  ◀ ▶") { openSettings(Settings.ACTION_SOUND_SETTINGS) }
+        val sound = tile(R.drawable.ic_lucide_volume, "Sound", soundSummary().let { if (it.contains("◀")) it else "$it  ·  ◀ ▶" }) { openSettings(Settings.ACTION_SOUND_SETTINGS) }
         sound.setOnKeyListener { v, code, e ->
             val dir = when (code) {
                 android.view.KeyEvent.KEYCODE_DPAD_LEFT -> android.media.AudioManager.ADJUST_LOWER
@@ -131,9 +131,12 @@ class QuickSettings(private val activity: AppCompatActivity, private val host: H
             if (e.action == android.view.KeyEvent.ACTION_DOWN) {
                 try {
                     val am = c.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
-                    am.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, dir, android.media.AudioManager.FLAG_SHOW_UI)
+                    am.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, dir, 0)
                 } catch (_: Exception) {}
-                ((v as? ViewGroup)?.getChildAt(1) as? ViewGroup)?.getChildAt(1)?.let { (it as? android.widget.TextView)?.text = soundSummary() + "  ·  ◀ ▶" }
+                val now = soundSummary()
+                ((v as? ViewGroup)?.getChildAt(1) as? ViewGroup)?.getChildAt(1)?.let {
+                    (it as? android.widget.TextView)?.text = if (now.contains("◀")) (if (dir == android.media.AudioManager.ADJUST_RAISE) "Turning up  ▶" else "◀  Turning down") else "$now  ·  ◀ ▶"
+                }
             }
             true
         }
@@ -343,7 +346,10 @@ class QuickSettings(private val activity: AppCompatActivity, private val host: H
             else -> "Speakers"
         }
         val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
-        "$where · ${am.getStreamVolume(AudioManager.STREAM_MUSIC) * 100 / max}%"
+        val level = am.getStreamVolume(AudioManager.STREAM_MUSIC)
+        // Through HDMI the TV itself does the volume (its own bar shows the number), and the
+        // Chromecast can't read it - so don't show a misleading "100%".
+        if (am.isVolumeFixed || (where == "TV speakers" && level >= max)) "$where · hold ◀ ▶" else "$where · ${level * 100 / max}%"
     } catch (e: Exception) { "TV speakers" }
 
     private fun memoryLine(): String = try {
