@@ -46,6 +46,8 @@ class QuickSettings(private val activity: AppCompatActivity, private val host: H
 
     private val c: Context = activity
     private lateinit var dialog: Dialog
+    /** Called when the panel closes (the Control Centre opened over other apps finishes then). */
+    var onClose: (() -> Unit)? = null
     private lateinit var panel: LinearLayout
 
     fun show() {
@@ -81,7 +83,7 @@ class QuickSettings(private val activity: AppCompatActivity, private val host: H
         dialog.show()
         UiSounds.attach(dialog)
         GlassUi.blurBehind(activity, true)
-        dialog.setOnDismissListener { GlassUi.blurBehind(activity, false) }
+        dialog.setOnDismissListener { GlassUi.blurBehind(activity, false); onClose?.invoke() }
 
         scroll.translationX = dp(c, 120f).toFloat()
         val ease = DecelerateInterpolator(2.2f)
@@ -118,7 +120,24 @@ class QuickSettings(private val activity: AppCompatActivity, private val host: H
         tiles += tile(if (online()) R.drawable.ic_lucide_wifi else R.drawable.ic_lucide_wifi_off, "Wi-Fi", networkName()) {
             openSettings(Settings.ACTION_WIFI_SETTINGS)
         }
-        tiles += tile(R.drawable.ic_lucide_volume, "Sound", soundSummary()) { openSettings(Settings.ACTION_SOUND_SETTINGS) }
+        // Sound: hold Left / Right to turn it down / up; OK opens the sound settings.
+        val sound = tile(R.drawable.ic_lucide_volume, "Sound", soundSummary() + "  ·  ◀ ▶") { openSettings(Settings.ACTION_SOUND_SETTINGS) }
+        sound.setOnKeyListener { v, code, e ->
+            val dir = when (code) {
+                android.view.KeyEvent.KEYCODE_DPAD_LEFT -> android.media.AudioManager.ADJUST_LOWER
+                android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> android.media.AudioManager.ADJUST_RAISE
+                else -> return@setOnKeyListener false
+            }
+            if (e.action == android.view.KeyEvent.ACTION_DOWN) {
+                try {
+                    val am = c.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+                    am.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, dir, android.media.AudioManager.FLAG_SHOW_UI)
+                } catch (_: Exception) {}
+                ((v as? ViewGroup)?.getChildAt(1) as? ViewGroup)?.getChildAt(1)?.let { (it as? android.widget.TextView)?.text = soundSummary() + "  ·  ◀ ▶" }
+            }
+            true
+        }
+        tiles += sound
         tiles += tile(R.drawable.ic_lucide_mountain, "Aerial", "Start now") {
             dialog.dismiss(); AmbientActivity.start(activity, AmbientActivity.AERIAL)
         }

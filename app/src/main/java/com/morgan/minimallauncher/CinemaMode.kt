@@ -23,7 +23,11 @@ object CinemaMode {
         if (Prefs.cinemaOn(activity)) turnOff(activity) else turnOn(activity)
     }
 
+    /** When cinema mode last started (coming back Home after this turns it off). */
+    @Volatile var startedAt = 0L
+
     private fun turnOn(activity: MainActivity) {
+        startedAt = System.currentTimeMillis()
         Prefs.setBool(activity, "cinema_on", true)
         activity.applyDimming(animate = true)
         if (Prefs.cinemaDnd(activity)) setDnd(activity, true)

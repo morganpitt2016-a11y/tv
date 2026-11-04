@@ -48,6 +48,7 @@ class HomeRedirectService : AccessibilityService() {
         instance = this
         detector = HomeDetector(this).also { RedirectDiag.watching(this, it.describe()) }
         addKeepAliveWindow()
+        setNightDim(NightDim.isOn(this))
         RedirectDiag.connected(this, keepAliveWindow != null)
         if (!wakeReceiverRegistered) {
             ContextCompat.registerReceiver(
@@ -84,6 +85,8 @@ class HomeRedirectService : AccessibilityService() {
     override fun onKeyEvent(event: android.view.KeyEvent): Boolean {
         // The tuner's own presses (sent by Android for this service) always go through.
         if (event.deviceId == android.view.KeyCharacterMap.VIRTUAL_KEYBOARD) return false
+        // Hold Home: the launcher's Control Centre (a quick press still goes Home).
+        if (event.keyCode == android.view.KeyEvent.KEYCODE_HOME && !(TiviTuner.busy || TiviTuner.covering)) return homeKey(event)
         // While a channel is being found, the remote is held back so a stray press can't
         // send TiviMate somewhere else. Back stops the search and returns to the guide.
         if (TiviTuner.busy || TiviTuner.covering) {
@@ -137,6 +140,8 @@ class HomeRedirectService : AccessibilityService() {
             try { (getSystemService(WINDOW_SERVICE) as WindowManager).removeView(it) } catch (_: Exception) {}
         }
         keepAliveWindow = null
+        dimView?.let { try { (getSystemService(WINDOW_SERVICE) as WindowManager).removeView(it) } catch (_: Exception) {} }
+        dimView = null
         super.onDestroy()
     }
 
@@ -174,6 +179,57 @@ class HomeRedirectService : AccessibilityService() {
             AutoLaunch.open(this)
         } catch (e: Exception) {
             RedirectDiag.error(this, "launch: ${e.javaClass.simpleName}: ${e.message}")
+        }
+    }
+
+
+    // ---------- Hold Home for the Control Centre ----------
+
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var homeHeld = false
+    private val homeLong = Runnable {
+        homeHeld = true
+        try {
+            startActivity(Intent(this, ControlCentreActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION))
+        } catch (e: Exception) { RedirectDiag.error(this, "control centre: ${e.javaClass.simpleName}") }
+    }
+
+    private fun homeKey(event: android.view.KeyEvent): Boolean {
+        when (event.action) {
+            android.view.KeyEvent.ACTION_DOWN -> if (event.repeatCount == 0) {
+                homeHeld = false
+                mainHandler.removeCallbacks(homeLong)
+                mainHandler.postDelayed(homeLong, 550)
+            }
+            android.view.KeyEvent.ACTION_UP -> {
+                mainHandler.removeCallbacks(homeLong)
+                if (!homeHeld) performGlobalAction(GLOBAL_ACTION_HOME)
+                homeHeld = false
+            }
+        }
+        return true
+    }
+
+    // ---------- Night mode across the whole screen ----------
+
+    private var dimView: View? = null
+
+    fun setNightDim(on: Boolean) {
+        val wm = getSystemService(WINDOW_SERVICE) as WindowManager
+        if (on && dimView == null) {
+            val v = View(this).apply { setBackgroundColor(android.graphics.Color.BLACK); alpha = 0f }
+            val params = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                PixelFormat.TRANSLUCENT
+            )
+            try { wm.addView(v, params); dimView = v; v.animate().alpha(NightDim.LEVEL).setDuration(600).start() }
+            catch (e: Exception) { RedirectDiag.error(this, "night: ${e.javaClass.simpleName}") }
+        } else if (!on) {
+            dimView?.let { v -> v.animate().alpha(0f).setDuration(500).withEndAction { try { wm.removeView(v) } catch (_: Exception) {} }.start() }
+            dimView = null
         }
     }
 

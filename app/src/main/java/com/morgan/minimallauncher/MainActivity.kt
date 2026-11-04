@@ -209,6 +209,8 @@ class MainActivity : AppCompatActivity() {
             @Suppress("DEPRECATION") overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
         }
         Accounts.askWho = false
+        // Back home from cinema mode: cinema mode is over.
+        if (Prefs.cinemaOn(this) && System.currentTimeMillis() - CinemaMode.startedAt > 4_000L) CinemaMode.turnOff(this)
         RedirectDiag.launcherShown(this)
         AppWatchService.startIfNeeded(this)
         RemoteService.startIfEnabled(this)
@@ -368,10 +370,10 @@ class MainActivity : AppCompatActivity() {
 
     // ---------- Night mode, cinema mode, ambient lighting, idle ----------
 
-    fun isNightMode() = getPreferences(MODE_PRIVATE).getBoolean("night", false)
+    fun isNightMode() = NightDim.isOn(this)
 
     fun setNightMode(on: Boolean) {
-        getPreferences(MODE_PRIVATE).edit().putBoolean("night", on).apply()
+        NightDim.set(this, on)
         applyDimming(animate = true)
     }
 
@@ -388,7 +390,7 @@ class MainActivity : AppCompatActivity() {
         clockText.requestLayout()
         val target = when {
             cinema -> 0.72f
-            isNightMode() -> 0.55f
+            isNightMode() && !NightDim.covering() -> 0.55f   // the whole-screen dimmer does it when it can
             else -> 0f
         }
         nightOverlay.animate().cancel()

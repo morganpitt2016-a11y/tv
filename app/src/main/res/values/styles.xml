@@ -9,6 +9,15 @@
     </style>
 
     <!-- One motion for every screen change, instead of Android's default slide. -->
+    <!-- The Control Centre opened over any app (hold Home): see-through, no window animation. -->
+    <style name="Theme.MinimalLauncher.Overlay" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowAnimationStyle">@null</item>
+        <item name="android:backgroundDimEnabled">false</item>
+    </style>
+
     <style name="ScreenAnimations" parent="@android:style/Animation.Activity">
         <item name="android:activityOpenEnterAnimation">@anim/screen_in</item>
         <item name="android:activityOpenExitAnimation">@anim/screen_dim</item>
