@@ -119,7 +119,7 @@ class MainActivity : AppCompatActivity() {
         }
         setupProfilePill()
         setupDockGlass()
-        rotator.onNewPhoto = { bmp -> updateDockBackdrop(bmp) }
+        rotator.onNewPhoto = { bmp -> updateDockBackdrop(bmp); fitClockTo(bmp) }
         dateText.letterSpacing = 0.02f
         widgets = HomeWidgets(this, findViewById(R.id.widgetLeft), findViewById(R.id.widgetRight),
             lights = { govDevices }, openLights = { openQuickSettings() })
@@ -336,6 +336,27 @@ class MainActivity : AppCompatActivity() {
             if (st.dog) dogPet.resume() else dogPet.pause()
         }
         applyDimming(animate = false)
+    }
+
+    /**
+     * Keep the clock clear on every photo: look at how bright the sky behind it is, then set the shade
+     * at the top and the clock's soft shadow to match (bright skies get more, dark ones almost none).
+     */
+    private fun fitClockTo(bmp: android.graphics.Bitmap) {
+        val lum = try {
+            var sum = 0.0; var n = 0
+            val w = bmp.width; val h = bmp.height
+            for (yi in 0 until 12) for (xi in 0 until 20) {
+                val px = bmp.getPixel((w * (0.2 + 0.6 * xi / 19)).toInt().coerceIn(0, w - 1), (h * (0.04 + 0.4 * yi / 11)).toInt().coerceIn(0, h - 1))
+                sum += (0.2126 * android.graphics.Color.red(px) + 0.7152 * android.graphics.Color.green(px) + 0.0722 * android.graphics.Color.blue(px)) / 255.0
+                n++
+            }
+            (sum / n).toFloat()
+        } catch (e: Exception) { 0.5f }
+        findViewById<View>(R.id.topScrim)?.animate()?.alpha(((lum - 0.2f) / 0.5f).coerceIn(0.3f, 1f))?.setDuration(1200)?.start()
+        val shade = (50 + lum * 120).toInt().coerceIn(40, 170)
+        clockText.setShadowLayer(dp(14).toFloat(), 0f, dp(2).toFloat(), android.graphics.Color.argb(shade, 0, 0, 0))
+        dateText.setShadowLayer(dp(8).toFloat(), 0f, dp(1).toFloat(), android.graphics.Color.argb(shade, 0, 0, 0))
     }
 
     // ---------- Clock ----------

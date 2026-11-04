@@ -92,8 +92,7 @@ object WallpaperLibrary {
         return BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample })
     }
 
-    fun decodeFront(c: Context, photo: Photo): Bitmap? =
-        if (photo is Photo.Bundled && photo.front != 0) try {
-            BitmapFactory.decodeResource(c.resources, photo.front)
-        } catch (e: OutOfMemoryError) { null } else null
+    /** The old "mountains in front of the clock" cut-outs were too rough (they chopped the numbers up), so they're off. */
+    @Suppress("UNUSED_PARAMETER")
+    fun decodeFront(c: Context, photo: Photo): Bitmap? = null
 }
