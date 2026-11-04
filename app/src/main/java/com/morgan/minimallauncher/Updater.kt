@@ -47,11 +47,19 @@ object Updater {
 
     private fun run(c: Context, asked: Boolean = false): String {
         val stamp = System.currentTimeMillis()
-        val latest = JSONObject(Net.get("$BASE/version.json?t=$stamp", timeoutMs = 15_000)).getInt("build")
+        // GitHub's file servers can hand out an old copy for a few minutes; its API is always current.
+        val latest = try {
+            JSONObject(Net.get("https://api.github.com/repos/morganpitt2016-a11y/tv/contents/dist/version.json?ref=main",
+                mapOf("Accept" to "application/vnd.github.raw"), timeoutMs = 15_000)).getInt("build")
+        } catch (e: Exception) {
+            JSONObject(Net.get("$BASE/version.json?t=$stamp", timeoutMs = 15_000)).getInt("build")
+        }
         val have = installedBuild(c)
         if (latest <= have) return "Up to date (build $have)"
         val file = File(c.cacheDir, "update.apk")
-        if (!Net.download("$BASE/app-debug.apk?t=$stamp", file)) return "Build $latest found but the download failed"
+        val viaApi = Net.download("https://api.github.com/repos/morganpitt2016-a11y/tv/contents/dist/app-debug.apk?ref=main", file,
+            mapOf("Accept" to "application/vnd.github.raw"))
+        if (!viaApi && !Net.download("$BASE/app-debug.apk?t=$stamp", file)) return "Build $latest found but the download failed"
         val info = c.packageManager.getPackageArchiveInfo(file.path, 0)
         val got = info?.let { if (Build.VERSION.SDK_INT >= 28) it.longVersionCode.toInt() else @Suppress("DEPRECATION") it.versionCode } ?: -1
         if (got <= have) { file.delete(); return "Downloaded file is build $got, not newer than $have - waiting for the next one" }
