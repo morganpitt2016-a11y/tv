@@ -213,7 +213,12 @@ class WatchActivity : AppCompatActivity() {
         else if (rows.childCount > 0 && detail == null) refreshResumeRow()
     }
 
-    private fun coachTarget(name: String): View? = when (name) { "nav" -> nav; "rows" -> rows; else -> null }
+    private fun coachTarget(name: String): View? = when {
+        name == "nav" -> nav.findViewWithTag<View>(tab) ?: nav.getChildAt(0)
+        name == "rows" -> firstItem() ?: rows
+        name.startsWith("tab:") -> nav.findViewWithTag(name.removePrefix("tab:"))
+        else -> null
+    }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (Coach.onKey(this, event) { coachTarget(it) }) return true

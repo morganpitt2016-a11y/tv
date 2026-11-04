@@ -25,7 +25,7 @@ object Coach {
     private const val INFO = 0
     private const val TRY = 1
 
-    private class Step(val screen: String, val target: String?, val title: String, val text: String, val mode: Int = INFO)
+    private class Step(val screen: String, val target: String?, val title: String, val text: String, val mode: Int = INFO, val back: Boolean = false)
 
     private val steps = listOf(
         Step("home", null, "Welcome to Learning Mode",
@@ -42,12 +42,14 @@ object Coach {
             "Home, Films, Shows, Live TV, My List and Search. Move along them and the page changes by itself."),
         Step("watch", "rows", "Rows to browse",
             "Move down through the rows. Continue Watching sits at the top and picks up exactly where you stopped, just for you."),
-        Step("watch", "nav", "Live TV",
-            "Open the Live TV tab, then press OK on Open the TV Guide: categories on the left, a live picture, and a full programme grid. Press Menu on a channel to favourite or record it."),
-        Step("watch", "nav", "Search and My List",
-            "Search looks across your apps and Dodgy Box. My List keeps what you save, plus your recordings."),
-        Step("watch", "nav", "Try it: go back",
-            "Press Back on your remote to return to the home screen.", TRY),
+        Step("watch", "tab:live", "Live TV",
+            "Live TV shows the popular channels, and Open the TV Guide gives you the full guide: categories on the left, a live picture, and the programme grid. Press Menu on a channel to favourite or record it."),
+        Step("watch", "tab:list", "My List",
+            "My List keeps the films and shows you save, plus your recordings. Each person has their own."),
+        Step("watch", "tab:search", "Search",
+            "Search looks across all your apps and Dodgy Box at once. Press OK on Search to type or speak."),
+        Step("watch", null, "Try it: go back",
+            "Press Back on your remote to return to the home screen.", TRY, back = true),
         Step("home", "settingsTile", "Try it: open Settings",
             "Settings is where you choose your profile, wallpaper, widgets, screen savers and your Dodgy Box login. Press OK to open it.", TRY),
         Step("settings", "learnRow", "Learning Mode",
@@ -90,7 +92,11 @@ object Coach {
         val step = steps[i]
         activity.window.decorView.postDelayed({
             if (activity.isDestroyed || !isOn(activity) || index(activity) != i) return@postDelayed
-            show(activity, i, step, step.target?.let(find), find)
+            val target = step.target?.let(find)
+            target?.let { focusOn(it) }                 // the selection goes to what this step is about
+            activity.window.decorView.postDelayed({
+                if (!activity.isDestroyed && isOn(activity) && index(activity) == i) show(activity, i, step, target, find)
+            }, 280)
         }, 650)
     }
 
@@ -135,6 +141,13 @@ object Coach {
         }
     }
 
+    private fun focusOn(v: View) {
+        if (v.isFocusable) { v.requestFocus(); return }
+        val list = ArrayList<View>()
+        v.addFocusables(list, View.FOCUS_DOWN)
+        list.firstOrNull()?.requestFocus()
+    }
+
     fun hide() {
         view?.let { (it.parent as? ViewGroup)?.removeView(it) }
         view = null; owner = null
@@ -158,7 +171,18 @@ object Coach {
         val i = index(activity)
         val step = steps[i]
         if (event.keyCode == KeyEvent.KEYCODE_MENU) { if (event.action == KeyEvent.ACTION_DOWN) { stop(activity); GlassUi.toast(activity, "Learning Mode is off. Turn it on again in Settings.") }; return true }
-        if (step.mode == TRY) return false            // let the real button work
+        if (step.mode == TRY) {
+            if (step.back) {
+                if (event.keyCode == KeyEvent.KEYCODE_BACK) { if (event.action == KeyEvent.ACTION_UP) activity.finish(); return true }
+                return true                               // only Back does anything on this step
+            }
+            // Keep the selection on the thing to press: only OK (and Back to stop) work.
+            return when (event.keyCode) {
+                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> false
+                KeyEvent.KEYCODE_BACK -> { if (event.action == KeyEvent.ACTION_DOWN) { stop(activity); GlassUi.toast(activity, "Learning Mode is off. Turn it on again in Settings.") }; true }
+                else -> true
+            }
+        }
         if (event.action != KeyEvent.ACTION_DOWN) return true
         when (event.keyCode) {
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_DPAD_RIGHT -> go(activity, i + 1, find)
