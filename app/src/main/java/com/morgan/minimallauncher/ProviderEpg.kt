@@ -44,7 +44,8 @@ object ProviderEpg {
             val e = arr.getJSONObject(i)
             val start = e.optString("start_timestamp").toLongOrNull()?.times(1000) ?: continue
             val stop = e.optString("stop_timestamp").toLongOrNull()?.times(1000) ?: continue
-            val title = text(e.optString("title")).ifBlank { continue }
+            val title = text(e.optString("title"))
+            if (title.isBlank()) continue
             out += LiveGuide.Programme(title, text(e.optString("description")), start, stop, null, "")
         }
         if (out.isEmpty()) return null
