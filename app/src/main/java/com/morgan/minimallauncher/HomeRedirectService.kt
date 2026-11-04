@@ -197,6 +197,31 @@ class HomeRedirectService : AccessibilityService() {
         return performGlobalAction(action)
     }
 
+    /** A text map of what is on screen: each visible item's words and position, with anything that spills outside its parent or the screen marked CLIPPED. */
+    fun uiSummary(): String {
+        val dm = resources.displayMetrics
+        val screen = android.graphics.Rect(0, 0, dm.widthPixels, dm.heightPixels)
+        val lines = ArrayList<String>()
+        val roots = try { windows.mapNotNull { it.root } } catch (e: Exception) { emptyList() }.ifEmpty { listOfNotNull(rootInActiveWindow) }
+        for (root in roots) {
+            lines += "[${root.packageName}]  (screen ${dm.widthPixels}x${dm.heightPixels}, ${"%.1f".format(dm.density)}x)"
+            fun walk(n: android.view.accessibility.AccessibilityNodeInfo, depth: Int) {
+                if (lines.size > 160 || depth > 40) return
+                val t = (n.text ?: n.contentDescription)?.toString()?.replace('\n', ' ')?.trim().orEmpty()
+                if (n.isVisibleToUser && (t.isNotEmpty() || n.isClickable)) {
+                    val b = android.graphics.Rect(); n.getBoundsInScreen(b)
+                    val pb = android.graphics.Rect(); n.parent?.getBoundsInScreen(pb)
+                    val spill = !screen.contains(b) || (n.parent != null && !pb.isEmpty && (b.left < pb.left - 2 || b.right > pb.right + 2 || b.top < pb.top - 2 || b.bottom > pb.bottom + 2))
+                    val flags = buildString { if (n.isFocused) append("FOCUS "); if (n.isClickable) append("click "); if (spill) append("CLIPPED?") }
+                    lines += "  ".repeat(minOf(depth, 6)) + "${t.take(48).ifEmpty { n.className?.toString()?.substringAfterLast('.').orEmpty() }}  [${b.left},${b.top} ${b.width()}x${b.height()}] $flags".trimEnd()
+                }
+                for (i in 0 until n.childCount) n.getChild(i)?.let { walk(it, depth + 1) }
+            }
+            walk(root, 0)
+        }
+        return lines.joinToString("\n")
+    }
+
     /** Types into the text box that has focus, in any app. */
     fun type(text: String, replace: Boolean): Boolean {
         val node = rootInActiveWindow?.findFocus(android.view.accessibility.AccessibilityNodeInfo.FOCUS_INPUT) ?: return false

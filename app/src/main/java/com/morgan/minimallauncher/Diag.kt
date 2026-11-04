@@ -158,6 +158,19 @@ object Diag {
                 send(app, "epg", "${ch.name} (id ${ch.id}): ${g?.programmes?.size ?: 0} programmes in ${android.os.SystemClock.uptimeMillis() - t0} ms\n" +
                     (g?.programmes?.take(4)?.joinToString("\n") { "${java.util.Date(it.start)} ${it.title}" } ?: "raw: ${raw.take(400)}"))
             }
+            cmd == "ui" -> send(app, "ui", onMain { HomeRedirectService.instance?.uiSummary() ?: "(accessibility service not running)" })
+            cmd.startsWith("do:") -> thread(isDaemon = true) {
+                // e.g. do:down,down,ok,wait  - presses the remote's buttons in turn, then reports what is on screen.
+                val svc = HomeRedirectService.instance
+                for (step in cmd.removePrefix("do:").split(",").map { it.trim().lowercase() }.filter { it.isNotEmpty() }) {
+                    if (step == "wait") { Thread.sleep(1500); continue }
+                    val key = when (step) { "ok", "select", "enter" -> "select"; else -> step }
+                    main.post { svc?.press(key) }
+                    Thread.sleep(550)
+                }
+                Thread.sleep(700)
+                send(app, "ui", onMain { svc?.uiSummary() ?: "(accessibility service not running)" })
+            }
             cmd == "audio" -> send(app, "audio", TiviTuner.audioReport(app))
             cmd == "recs" -> send(app, "recs", TiviRecorder.describe(app))
             cmd == "clearrec" || cmd.startsWith("clearrec:") -> {
