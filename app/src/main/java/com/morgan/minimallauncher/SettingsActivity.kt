@@ -519,8 +519,8 @@ class SettingsActivity : AppCompatActivity() {
         }
         row.addView(GlassUi.rowText(c, title, 15.5f, R.font.inter_medium, GlassUi.primaryText()),
             LinearLayout.LayoutParams(0, -2, 1f))
-        val value = GlassUi.rowText(c, "", 14.5f, R.font.inter_regular, GlassUi.secondaryText())
-        row.addView(value, LinearLayout.LayoutParams(-2, -2))
+        val value = GlassUi.rowText(c, "", 14.5f, R.font.inter_regular, GlassUi.secondaryText()).apply { maxWidth = dp(c, 260f); gravity = Gravity.END }
+        row.addView(value, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(c, 12f) })
         if (chevron) {
             row.addView(GlassUi.rowText(c, "›", 20f, R.font.inter_regular, GlassUi.secondaryText()),
                 LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(c, 10f) })

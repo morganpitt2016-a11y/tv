@@ -241,6 +241,10 @@ object Xtream {
         Live(id, m["num"]?.toIntOrNull() ?: 0, m["name"].orEmpty().trim(), icon(m["stream_icon"]), m["category_id"].orEmpty())
     }.also { liveMem = it }
 
+    /** The provider's "what's on" listings for a channel, as raw JSON. */
+    fun shortEpg(c: Context, streamId: Int, limit: Int = 14): String =
+        Net.get(api(c, "get_short_epg", "&stream_id=$streamId&limit=$limit"), timeoutMs = 10_000)
+
     /** One group's channels (small and quick), instead of the whole line-up. */
     fun liveInCategory(c: Context, categoryId: String): List<Live> =
         liveMem?.filter { it.category == categoryId }?.takeIf { it.isNotEmpty() } ?: list(c, "get_live_streams",

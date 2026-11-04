@@ -123,6 +123,18 @@ class PlayerActivity : Activity() {
         curSeason = intent.getIntExtra(EXTRA_SEASON, 0); curEpisode = intent.getIntExtra(EXTRA_EPISODE, 0)
         val qu = intent.getStringArrayExtra(EXTRA_Q_URLS); val qs = intent.getIntArrayExtra(EXTRA_Q_S); val qe = intent.getIntArrayExtra(EXTRA_Q_E)
         if (qu != null && qs != null && qe != null) for (i in qu.indices) queue.addLast(Queued(qu[i], qs[i], qe[i]))
+        Diag.send(applicationContext, "player", "open: \"$titleText\" series=$seriesTitle S$curSeason E$curEpisode queue=${queue.size} live=$live")
+        // Opened without the list of following episodes (e.g. from a saved "up next" card)? Work it out.
+        if (!live && seriesTitle != null && queue.isEmpty() && curSeason > 0) {
+            val app0 = applicationContext; val name = seriesTitle!!; val s0 = curSeason; val e0 = curEpisode
+            Thread {
+                val eps = try { Xtream.findSeries(app0, name, 0)?.let { Xtream.episodes(app0, it) } } catch (e: Exception) { null }.orEmpty()
+                val i = eps.indexOfFirst { it.season == s0 && it.number == e0 }
+                if (i >= 0) runOnUiThread {
+                    if (queue.isEmpty()) eps.drop(i + 1).forEach { queue.addLast(Queued(Xtream.episodeUrl(app0, it), it.season, it.number)) }
+                }
+            }.start()
+        }
         liveId = intent.getIntExtra(EXTRA_LIVE_ID, -1)
         if (live && liveId >= 0) rememberLive()
         if (live && liveId >= 0) {
@@ -400,7 +412,9 @@ class PlayerActivity : Activity() {
 
     private fun options() {
         val p = player ?: return
-        GlassDialog(this).title("Playback")
+        val d0 = GlassDialog(this).title("Playback")
+        queue.firstOrNull()?.let { n -> if (!live) d0.button("Next episode · S${n.season} E${n.episode}", GlassDialog.Style.BOLD) { playNext() } }
+        d0
             .button("Subtitles · ${selectedLabel(C.TRACK_TYPE_TEXT, "Off")}") { pickTrack(C.TRACK_TYPE_TEXT, "Subtitles") }
             .button("Audio · ${selectedLabel(C.TRACK_TYPE_AUDIO, null)}") { pickTrack(C.TRACK_TYPE_AUDIO, "Audio") }
             .button("Picture · ${resizeName(view.resizeMode)}") { pickPicture() }

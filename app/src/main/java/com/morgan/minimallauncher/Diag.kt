@@ -147,6 +147,17 @@ object Diag {
                 send(app, "livecats", "Groups: ${cats.size} in ${t1 - t0} ms\nNames: ${cats.values.take(40)}\n" +
                     "First group \"${first?.value}\": ${chans.size} channels in ${t2 - t1} ms\nSample: ${chans.take(8).map { it.name }}")
             }
+            cmd.startsWith("epg:") -> thread(isDaemon = true) {
+                val name = cmd.removePrefix("epg:").trim()
+                val cats = try { Xtream.liveCategories(app) } catch (e: Exception) { emptyMap() }
+                val ch = cats.keys.firstNotNullOfOrNull { id -> try { Xtream.liveInCategory(app, id).firstOrNull { it.name.contains(name, true) } } catch (e: Exception) { null } }
+                if (ch == null) { send(app, "epg", "No channel matching \"$name\""); return@thread }
+                val t0 = android.os.SystemClock.uptimeMillis()
+                val raw = try { Xtream.shortEpg(app, ch.id, 8) } catch (e: Exception) { "error ${e.javaClass.simpleName} ${e.message}" }
+                val g = try { ProviderEpg.cached(ch.id) ?: run { var r: LiveGuide.Channel? = null; val l = java.util.concurrent.CountDownLatch(1); ProviderEpg.fetch(app, ch) { r = it; l.countDown() }; l.await(10, java.util.concurrent.TimeUnit.SECONDS); r } } catch (e: Exception) { null }
+                send(app, "epg", "${ch.name} (id ${ch.id}): ${g?.programmes?.size ?: 0} programmes in ${android.os.SystemClock.uptimeMillis() - t0} ms\n" +
+                    (g?.programmes?.take(4)?.joinToString("\n") { "${java.util.Date(it.start)} ${it.title}" } ?: "raw: ${raw.take(400)}"))
+            }
             cmd == "audio" -> send(app, "audio", TiviTuner.audioReport(app))
             cmd == "recs" -> send(app, "recs", TiviRecorder.describe(app))
             cmd == "clearrec" || cmd.startsWith("clearrec:") -> {

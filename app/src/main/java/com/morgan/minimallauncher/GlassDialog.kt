@@ -156,16 +156,23 @@ class GlassDialog(private val context: Context) {
             buttonViews += row
             buttons.addView(row, LinearLayout.LayoutParams(-1, dp(c, 44f)).apply { topMargin = dp(c, 8f) })
         }
-        val buttonsContainer: View = if (scrollChoices) {
+        // A long list of choices scrolls instead of running off the screen.
+        val scrolls = scrollChoices || choices.size > 5
+        val buttonsContainer: View = if (scrolls) {
             ScrollView(c).apply {
                 isVerticalScrollBarEnabled = false
+                clipChildren = false
                 clipToPadding = false
-                setPadding(0, 0, 0, dp(c, 4f))
+                overScrollMode = View.OVER_SCROLL_NEVER
+                setPadding(dp(c, 10f), dp(c, 4f), dp(c, 10f), dp(c, 8f))      // room for the focused button to grow
                 addView(buttons)
             }
         } else buttons
         card.addView(buttonsContainer, LinearLayout.LayoutParams(-1,
-            if (scrollChoices) minOf(dp(c, 300f), choices.size * dp(c, 52f)) else -2).apply { topMargin = dp(c, 14f) })
+            if (scrolls) minOf(dp(c, 300f), choices.size * dp(c, 52f) + dp(c, 12f)) else -2).apply {
+            topMargin = dp(c, 14f)
+            if (scrolls) { marginStart = -dp(c, 10f); marginEnd = -dp(c, 10f) }
+        })
 
         dialog.setContentView(root)
         dialog.window?.apply {

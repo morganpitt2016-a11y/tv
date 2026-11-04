@@ -93,7 +93,7 @@ class LiveGuideActivity : Activity() {
         meta = GlassUi.text(c, "", 12f, R.font.inter_medium, 0x99FFFFFF.toInt())
         head.addView(title); head.addView(desc, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(c, 3f) }); head.addView(meta, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(c, 4f) })
         right.addView(head, LinearLayout.LayoutParams(-1, dp(c, 92f)))
-        epg = EpgView(c).apply { this.accent = accent }
+        epg = EpgView(c).apply { this.accent = accent; fetcher = { row, cb -> ProviderEpg.fetch(applicationContext, row.ch, cb) } }
         right.addView(epg, LinearLayout.LayoutParams(-1, 0, 1f))
         root.addView(right, FrameLayout.LayoutParams(-1, -1).apply { marginStart = dp(c, 250f) })
         setContentView(root)

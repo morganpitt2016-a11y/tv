@@ -21,7 +21,7 @@ import java.util.Locale
  */
 class EpgView(context: Context) : View(context) {
 
-    class Row(val ch: Xtream.Live, val guide: LiveGuide.Channel?)
+    class Row(val ch: Xtream.Live, var guide: LiveGuide.Channel?) { var fromProvider = false }
 
     var accent: Int = 0xFFFF453A.toInt()
     var onSelect: ((Row, LiveGuide.Programme?) -> Unit)? = null
@@ -30,7 +30,7 @@ class EpgView(context: Context) : View(context) {
 
     private val d = resources.displayMetrics.density
     private var visibleRows = 7
-    private val rowH = 47 * d
+    private val rowH = 50 * d
     private val headH = 30 * d
     private val chW = 200 * d
     private val pxPerMin = 4.4f * d
@@ -63,8 +63,10 @@ class EpgView(context: Context) : View(context) {
         winStart = floorHalfHour(System.currentTimeMillis())
         selTime = System.currentTimeMillis()
         scrollX = 0f
+        asked.clear()
         invalidate()
         notifySelect()
+        post { ensureGuides() }
     }
 
     override fun onMeasure(w: Int, h: Int) {
@@ -76,6 +78,26 @@ class EpgView(context: Context) : View(context) {
 
     /** Move the highlight to a given channel (used when the category changes or the guide opens on a channel). */
     fun selectChannel(id: Int) { rows.indexOfFirst { it.ch.id == id }.takeIf { it >= 0 }?.let { selRow = it; reveal(); notifySelect(); invalidate() } }
+
+    /** Asked to load listings for a channel that is about to be on screen; calls back (any thread) with them. */
+    var fetcher: ((Row, (LiveGuide.Channel?) -> Unit) -> Unit)? = null
+    private val asked = HashSet<Int>()
+
+    private fun ensureGuides() {
+        val f = fetcher ?: return
+        val from = firstRow.toInt().coerceAtLeast(0)
+        for (i in from until minOf(rows.size, from + visibleRows + 6)) {
+            val r = rows[i]
+            if (!asked.add(r.ch.id)) continue
+            f(r) { g ->
+                if (g != null) post {
+                    r.guide = g; r.fromProvider = true
+                    if (rows.getOrNull(selRow) === r) notifySelect()
+                    invalidate()
+                }
+            }
+        }
+    }
 
     var onLeftEdge: (() -> Unit)? = null
     var onRecord: ((Row, LiveGuide.Programme?) -> Unit)? = null
@@ -94,6 +116,7 @@ class EpgView(context: Context) : View(context) {
         ValueAnimator.ofFloat(0f, 1f).apply {
             duration = 240; interpolator = DecelerateInterpolator(2f)
             addUpdateListener { f -> val v = f.animatedValue as Float; scrollX = sx + (x - sx) * v; firstRow = sy + (y - sy) * v; invalidate() }
+            addListener(object : android.animation.AnimatorListenerAdapter() { override fun onAnimationEnd(a: android.animation.Animator) { ensureGuides() } })
             start()
         }
     }
@@ -167,6 +190,7 @@ class EpgView(context: Context) : View(context) {
         for (i in top until minOf(rows.size, top + visibleRows + 2)) {
             val y = headH + (i - firstRow) * rowH
             val row = rows[i]
+            p.style = Paint.Style.FILL; p.color = 0x16FFFFFF; c.drawRect(chW, y + rowH - 1 * d, w, y + rowH, p)     // hairline between channels
             val progs = row.guide?.programmes.orEmpty().filter { it.stop > winStart }
             if (progs.isEmpty()) drawCell(c, chW + gap, y, w, rowH, "${row.ch.name} · Live", i == selRow, true, focused, null)
             for (pr in progs) {
@@ -236,13 +260,13 @@ class EpgView(context: Context) : View(context) {
             c.drawRoundRect(rect, 9 * d, 9 * d, p)
         } else {
             // A thin divider between programmes, rather than a box round each one.
-            p.color = 0x30FFFFFF
-            c.drawRect(left - gap, y + 6 * d, left - gap + 1 * d, y + h - 6 * d, p)
+            p.color = 0x4DFFFFFF
+            c.drawRect(left - gap, y + 8 * d, left - gap + 1 * d, y + h - 8 * d, p)
         }
         text.typeface = if (selected || live) fontBold else font
         text.textSize = 12.5f * d
         text.color = if (selected && focused) GlassUi.INK else if (live || selected) 0xFFFFFFFF.toInt() else 0xCCFFFFFF.toInt()
-        c.drawText(ellipsize(title, rect.width() - 20 * d, text), rect.left + 10 * d, rect.centerY() + 4.5f * d, text)
+        if (rect.width() > 64 * d) c.drawText(ellipsize(title, rect.width() - 28 * d, text), rect.left + 14 * d, rect.centerY() + 4.5f * d, text)
         if (progress != null) {
             p.color = if (selected && focused) 0x66000000 else 0xA6FFFFFF.toInt()
             c.drawRoundRect(rect.left + 8 * d, rect.bottom - 5 * d, rect.left + 8 * d + (rect.width() - 16 * d) * progress, rect.bottom - 3 * d, 2 * d, 2 * d, p)
