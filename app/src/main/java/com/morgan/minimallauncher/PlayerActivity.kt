@@ -243,6 +243,12 @@ class PlayerActivity : Activity() {
 
     private fun posKey() = WatchHistory.posKey(this, url)
 
+    // Save your place as soon as you leave, before the screen behind refreshes its Continue Watching row.
+    override fun onPause() {
+        super.onPause()
+        saveProgress()
+    }
+
     override fun onStop() {
         super.onStop()
         watching = false

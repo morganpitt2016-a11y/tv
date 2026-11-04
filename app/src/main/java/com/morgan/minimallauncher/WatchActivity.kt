@@ -212,6 +212,8 @@ class WatchActivity : AppCompatActivity() {
         Coach.resume(this, "watch") { coachTarget(it) }
         if (tab == "home" && rows.childCount > 0 && detail == null) { refreshPersonalRows(); refreshResumeRow() }
         else if (rows.childCount > 0 && detail == null) refreshResumeRow()
+        // The player may still be saving where you got to: look again a moment later.
+        handler.postDelayed({ if (!isFinishing && rows.childCount > 0 && detail == null) refreshResumeRow() }, 900)
     }
 
     private fun coachTarget(name: String): View? = when {
@@ -1206,6 +1208,8 @@ class WatchActivity : AppCompatActivity() {
         for (v in listOf<View>(info, nav, scroll)) { v.visibility = View.VISIBLE; v.animate().alpha(1f).setDuration(240).start() }
         page.animate().alpha(0f).setDuration(200).withEndAction { root.removeView(page) }.start()
         heroUrl = null
+        // Something may have been watched from the page: bring Continue Watching and My List up to date.
+        if (rows.childCount > 0) { if (tab == "home") refreshPersonalRows(); refreshResumeRow() }
         detailReturn?.takeIf { it.isAttachedToWindow }?.requestFocus() ?: firstItem()?.requestFocus()
         detailReturn = null
     }
