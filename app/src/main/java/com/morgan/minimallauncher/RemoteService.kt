@@ -38,6 +38,13 @@ class RemoteService : Service() {
         val type = if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0
         ServiceCompat.startForeground(this, 2, n, type)
         server = RemoteServer(this).also { it.start() }
+        // A waiting update installs while the screen is off, so it never interrupts anyone.
+        val f = android.content.IntentFilter(Intent.ACTION_SCREEN_OFF)
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(screenOff, f, android.content.Context.RECEIVER_NOT_EXPORTED) else registerReceiver(screenOff, f)
+    }
+
+    private val screenOff = object : android.content.BroadcastReceiver() {
+        override fun onReceive(c: android.content.Context, i: Intent) { Updater.maybeUpdate(c, force = true) }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -46,6 +53,7 @@ class RemoteService : Service() {
     }
 
     override fun onDestroy() {
+        try { unregisterReceiver(screenOff) } catch (e: Exception) {}
         server?.stop()
         server = null
         super.onDestroy()

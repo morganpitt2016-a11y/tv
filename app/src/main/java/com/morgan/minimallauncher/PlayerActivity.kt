@@ -153,6 +153,7 @@ class PlayerActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
+        watching = true
         start(url, resume = !live && !intent.getBooleanExtra(EXTRA_FROM_START, false))
         handler.removeCallbacks(progressTick); handler.postDelayed(progressTick, 1000)
     }
@@ -244,6 +245,7 @@ class PlayerActivity : Activity() {
 
     override fun onStop() {
         super.onStop()
+        watching = false
         handler.removeCallbacks(progressTick)
         saveProgress()
         player?.let { p ->
@@ -498,6 +500,8 @@ class PlayerActivity : Activity() {
     }
 
     companion object {
+        /** True while something is on screen in the player (updates wait until it closes). */
+        @Volatile var watching = false
         const val EXTRA_URL = "url"
         const val EXTRA_ALT_URL = "alt"
         const val EXTRA_LIVE = "live"

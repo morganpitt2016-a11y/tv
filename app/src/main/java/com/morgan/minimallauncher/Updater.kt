@@ -18,6 +18,14 @@ import kotlin.concurrent.thread
 object Updater {
     private const val BASE = "https://raw.githubusercontent.com/morganpitt2016-a11y/tv/main/dist"
     @Volatile private var running = false
+    @Volatile var guideOpen = false
+
+    /** Someone is watching: the player or the guide is up, or sound is playing (from any app). */
+    fun busy(c: Context): Boolean {
+        if (PlayerActivity.watching || guideOpen) return true
+        val am = c.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+        return am.isMusicActive
+    }
 
     fun installedBuild(c: Context): Int =
         c.packageManager.getPackageInfo(c.packageName, 0).let { if (Build.VERSION.SDK_INT >= 28) it.longVersionCode.toInt() else @Suppress("DEPRECATION") it.versionCode }
@@ -50,6 +58,8 @@ object Updater {
         val pending = Prefs.string(c, "upd_pending")?.split(":")
         if (pending != null && pending.size == 2 && pending[0].toIntOrNull() == latest && System.currentTimeMillis() - (pending[1].toLongOrNull() ?: 0L) < 3 * 60_000L)
             return "Build $latest was already sent to the installer - waiting for it to finish"
+        // Never cut into what someone is watching: it installs when the screen goes off or the TV is idle.
+        if (busy(c)) return "Build $latest is downloaded - it will install when nobody is watching"
         if (Build.VERSION.SDK_INT >= 26 && !c.packageManager.canRequestPackageInstalls())
             return "Build $latest is ready but this TV hasn't allowed the launcher to install updates yet"
         Prefs.setString(c, "upd_pending", "$latest:${System.currentTimeMillis()}")
