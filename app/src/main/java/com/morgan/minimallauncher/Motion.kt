@@ -42,7 +42,7 @@ object Motion {
         val s = springs.getOrPut(v) { Springs(v) }
         s.sx.animateToFinalPosition(scale)
         s.sy.animateToFinalPosition(scale)
-        s.z.animateToFinalPosition(lift)
+        s.z.animateToFinalPosition(0f)          // no lift shadow: on translucent glass it shows through as a ghost edge
     }
 
     /** Lift [v] when focused: a small grow and a soft shadow; settle back when not. */

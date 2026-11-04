@@ -12,10 +12,9 @@ object AppActions {
         val intent = app.launchIntent ?: return
         RecentAppsTracker.recordOpened(activity, app.packageName)
         try {
-            val options = from?.takeIf { it.width > 0 }?.let {
-                ActivityOptions.makeScaleUpAnimation(it, 0, 0, it.width, it.height).toBundle()
+            LaunchTransition.open(activity, from) { options ->
+                try { activity.startActivity(intent, options) } catch (e: Exception) { LaunchTransition.reset(); GlassUi.toast(activity, "${app.label} couldn’t be opened") }
             }
-            activity.startActivity(intent, options)
         } catch (e: Exception) {
             GlassUi.toast(activity, "${app.label} couldn’t be opened")
         }

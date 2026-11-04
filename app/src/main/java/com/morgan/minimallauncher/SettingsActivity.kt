@@ -499,9 +499,13 @@ class SettingsActivity : AppCompatActivity() {
         val g = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = GlassUi.panel(this@SettingsActivity, 20f)
-            setPadding(dp(context, 6f), dp(context, 6f), dp(context, 6f), dp(context, 6f))
-            clipChildren = false
-            clipToPadding = false
+            // The panel clips its rows, so the white highlight fills the whole row and follows the panel's corners.
+            clipToOutline = true
+            outlineProvider = object : android.view.ViewOutlineProvider() {
+                override fun getOutline(v: View, o: android.graphics.Outline) { o.setRoundRect(0, 0, v.width, v.height, dp(context, 20f).toFloat()) }
+            }
+            showDividers = LinearLayout.SHOW_DIVIDER_MIDDLE
+            dividerDrawable = android.graphics.drawable.GradientDrawable().apply { setColor(0x1FFFFFFF); setSize(1, dp(context, 1f)) }
         }
         currentGroup = g
         build()
@@ -514,8 +518,8 @@ class SettingsActivity : AppCompatActivity() {
         val row = LinearLayout(c).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            background = GlassUi.rowBackground(c)
-            setPadding(dp(c, 16f), 0, dp(c, 16f), 0)
+            background = GlassUi.rowBackground(c, if (currentGroup != null) 0f else 14f)
+            setPadding(dp(c, 18f), 0, dp(c, 18f), 0)
             isFocusable = true
             isClickable = true
             contentDescription = title
@@ -529,7 +533,7 @@ class SettingsActivity : AppCompatActivity() {
             row.addView(GlassUi.rowText(c, "›", 20f, R.font.inter_regular, GlassUi.secondaryText()),
                 LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(c, 10f) })
         }
-        GlassUi.focusLift(row, 1.025f)
+        if (currentGroup == null) GlassUi.focusLift(row, 1.025f)       // rows inside a panel just light up
         (currentGroup ?: list).addView(row, LinearLayout.LayoutParams(-1, dp(c, 50f)))
         return Row(row, value)
     }

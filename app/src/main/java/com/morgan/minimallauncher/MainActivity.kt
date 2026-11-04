@@ -201,6 +201,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        window.decorView.post { LaunchTransition.close(this) }       // the tile you opened shrinks back into place
         // First launch: set up the account. Start-up / waking the TV: "Who's watching?"
         if (Accounts.needsSetup(this) || (Accounts.askWho && Prefs.bool(this, "who_at_start", true))) {
             Accounts.askWho = false
@@ -622,11 +623,11 @@ class MainActivity : AppCompatActivity() {
                 true
             }
         }
-        addDockTile(systemTile(R.drawable.ic_lucide_play, "Watch"), 0xFF000000.toInt(), "Watch: films and shows on all your apps") {
-            startActivity(Intent(this, WatchActivity::class.java))
+        addDockTile(systemTile(R.drawable.ic_lucide_play, "Watch"), 0xFF000000.toInt(), "Watch: films and shows on all your apps") { v ->
+            LaunchTransition.open(this, v) { o -> startActivity(Intent(this, WatchActivity::class.java), o) }
         }
-        addDockTile(glyph(R.drawable.ic_lucide_settings, (dockTileH * 0.42f).toInt()), 0, getString(R.string.settings), SETTINGS_GRADIENT) {
-            startActivity(Intent(this, SettingsActivity::class.java))
+        addDockTile(glyph(R.drawable.ic_lucide_settings, (dockTileH * 0.42f).toInt()), 0, getString(R.string.settings), SETTINGS_GRADIENT) { v ->
+            LaunchTransition.open(this, v) { o -> startActivity(Intent(this, SettingsActivity::class.java), o) }
         }
     }
 

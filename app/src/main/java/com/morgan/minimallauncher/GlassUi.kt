@@ -182,9 +182,11 @@ object GlassUi {
      */
     fun spotlight(view: View, on: Boolean) {
         if (Build.VERSION.SDK_INT >= 28) {
-            view.outlineSpotShadowColor = 0xFF000000.toInt()
-            view.outlineAmbientShadowColor = if (on) 0x99000000.toInt() else 0xFF000000.toInt()
+            // Shadows are off everywhere: they bleed through translucent glass as a pale offset shape.
+            view.outlineSpotShadowColor = 0x00000000
+            view.outlineAmbientShadowColor = 0x00000000
         }
+    }
     }
 
     /** Roboto Flex with custom weight/width - SF-like display numerals. */

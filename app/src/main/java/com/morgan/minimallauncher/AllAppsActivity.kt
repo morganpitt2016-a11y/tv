@@ -9,6 +9,11 @@ import androidx.recyclerview.widget.RecyclerView
 
 /** Every installed TV app, tvOS-style, over the blurred wallpaper. */
 class AllAppsActivity : AppCompatActivity() {
+    override fun onResume() {
+        super.onResume()
+        window.decorView.post { LaunchTransition.close(this) }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_all_apps)
