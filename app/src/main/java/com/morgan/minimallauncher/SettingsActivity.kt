@@ -41,8 +41,15 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var devicesRow: Row
     private lateinit var devicesNote: TextView
 
+    // Base accounts see only the everyday settings; the Master account sees everything.
+    private val ADVANCED = setOf("Live TV", "iPhone Remote", "Open Automatically", "Claude", "Govee Lights", "Copy to Another TV")
+    private val ADVANCED_ROWS = setOf("Apps", "All TV Settings")
+    private var base = false
+    private var hideSection = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        base = isBase(this)
         setContentView(R.layout.activity_settings)
         val settingsRoot = findViewById<FrameLayout>(R.id.settingsRoot)
         GlassUi.installBackdrop(settingsRoot)
@@ -239,6 +246,13 @@ class SettingsActivity : AppCompatActivity() {
             row("Get Setup From Another TV", chevron = true) { receiveSetup() }
         }
         footnote("Makes another TV an exact copy of this one - profiles, lists, settings and the Dodgy Box login. You get a code here, type it on the other TV, and it copies over. The copy is locked with the code, works once, and is deleted after an hour.")
+
+        section("Account Type")
+        group {
+            vrow("This Profile Is", { if (isBase(this)) "Base" else "Master" }) { switchAccountType() }
+        }
+        footnote(if (base) "Base shows the everyday settings. To see everything, switch to Master (needs the PIN)."
+                 else "Master shows every setting. Base hides the technical ones (Dodgy Box login, remote, Claude, lights, copying) - good for family profiles. Each profile has its own type.")
 
         section("System")
         group {
@@ -504,11 +518,50 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
+    // ---------- Account type (Master / Base) ----------
+
+    private fun isBase(c: android.content.Context) = Prefs.bool(c, ProfileManager.scope(c, "settings_base"), false)
+
+    private fun setBase(on: Boolean) {
+        Prefs.setBool(this, ProfileManager.scope(this, "settings_base"), on)
+        recreate()
+    }
+
+    private fun switchAccountType() {
+        val pin = Prefs.string(this, "settings_pin")
+        if (!isBase(this)) {
+            // Master -> Base. The first time, choose a PIN that's needed to switch back.
+            if (pin == null) {
+                val d = GlassDialog(this).title("Choose a PIN").message("4 numbers. You'll need it to switch a Base profile back to Master.").input("PIN", secret = true)
+                d.button("Save", GlassDialog.Style.BOLD) {
+                    val p = d.inputText.filter { it.isDigit() }
+                    if (p.length < 4) { GlassUi.toast(this, "The PIN needs 4 numbers"); return@button }
+                    Prefs.setString(this, "settings_pin", p.take(8))
+                    setBase(true)
+                }
+                d.button("Cancel").show()
+            } else {
+                GlassDialog(this).title("Make This Profile Base?").message("The technical settings will be hidden for this profile. Switching back needs the PIN.")
+                    .button("Make Base", GlassDialog.Style.BOLD) { setBase(true) }
+                    .button("Cancel").show()
+            }
+        } else {
+            val d = GlassDialog(this).title("Enter PIN").message("Enter the PIN to show every setting for this profile.").input("PIN", secret = true)
+            d.button("Make Master", GlassDialog.Style.BOLD) {
+                if (pin == null || d.inputText.filter { it.isDigit() } == pin) setBase(false)
+                else GlassUi.toast(this, "That PIN isn’t right")
+            }
+            d.button("Cancel").show()
+        }
+    }
+
     // ---------- Building blocks ----------
 
     private fun section(title: String) {
+        hideSection = base && title in ADVANCED
         list.addView(GlassUi.text(this, title.uppercase(), 12f, R.font.inter_semibold, 0x8CFFFFFF.toInt()).apply {
             letterSpacing = 0.08f
+            if (hideSection) visibility = View.GONE
         }, LinearLayout.LayoutParams(-2, -2).apply {
             marginStart = dp(this@SettingsActivity, 16f)
             topMargin = dp(this@SettingsActivity, if (list.childCount == 0) 0f else 26f)
@@ -533,6 +586,7 @@ class SettingsActivity : AppCompatActivity() {
         currentGroup = g
         build()
         currentGroup = null
+        if (hideSection) g.visibility = View.GONE
         list.addView(g, LinearLayout.LayoutParams(-1, -2))
     }
 
@@ -557,6 +611,7 @@ class SettingsActivity : AppCompatActivity() {
                 LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(c, 10f) })
         }
         if (currentGroup == null) GlassUi.focusLift(row, 1.025f)       // rows inside a panel just light up
+        if (base && title in ADVANCED_ROWS) row.visibility = View.GONE
         (currentGroup ?: list).addView(row, LinearLayout.LayoutParams(-1, dp(c, 50f)))
         return Row(row, value)
     }
@@ -565,6 +620,7 @@ class SettingsActivity : AppCompatActivity() {
         val t = GlassUi.text(this, text, if (mono) 11f else 12.5f, R.font.inter_regular, 0x8CFFFFFF.toInt()).apply {
             if (mono) typeface = android.graphics.Typeface.MONOSPACE
             setLineSpacing(0f, 1.3f)
+            if (hideSection) visibility = View.GONE
         }
         list.addView(t, LinearLayout.LayoutParams(-1, -2).apply {
             marginStart = dp(this@SettingsActivity, 16f)
