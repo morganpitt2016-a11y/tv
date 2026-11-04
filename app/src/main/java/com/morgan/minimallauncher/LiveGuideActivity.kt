@@ -305,7 +305,6 @@ class LiveGuideActivity : Activity() {
     private fun record(row: EpgView.Row, prog: LiveGuide.Programme?, series: Boolean) {
         val app = applicationContext
         val title = prog?.let { LibraryRecordings.cleanTitle(it.title) } ?: row.ch.name
-        val se = prog?.let { LibraryRecordings.seasonEpisode(it) }
         GlassUi.toast(this, "Looking for $title on Dodgy Box…")
         Thread {
             val show = try { if (prog != null) Xtream.findSeries(app, title, 0) else null } catch (e: Exception) { null }
@@ -319,8 +318,8 @@ class LiveGuideActivity : Activity() {
                         LibraryRecordings.add(app, LibraryRecordings.Item("series", title, 0, 0, show.cover ?: prog?.image, row.ch.name, now))
                         GlassUi.toast(this, "$title recorded - the whole series (${eps.size} episodes) is in Recordings")
                     }
-                    show != null && se != null && eps.any { it.season == se.first && it.number == se.second } -> {
-                        val e = eps.first { it.season == se.first && it.number == se.second }
+                    show != null && prog != null && LibraryRecordings.matchEpisode(prog, eps) != null -> {
+                        val e = LibraryRecordings.matchEpisode(prog, eps)!!
                         LibraryRecordings.add(app, LibraryRecordings.Item("episode", title, e.season, e.number, e.image ?: show.cover, row.ch.name, now))
                         GlassUi.toast(this, "$title S${e.season} E${e.number} recorded - it's in Recordings")
                     }
