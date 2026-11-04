@@ -60,6 +60,7 @@ class LiveGuideActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        if (Xtream.isExpired(this)) window.decorView.post { if (!isDestroyed) Xtream.showExpired(this) }
         val c = this
         val root = FrameLayout(c).apply { setBackgroundColor(0xFF000000.toInt()) }
         // The same blurred, darkened wallpaper as the rest of the launcher.

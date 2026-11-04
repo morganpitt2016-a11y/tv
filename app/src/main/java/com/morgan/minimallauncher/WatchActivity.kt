@@ -969,7 +969,10 @@ class WatchActivity : AppCompatActivity() {
         }
         // TiviMate's own films and series (from the TV provider), played the same way as live TV.
         if (LiveGuide.hasTiviMate(c) || Xtream.isSetUp(c)) {
-            buttons.addView(pillButton("Watch on Dodgy Box") { watchOnDodgyBox(t) },
+            val expired = Xtream.isExpired(c)
+            buttons.addView(pillButton(if (expired) "Dodgy Box · Expired" else "Watch on Dodgy Box") {
+                if (Xtream.isExpired(this)) Xtream.showExpired(this) else watchOnDodgyBox(t)
+            }.apply { if (expired) alpha = 0.55f },
                 LinearLayout.LayoutParams(-2, dp(c, 40f)).apply { marginEnd = dp(c, 10f) })
         }
         val trailerButton = pillButton("Trailer") {}

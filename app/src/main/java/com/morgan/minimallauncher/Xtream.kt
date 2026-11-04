@@ -84,6 +84,40 @@ object Xtream {
         }.start()
     }
 
+    // ---------- Subscription ended ----------
+
+    /** True once the subscription has run out (by its end date, or the provider saying so). */
+    fun isExpired(c: Context): Boolean {
+        if (!isSetUp(c)) return false
+        if (Prefs.string(c, "xt_status")?.equals("Expired", true) == true) return true
+        val exp = Prefs.string(c, "xt_exp")?.toLongOrNull() ?: return false
+        return exp in 1 until System.currentTimeMillis()
+    }
+
+    fun expiredOn(c: Context): String? = Prefs.string(c, "xt_exp")?.toLongOrNull()?.let {
+        java.text.SimpleDateFormat("EEEE d MMMM", java.util.Locale.UK).format(java.util.Date(it))
+    }
+
+    /** The message shown instead of playing. "Check again" asks the provider, in case it's been renewed. */
+    fun showExpired(activity: android.app.Activity, then: (() -> Unit)? = null) {
+        val app = activity.applicationContext
+        val on = expiredOn(app)?.let { " on $it" }.orEmpty()
+        GlassDialog(activity).title("Dodgy Box Subscription Expired")
+            .message("The Dodgy Box subscription ran out$on, so films, shows and live channels from Dodgy Box can’t play.\n\nRenew it with your seller - it works again straight away.")
+            .button("OK", GlassDialog.Style.BOLD)
+            .button("Check Again") {
+                GlassUi.toast(activity, "Checking with Dodgy Box…")
+                Thread {
+                    val ok = try { check(app); !isExpired(app) } catch (e: Exception) { false }
+                    activity.runOnUiThread {
+                        if (activity.isDestroyed) return@runOnUiThread
+                        if (ok) { GlassUi.toast(activity, "Renewed - Dodgy Box is back"); then?.invoke() }
+                        else GlassUi.toast(activity, "Still expired - renew it with your seller")
+                    }
+                }.start()
+            }.show()
+    }
+
     fun signOut(c: Context) {
         listOf("xt_server", "xt_user", "xt_pass").forEach { Prefs.setString(c, it, null) }
         clearCache(c)
@@ -140,6 +174,7 @@ object Xtream {
         val info = o.optJSONObject("user_info") ?: throw Exception("The server didn’t accept the login")
         if (info.optInt("auth", 1) == 0) throw Exception("Wrong username or password")
         val status = info.optString("status", "Active")
+        Prefs.setString(c, "xt_status", status)
         val exp = info.optString("exp_date").toLongOrNull()
         if (exp != null) Prefs.setString(c, "xt_exp", (exp * 1000).toString())
         val until = exp?.let { " until " + java.text.SimpleDateFormat("d MMM yyyy", java.util.Locale.UK).format(java.util.Date(it * 1000)) }.orEmpty()

@@ -530,6 +530,13 @@ class PlayerActivity : Activity() {
             fromStart: Boolean = false, liveId: Int = -1, series: String? = null, queue: List<Triple<String, Int, Int>> = emptyList(),
             image: String? = null, season: Int = 0, episode: Int = 0, liveCat: String? = null,
         ) {
+            // Subscription run out: say so instead of trying (and failing) to play.
+            val server = Xtream.server(c)
+            if (server != null && url.startsWith(server) && Xtream.isExpired(c)) {
+                (c as? android.app.Activity)?.let { a -> Xtream.showExpired(a) { play(c, url, title, live, subtitle, eyebrow, alt, fromStart, liveId, series, queue, image, season, episode, liveCat) } }
+                    ?: android.widget.Toast.makeText(c, "Dodgy Box subscription expired", android.widget.Toast.LENGTH_LONG).show()
+                return
+            }
             c.startActivity(Intent(c, PlayerActivity::class.java)
                 .putExtra(EXTRA_URL, url).putExtra(EXTRA_ALT_URL, alt).putExtra(EXTRA_LIVE, live)
                 .putExtra(EXTRA_TITLE, title).putExtra(EXTRA_SUBTITLE, subtitle).putExtra(EXTRA_EYEBROW, eyebrow).putExtra(EXTRA_FROM_START, fromStart)
