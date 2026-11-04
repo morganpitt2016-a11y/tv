@@ -233,6 +233,13 @@ class SettingsActivity : AppCompatActivity() {
         }
         devicesNote = footnote("")
 
+        section("Copy to Another TV")
+        group {
+            row("Send This TV’s Setup", chevron = true) { sendSetup() }
+            row("Get Setup From Another TV", chevron = true) { receiveSetup() }
+        }
+        footnote("Makes another TV an exact copy of this one - profiles, lists, settings and the Dodgy Box login. You get a code here, type it on the other TV, and it copies over. The copy is locked with the code, works once, and is deleted after an hour.")
+
         section("System")
         group {
             row("Wi-Fi", chevron = true) { open(Intent(Settings.ACTION_WIFI_SETTINGS), "Wi-Fi settings") }
@@ -663,6 +670,50 @@ class SettingsActivity : AppCompatActivity() {
             e.show()
         }
         d.button("Close")
+        d.show()
+    }
+
+    private fun sendSetup() {
+        GlassUi.toast(this, "Getting this TV’s setup ready…")
+        Thread {
+            val r = try { Result.success(Transfer.send(this)) } catch (e: Exception) { Result.failure(e) }
+            runOnUiThread {
+                if (isDestroyed) return@runOnUiThread
+                r.onSuccess { code ->
+                    GlassDialog(this).title(code)
+                        .message("On the other TV, open Settings › Copy to Another TV › Get Setup From Another TV, and type this code.\n\nIt works once, within the next hour.")
+                        .button("Done", GlassDialog.Style.BOLD).show()
+                }.onFailure { e ->
+                    GlassDialog(this).title("Couldn’t Send").message(e.message ?: "Something went wrong - try again")
+                        .button("OK", GlassDialog.Style.BOLD).show()
+                }
+            }
+        }.start()
+    }
+
+    private fun receiveSetup() {
+        val d = GlassDialog(this).title("Get Setup")
+            .message("Type the code shown on the other TV. This TV will become an exact copy of it - everything here now is replaced.")
+            .input("Code, like K7QM-3XPA")
+        d.button("Copy", GlassDialog.Style.BOLD) {
+            val code = d.inputText
+            GlassUi.toast(this, "Copying…")
+            Thread {
+                val r = try { Result.success(Transfer.receive(code)) } catch (e: Exception) { Result.failure(e) }
+                runOnUiThread {
+                    if (isDestroyed) return@runOnUiThread
+                    r.onSuccess { data ->
+                        GlassUi.toast(this, "Copied - restarting…")
+                        Thread { try { Transfer.apply(this, data) } catch (e: Exception) {
+                            runOnUiThread { GlassUi.toast(this, "Couldn’t finish the copy: ${e.message}") } } }.start()
+                    }.onFailure { e ->
+                        GlassDialog(this).title("Couldn’t Copy").message(e.message ?: "Something went wrong - try again")
+                            .button("OK", GlassDialog.Style.BOLD).show()
+                    }
+                }
+            }.start()
+        }
+        d.button("Cancel")
         d.show()
     }
 
