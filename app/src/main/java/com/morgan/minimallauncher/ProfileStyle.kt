@@ -81,8 +81,9 @@ object ProfileStyle {
     fun glow(v: View, focused: Boolean) {
         val acc = accent(v.context)
         if (acc == 0 || Build.VERSION.SDK_INT < 28) return
-        v.outlineSpotShadowColor = if (focused) acc else 0xFF000000.toInt()
-        v.outlineAmbientShadowColor = if (focused) ((acc and 0x00FFFFFF) or 0x66000000) else 0xFF000000.toInt()
+        // No shadows: on translucent glass they show through as a ghost edge.
+        v.outlineSpotShadowColor = 0x00000000
+        v.outlineAmbientShadowColor = 0x00000000
     }
 
     /** The tile highlight overlay plus a thin ring in the highlight colour when focused. */

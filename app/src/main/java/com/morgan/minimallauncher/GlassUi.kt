@@ -82,13 +82,16 @@ object GlassUi {
             cornerRadius = r
             setStroke(dp(c, 1f), 0x33FFFFFF)
         }
+        // The sheen follows the body's top corners exactly. It must be at least as tall as the corner
+        // radius, or Android shrinks its corners and they poke out past the panel as a pale ghost edge.
+        val sheenH = maxOf(dp(c, 28f), r.toInt() + dp(c, 2f))
         val sheen = GradientDrawable(
             GradientDrawable.Orientation.TOP_BOTTOM,
             intArrayOf(0x24FFFFFF, 0x00FFFFFF)
-        ).apply { cornerRadius = r }
+        ).apply { cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f) }
         return LayerDrawable(arrayOf(body, sheen)).apply {
             setLayerInset(1, 0, 0, 0, 0)
-            setLayerHeight(1, dp(c, 28f))
+            setLayerHeight(1, sheenH)
         }
     }
 
