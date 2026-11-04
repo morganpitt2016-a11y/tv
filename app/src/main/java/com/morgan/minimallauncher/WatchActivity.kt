@@ -1044,7 +1044,7 @@ class WatchActivity : AppCompatActivity() {
         col.addView(GlassUi.text(c, "DODGY BOX", 11f, R.font.inter_semibold, 0x99FFFFFF.toInt()).apply { letterSpacing = 0.12f })
         col.addView(GlassUi.text(c, "Finding ${t.name}", 21f, R.font.inter_semibold).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END },
             LinearLayout.LayoutParams(dp(c, 360f), -2).apply { topMargin = dp(c, 6f) })
-        col.addView(GlassUi.text(c, if (t.type == "SHOW") "Getting the seasons and episodes ready…" else "Getting it ready to play…", 13f, R.font.inter_medium, 0xB3FFFFFF.toInt()),
+        col.addView(GlassUi.text(c, if (t.type == "SHOW") "Pirating tf out of this series rn…" else "Pirating tf out of this movie rn…", 13f, R.font.inter_medium, 0xB3FFFFFF.toInt()),
             LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(c, 6f) })
         // Placeholder lines that shimmer while it works.
         val bars = listOf(300f, 240f, 270f).map { w ->
