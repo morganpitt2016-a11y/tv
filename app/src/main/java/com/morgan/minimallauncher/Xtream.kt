@@ -91,6 +91,40 @@ object Xtream {
 
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
 
+    // ---------- Being gentle with the provider ----------
+    // Too many requests at once and the provider shuts the door for a while (it answers "HTTP 466").
+    // So: at most two at a time, a short gap between them, and a pause if it complains.
+    private val gate = java.util.concurrent.Semaphore(2, true)
+    private val spacing = Object()
+    @Volatile private var lastAt = 0L
+    @Volatile private var coolUntil = 0L
+
+    private fun busy(e: Exception) = e.message.orEmpty().let { it.contains("HTTP 466") || it.contains("HTTP 429") || it.contains("HTTP 503") }
+
+    fun <T> gated(block: () -> T): T {
+        var attempt = 0
+        while (true) {
+            val wait = coolUntil - System.currentTimeMillis()
+            if (wait > 0) Thread.sleep(minOf(wait, 8_000L))
+            gate.acquire()
+            try {
+                synchronized(spacing) {
+                    val gap = lastAt + 250 - System.currentTimeMillis()
+                    if (gap > 0) Thread.sleep(gap)
+                    lastAt = System.currentTimeMillis()
+                }
+                return block()
+            } catch (e: Exception) {
+                if (!busy(e) || attempt >= 2) throw e
+                attempt++
+                coolUntil = System.currentTimeMillis() + 3_000L * attempt
+            } finally { gate.release() }
+        }
+    }
+
+    private fun apiGet(c: Context, action: String? = null, extra: String = "", timeoutMs: Int = 15_000): String =
+        gated { Net.get(api(c, action, extra), timeoutMs = timeoutMs) }
+
     fun apiForDiag(c: Context, action: String) = api(c, action)
 
     private fun api(c: Context, action: String? = null, extra: String = ""): String =
@@ -99,7 +133,7 @@ object Xtream {
 
     /** Checks the login. Returns a short status ("Active until 3 Mar 2027") or throws with the reason. */
     fun check(c: Context): String {
-        val o = org.json.JSONObject(Net.get(api(c), timeoutMs = 15_000))
+        val o = org.json.JSONObject(apiGet(c))
         val info = o.optJSONObject("user_info") ?: throw Exception("The server didn’t accept the login")
         if (info.optInt("auth", 1) == 0) throw Exception("Wrong username or password")
         val status = info.optString("status", "Active")
@@ -132,7 +166,7 @@ object Xtream {
             try {
                 val cats = liveCategories(app)
                 val ids = cats.filter { it.value.trim().startsWith("UK", true) }.keys.toList()
-                val pool = java.util.concurrent.Executors.newFixedThreadPool(4)
+                val pool = java.util.concurrent.Executors.newFixedThreadPool(2)
                 ids.forEach { id -> pool.execute { try { liveInCategory(app, id) } catch (e: Exception) {} } }
                 pool.shutdown(); pool.awaitTermination(60, java.util.concurrent.TimeUnit.SECONDS)
             } catch (e: Exception) {}
@@ -189,10 +223,16 @@ object Xtream {
         val f = File(dir(c), "$cacheName.json")
         if (force || !f.exists() || System.currentTimeMillis() - f.lastModified() > 12 * 3600_000L) {
             val tmp = File(dir(c), "$cacheName.tmp")
-            val conn = URL(api(c, action, extra)).openConnection() as HttpURLConnection
-            conn.connectTimeout = 15_000; conn.readTimeout = 60_000
-            conn.setRequestProperty("User-Agent", Net.USER_AGENT)
-            try { conn.inputStream.use { input -> tmp.outputStream().use { input.copyTo(it) } } } finally { conn.disconnect() }
+            gated {
+                val conn = URL(api(c, action, extra)).openConnection() as HttpURLConnection
+                conn.connectTimeout = 15_000; conn.readTimeout = 60_000
+                conn.setRequestProperty("User-Agent", Net.USER_AGENT)
+                try {
+                    val code = conn.responseCode
+                    if (code !in 200..299) throw java.io.IOException("HTTP $code")
+                    conn.inputStream.use { input -> tmp.outputStream().use { input.copyTo(it) } }
+                } finally { conn.disconnect() }
+            }
             tmp.renameTo(f)
         }
         val out = ArrayList<T>()
@@ -230,7 +270,7 @@ object Xtream {
 
     /** Channel group names ("UK ~ Entertainment") by category id. */
     fun liveCategories(c: Context): Map<String, String> = catMem ?: try {
-        val a = org.json.JSONArray(Net.get(api(c, "get_live_categories"), timeoutMs = 15_000))
+        val a = org.json.JSONArray(apiGet(c, "get_live_categories"))
         (0 until a.length()).associate { val o = a.getJSONObject(it); o.optString("category_id") to o.optString("category_name") }
     } catch (e: Exception) { emptyMap() }.also { if (it.isNotEmpty()) catMem = it }
 
@@ -246,7 +286,7 @@ object Xtream {
 
     /** The provider's "what's on" listings for a channel, as raw JSON. */
     fun shortEpg(c: Context, streamId: Int, limit: Int = 14): String =
-        Net.get(api(c, "get_short_epg", "&stream_id=$streamId&limit=$limit"), timeoutMs = 10_000)
+        apiGet(c, "get_short_epg", "&stream_id=$streamId&limit=$limit", 10_000)
 
     /** One group's channels (small and quick), instead of the whole line-up. */
     fun liveInCategory(c: Context, categoryId: String): List<Live> =
@@ -316,7 +356,7 @@ object Xtream {
     }
 
     private fun fetchEpisodes(c: Context, s: Series): List<Episode> {
-        val o = org.json.JSONObject(Net.get(api(c, "get_series_info", "&series_id=${s.id}"), timeoutMs = 20_000))
+        val o = org.json.JSONObject(apiGet(c, "get_series_info", "&series_id=${s.id}", 20_000))
         val eps = o.optJSONObject("episodes") ?: return emptyList()
         val out = mutableListOf<Episode>()
         for (season in eps.keys()) {
