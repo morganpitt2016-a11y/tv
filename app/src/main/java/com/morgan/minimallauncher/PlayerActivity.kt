@@ -168,7 +168,14 @@ class PlayerActivity : Activity() {
                 // Some providers only serve live TV one way: try the other before giving up.
                 val alt = altUrl
                 if (!triedAlt && alt != null) { triedAlt = true; url = alt; start(alt, resume = false); return }
-                GlassUi.toast(this@PlayerActivity, "This won’t play right now (${error.errorCodeName})")
+                val http = (error.cause as? androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException)?.responseCode
+                Diag.send(this@PlayerActivity, "player", "error: ${error.errorCodeName}${http?.let { " (HTTP $it)" }.orEmpty()} for \"$titleText\"")
+                GlassUi.toast(this@PlayerActivity, when {
+                    http == 466 || http == 403 || http == 401 -> "Dodgy Box turned this down - check the VPN is on, and that no other TV is watching Dodgy Box right now"
+                    http == 404 -> "Dodgy Box doesn’t have this episode any more - try another"
+                    http != null -> "Dodgy Box couldn’t play this right now (error $http) - try again in a minute"
+                    else -> "This won’t play right now (${error.errorCodeName})"
+                })
             }
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_ENDED && !live) {
