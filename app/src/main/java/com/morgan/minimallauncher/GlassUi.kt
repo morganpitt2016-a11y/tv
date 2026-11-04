@@ -187,7 +187,6 @@ object GlassUi {
             view.outlineAmbientShadowColor = 0x00000000
         }
     }
-    }
 
     /** Roboto Flex with custom weight/width - SF-like display numerals. */
     fun flex(view: TextView, weight: Int, width: Int = 90) {
