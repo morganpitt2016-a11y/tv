@@ -37,6 +37,12 @@ class PlayerActivity : Activity() {
     private lateinit var bannerSub: android.widget.TextView
     private lateinit var numberView: android.widget.TextView
     private lateinit var nextView: android.widget.TextView
+    private lateinit var skipView: android.widget.TextView
+    private var skipDismissed = false
+    /** Sleep timer: when to stop (0 = off), or stop at the end of this episode. */
+    private var sleepAt = 0L
+    private var sleepAfterEpisode = false
+    private val sleepHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private var titleText = ""
     private var seriesTitle: String? = null
     private var liveId = -1
@@ -115,6 +121,13 @@ class PlayerActivity : Activity() {
             visibility = View.GONE
         }
         root.addView(nextView, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, dp(this@PlayerActivity, 48f), dp(this@PlayerActivity, 56f)) })
+        // "Skip Intro" (episodes): bottom-left, OK skips.
+        skipView = GlassUi.text(this, "Skip Intro  ›", 15f, R.font.inter_semibold).apply {
+            background = GlassUi.panel(context, 18f, 0x60)
+            setPadding(dp(context, 24f), dp(context, 14f), dp(context, 24f), dp(context, 14f))
+            visibility = View.GONE
+        }
+        root.addView(skipView, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.START).apply { setMargins(dp(this@PlayerActivity, 48f), 0, 0, dp(this@PlayerActivity, 56f)) })
         setContentView(root)
         handler.postDelayed({ banner.animate().alpha(0f).setDuration(600).start() }, 4500)
 
@@ -181,10 +194,19 @@ class PlayerActivity : Activity() {
                     else -> "This won’t play right now (${error.errorCodeName})"
                 })
             }
+            override fun onPositionDiscontinuity(old: Player.PositionInfo, new: Player.PositionInfo, reason: Int) {
+                // Skipped forward by hand early in an episode: that's probably where the intro ends - remember it for this series.
+                if (reason == Player.DISCONTINUITY_REASON_SEEK && !live && seriesTitle != null && !skippingIntro &&
+                    old.positionMs < 300_000 && new.positionMs - old.positionMs in 20_000..240_000) {
+                    Prefs.setInt(this@PlayerActivity, introKey(), (new.positionMs / 1000).toInt())
+                }
+                skippingIntro = false
+            }
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_ENDED && !live) {
                     Prefs.setInt(this@PlayerActivity, posKey(), 0)
-                    if (queue.isNotEmpty()) startCountdown() else finish()
+                    if (sleepAfterEpisode) goToSleep()
+                    else if (queue.isNotEmpty()) startCountdown() else finish()
                 }
             }
         })
@@ -235,6 +257,13 @@ class PlayerActivity : Activity() {
                     nextView.text = "Next episode · S${next.season} E${next.episode}\nPress OK to play it now"
                     nextView.visibility = View.VISIBLE
                 } else if (left > 25_000) { nextDismissed = false; if (nextView.visibility == View.VISIBLE) nextView.visibility = View.GONE }
+            }
+            if (p != null && !live && seriesTitle != null) {
+                val pos = p.currentPosition
+                val end = introEnd()
+                val show = !skipDismissed && pos in 8_000 until minOf(end - 3_000, 240_000L)
+                if (show && skipView.visibility != View.VISIBLE) skipView.visibility = View.VISIBLE
+                else if (!show && skipView.visibility == View.VISIBLE) skipView.visibility = View.GONE
             }
             if (++ticks % 15 == 0) saveProgress()
             handler.postDelayed(this, 1000)
@@ -349,6 +378,7 @@ class PlayerActivity : Activity() {
     private fun playNext() {
         counting = false
         nextView.visibility = View.GONE
+        skipDismissed = false; skipView.visibility = View.GONE
         val n = queue.removeFirstOrNull() ?: return finish()
         url = n.url
         bannerSub.text = "Season ${n.season}, Episode ${n.episode}"
@@ -369,6 +399,10 @@ class PlayerActivity : Activity() {
             val controls = !live && view.isControllerFullyVisible
             val pill = optionsPill.visibility == View.VISIBLE
             val card = nextView.visibility == View.VISIBLE
+            if (skipView.visibility == View.VISIBLE && !controls && !pill && !card) {
+                if (event.action == KeyEvent.ACTION_DOWN) { skipView.visibility = View.GONE; skipDismissed = true }
+                return true
+            }
             if (controls || pill || card) {
                 if (event.action == KeyEvent.ACTION_DOWN) {
                     if (controls) view.hideController()
@@ -386,6 +420,8 @@ class PlayerActivity : Activity() {
             }
             return true
         }
+        if (!live && skipView.visibility == View.VISIBLE && !view.isControllerFullyVisible && event.action == KeyEvent.ACTION_DOWN &&
+            (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER)) { skipIntro(); return true }
         if (!live && !counting && queue.isNotEmpty() && nextView.visibility == View.VISIBLE && event.action == KeyEvent.ACTION_DOWN &&
             (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER)) { playNext(); return true }
         if (live && event.action == KeyEvent.ACTION_DOWN && !optionsPill.isFocused) {
@@ -452,6 +488,7 @@ class PlayerActivity : Activity() {
             .button("Audio · ${selectedLabel(C.TRACK_TYPE_AUDIO, null)}") { pickTrack(C.TRACK_TYPE_AUDIO, "Audio") }
             .button("Picture · ${resizeName(view.resizeMode)}") { pickPicture() }
             .button("Speed · ${p.playbackParameters.speed}x") { pickSpeed() }
+            .button("Sleep Timer · ${sleepLabel()}") { pickSleep() }
             .button("Close").show()
     }
 
@@ -500,7 +537,57 @@ class PlayerActivity : Activity() {
         d.show()
     }
 
+    // ---------- Skip intro ----------
+
+    private var skippingIntro = false
+    private fun introKey() = ProfileManager.scope(this, "intro_" + TextMatch.vodKey(seriesTitle.orEmpty()))
+    /** Where the intro ends: learned from this series, otherwise a typical 1 min 20 s. */
+    private fun introEnd(): Long = Prefs.int(this, introKey(), 0).takeIf { it > 0 }?.times(1000L) ?: 80_000L
+
+    private fun skipIntro() {
+        val p = player ?: return
+        skippingIntro = true
+        val learned = Prefs.int(this, introKey(), 0)
+        p.seekTo(if (learned > 0) learned * 1000L else maxOf(p.currentPosition + 60_000L, 80_000L))
+        skipView.visibility = View.GONE
+        skipDismissed = true
+    }
+
+    // ---------- Sleep timer ----------
+
+    private fun sleepLabel(): String = when {
+        sleepAfterEpisode -> "End of this ${if (live) "programme" else "episode"}"
+        sleepAt > 0 -> "${((sleepAt - System.currentTimeMillis()) / 60_000L).coerceAtLeast(1)} min left"
+        else -> "Off"
+    }
+
+    private fun pickSleep() {
+        val d = GlassDialog(this).title("Sleep Timer").message("The TV stops and goes to sleep when the time's up.")
+        fun set(mins: Int?, afterEpisode: Boolean = false) {
+            sleepHandler.removeCallbacksAndMessages(null)
+            sleepAfterEpisode = afterEpisode
+            sleepAt = if (mins != null) System.currentTimeMillis() + mins * 60_000L else 0L
+            if (mins != null) sleepHandler.postDelayed({ goToSleep() }, mins * 60_000L)
+            GlassUi.toast(this, when { afterEpisode -> "Sleeping after this episode"; mins != null -> "Sleeping in $mins minutes"; else -> "Sleep timer off" })
+        }
+        if (!live) d.button("End of this episode") { set(null, afterEpisode = true) }
+        for (m in listOf(15, 30, 45, 60, 90, 120)) d.button(if (m < 60) "$m minutes" else if (m == 60) "1 hour" else "${m / 60.0} hours".replace(".0", "")) { set(m) }
+        d.button("Off") { set(null) }
+        d.button("Cancel").show()
+    }
+
+    /** Time's up: stop, save the place, and put the TV to sleep. */
+    private fun goToSleep() {
+        sleepHandler.removeCallbacksAndMessages(null)
+        sleepAt = 0; sleepAfterEpisode = false
+        saveProgress()
+        player?.pause()
+        HomeRedirectService.instance?.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN)
+        finish()
+    }
+
     override fun onDestroy() {
+        sleepHandler.removeCallbacksAndMessages(null)
         handler.removeCallbacksAndMessages(null)
         super.onDestroy()
     }
