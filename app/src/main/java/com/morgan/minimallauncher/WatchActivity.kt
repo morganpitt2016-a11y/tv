@@ -966,7 +966,7 @@ class WatchActivity : AppCompatActivity() {
                 LinearLayout.LayoutParams(-2, dp(c, 40f)).apply { marginEnd = dp(c, 10f) })
         }
         // TiviMate's own films and series (from the TV provider), played the same way as live TV.
-        if (LiveGuide.hasTiviMate(c)) {
+        if (LiveGuide.hasTiviMate(c) || Xtream.isSetUp(c)) {
             buttons.addView(pillButton("Watch on Dodgy Box") { watchOnDodgyBox(t) },
                 LinearLayout.LayoutParams(-2, dp(c, 40f)).apply { marginEnd = dp(c, 10f) })
         }
