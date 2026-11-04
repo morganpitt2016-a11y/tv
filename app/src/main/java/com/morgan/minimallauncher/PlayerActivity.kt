@@ -186,7 +186,7 @@ class PlayerActivity : Activity() {
         p.setMediaItem(MediaItem.fromUri(u))
         // Pick up the subtitle and audio language you chose last time for this title.
         val key = trackKey()
-        val tl = Prefs.string(this, "trk_t_$key"); val al = Prefs.string(this, "trk_a_$key")
+        val tl = Prefs.string(this, ProfileManager.scope(this, "trk_t_$key")); val al = Prefs.string(this, ProfileManager.scope(this, "trk_a_$key"))
         if (tl != null || al != null) {
             val b = p.trackSelectionParameters.buildUpon()
             al?.let { b.setPreferredAudioLanguage(it) }
@@ -215,7 +215,7 @@ class PlayerActivity : Activity() {
         }
     }
 
-    private fun posKey() = "pos_" + (url.hashCode().toLong() and 0xffffffffL)
+    private fun posKey() = WatchHistory.posKey(this, url)
 
     override fun onStop() {
         super.onStop()
@@ -443,8 +443,8 @@ class PlayerActivity : Activity() {
 
     private fun rememberTrack(type: Int, language: String?) {
         val k = trackKey()
-        if (type == C.TRACK_TYPE_TEXT) Prefs.setString(this, "trk_t_$k", language)
-        else if (language != null) Prefs.setString(this, "trk_a_$k", language)
+        if (type == C.TRACK_TYPE_TEXT) Prefs.setString(this, ProfileManager.scope(this, "trk_t_$k"), language)
+        else if (language != null) Prefs.setString(this, ProfileManager.scope(this, "trk_a_$k"), language)
     }
 
     private fun pickPicture() {

@@ -27,7 +27,7 @@ import java.util.concurrent.ConcurrentHashMap
 object Recordings {
 
     data class Rec(val id: String, val title: String, val channel: String, val start: Long, val stop: Long,
-                   val file: String, val image: String?, val done: Boolean)
+                   val file: String, val image: String?, val done: Boolean, val owner: String = "")
 
     private const val KEY = "recordings"
 
@@ -35,14 +35,14 @@ object Recordings {
         val a = JSONArray(Prefs.string(c, KEY) ?: "[]")
         (0 until a.length()).map { a.getJSONObject(it) }.map {
             Rec(it.getString("id"), it.getString("t"), it.getString("ch"), it.getLong("s"), it.getLong("e"),
-                it.getString("f"), it.optString("img").ifBlank { null }, it.optBoolean("done"))
+                it.getString("f"), it.optString("img").ifBlank { null }, it.optBoolean("done"), it.optString("o"))
         }.filter { File(it.file).exists() || !it.done }.sortedByDescending { it.start }
     } catch (e: Exception) { emptyList() }
 
     @Synchronized private fun save(c: Context, items: List<Rec>) {
         val a = JSONArray()
         items.forEach { a.put(JSONObject().put("id", it.id).put("t", it.title).put("ch", it.channel).put("s", it.start).put("e", it.stop)
-            .put("f", it.file).put("img", it.image ?: "").put("done", it.done)) }
+            .put("f", it.file).put("img", it.image ?: "").put("done", it.done).put("o", it.owner)) }
         Prefs.setString(c, KEY, a.toString())
     }
 
@@ -71,12 +71,12 @@ object Recordings {
     }
 
     /** Start recording [channel] now until [stop] (plus a couple of minutes, in case it overruns). */
-    fun start(c: Context, channel: String, title: String, stop: Long, image: String?): Boolean {
+    fun start(c: Context, channel: String, title: String, stop: Long, image: String?, owner: String? = null): Boolean {
         val app = c.applicationContext
         val id = (channel + title + System.currentTimeMillis() / 60_000).hashCode().toUInt().toString(16)
         val safe = title.replace(Regex("[^A-Za-z0-9 ]"), "").trim().take(40).ifBlank { "Recording" }
         val file = File(dir(app), "$safe-$id.ts").path
-        upsert(app, Rec(id, title, channel, System.currentTimeMillis(), stop + 2 * 60_000, file, image, false))
+        upsert(app, Rec(id, title, channel, System.currentTimeMillis(), stop + 2 * 60_000, file, image, false, owner ?: ProfileManager.activeKey(app)))
         return try {
             ContextCompat.startForegroundService(app, Intent(app, RecordService::class.java)
                 .putExtra("id", id).putExtra("channel", channel))
@@ -142,7 +142,11 @@ object Recordings {
     }
 
     /** Everything to show in My List: app recordings and TiviMate's, newest first. */
-    fun shown(c: Context): List<Rec> = (list(c) + tiviMate(c)).distinctBy { it.file }.sortedByDescending { it.start }
+    /** This person's recordings (older ones with no owner are shared), plus TiviMate's own. */
+    fun shown(c: Context): List<Rec> {
+        val me = ProfileManager.activeKey(c)
+        return (list(c).filter { it.owner.isEmpty() || it.owner == me } + tiviMate(c)).distinctBy { it.file }.sortedByDescending { it.start }
+    }
 }
 
 /** Saves live channels to the TV's storage, one stream per recording, until each ends. */

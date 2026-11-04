@@ -282,7 +282,7 @@ class LiveGuideActivity : Activity() {
         if (g != null && prog != null) {
             val scheduled = TiviRecorder.isScheduled(this, g, prog)
             if (prog.isOn()) d.button("Record now") { Recordings.start(applicationContext, g.name, prog.title, prog.stop, prog.image); GlassUi.toast(this, "Recording ${prog.title}") }
-            else if (scheduled) d.button("Cancel recording", GlassDialog.Style.DESTRUCTIVE) { TiviRecorder.cancel(this, TiviRecorder.idFor(g.name, prog.start)); GlassUi.toast(this, "Recording cancelled") }
+            else if (scheduled) d.button("Cancel recording", GlassDialog.Style.DESTRUCTIVE) { TiviRecorder.cancel(this, TiviRecorder.idFor(applicationContext, g.name, prog.start)); GlassUi.toast(this, "Recording cancelled") }
             else d.button("Record") { TiviRecorder.schedule(this, g, prog); GlassUi.toast(this, "Will record ${prog.title}") }
             d.button("Record series") {
                 val n = TiviRecorder.addSeries(this, g, prog, LiveGuide.cached() ?: listOf(g))

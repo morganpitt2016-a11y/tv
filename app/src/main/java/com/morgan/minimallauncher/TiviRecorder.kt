@@ -19,7 +19,7 @@ import org.json.JSONObject
  */
 object TiviRecorder {
 
-    data class Scheduled(val id: Int, val channel: String, val title: String, val start: Long, val stop: Long)
+    data class Scheduled(val id: Int, val channel: String, val title: String, val start: Long, val stop: Long, val owner: String = "")
 
     private const val KEY = "rec_schedule"
     /** Start a little after the programme does, so TiviMate's "now" is the right programme. */
@@ -58,23 +58,28 @@ object TiviRecorder {
     fun list(c: Context): List<Scheduled> = try {
         val a = JSONArray(Prefs.string(c, KEY) ?: "[]")
         (0 until a.length()).map { a.getJSONObject(it) }.map {
-            Scheduled(it.getInt("id"), it.getString("ch"), it.getString("t"), it.getLong("s"), it.getLong("e"))
+            Scheduled(it.getInt("id"), it.getString("ch"), it.getString("t"), it.getLong("s"), it.getLong("e"), it.optString("o"))
         }
     } catch (e: Exception) { emptyList() }
 
     private fun save(c: Context, items: List<Scheduled>) {
         val a = JSONArray()
-        items.forEach { a.put(JSONObject().put("id", it.id).put("ch", it.channel).put("t", it.title).put("s", it.start).put("e", it.stop)) }
+        items.forEach { a.put(JSONObject().put("id", it.id).put("ch", it.channel).put("t", it.title).put("s", it.start).put("e", it.stop).put("o", it.owner)) }
         Prefs.setString(c, KEY, a.toString())
     }
 
-    private fun idOf(channel: String, start: Long) = (channel + start).hashCode()
-    fun idFor(channel: String, start: Long) = idOf(channel, start)
+    // Each person's recording of the same programme gets its own id.
+    private fun idOf(owner: String, channel: String, start: Long) = (owner + channel + start).hashCode()
+    fun idFor(c: Context, channel: String, start: Long) = idOf(ProfileManager.activeKey(c), channel, start)
 
-    fun isScheduled(c: Context, ch: LiveGuide.Channel, p: LiveGuide.Programme) = list(c).any { it.id == idOf(ch.name, p.start) }
+    fun isScheduled(c: Context, ch: LiveGuide.Channel, p: LiveGuide.Programme) = list(c).any { it.id == idOf(ProfileManager.activeKey(c), ch.name, p.start) }
 
     fun schedule(c: Context, ch: LiveGuide.Channel, p: LiveGuide.Programme) {
-        val item = Scheduled(idOf(ch.name, p.start), ch.name, p.title, p.start, p.stop)
+        schedule(c, ch, p, ProfileManager.activeKey(c))
+    }
+
+    private fun schedule(c: Context, ch: LiveGuide.Channel, p: LiveGuide.Programme, owner: String) {
+        val item = Scheduled(idOf(owner, ch.name, p.start), ch.name, p.title, p.start, p.stop, owner)
         save(c, list(c).filter { it.id != item.id } + item)
         arm(c, item)
     }
@@ -120,7 +125,7 @@ object TiviRecorder {
     // "Record Series": every episode of the show on that channel that appears in the
     // TV guide is scheduled - now, and again each time the guide is refreshed.
 
-    data class Series(val channel: String, val title: String)
+    data class Series(val channel: String, val title: String, val owner: String = "")
 
     private const val SERIES_KEY = "rec_series"
     private const val SERIES_ID = 0x5E41E5
@@ -130,31 +135,34 @@ object TiviRecorder {
 
     fun seriesList(c: Context): List<Series> = try {
         val a = JSONArray(Prefs.string(c, SERIES_KEY) ?: "[]")
-        (0 until a.length()).map { a.getJSONObject(it) }.map { Series(it.getString("ch"), it.getString("t")) }
+        (0 until a.length()).map { a.getJSONObject(it) }.map { Series(it.getString("ch"), it.getString("t"), it.optString("o")) }
     } catch (e: Exception) { emptyList() }
 
     private fun saveSeries(c: Context, items: List<Series>) {
         val a = JSONArray()
-        items.forEach { a.put(JSONObject().put("ch", it.channel).put("t", it.title)) }
+        items.forEach { a.put(JSONObject().put("ch", it.channel).put("t", it.title).put("o", it.owner)) }
         Prefs.setString(c, SERIES_KEY, a.toString())
     }
 
+    private fun mine(c: Context, s: Series) = s.owner == ProfileManager.activeKey(c)
+
     fun isSeries(c: Context, ch: LiveGuide.Channel, p: LiveGuide.Programme) =
-        seriesList(c).any { it.channel == ch.name && seriesKey(it.title) == seriesKey(p.title) }
+        seriesList(c).any { mine(c, it) && it.channel == ch.name && seriesKey(it.title) == seriesKey(p.title) }
 
     /** Link the series and schedule every episode the guide knows about. Returns how many. */
     fun addSeries(c: Context, ch: LiveGuide.Channel, p: LiveGuide.Programme, channels: List<LiveGuide.Channel>): Int {
-        val rule = Series(ch.name, p.title)
-        saveSeries(c, seriesList(c).filterNot { it.channel == rule.channel && seriesKey(it.title) == seriesKey(rule.title) } + rule)
+        val rule = Series(ch.name, p.title, ProfileManager.activeKey(c))
+        saveSeries(c, seriesList(c).filterNot { mine(c, it) && it.channel == rule.channel && seriesKey(it.title) == seriesKey(rule.title) } + rule)
         armSeriesCheck(c)
         return scheduleSeries(c, channels)
     }
 
     fun removeSeries(c: Context, ch: LiveGuide.Channel, p: LiveGuide.Programme) {
         val key = seriesKey(p.title)
-        saveSeries(c, seriesList(c).filterNot { it.channel == ch.name && seriesKey(it.title) == key })
-        // Drop the episodes it had scheduled too.
-        list(c).filter { it.channel == ch.name && seriesKey(it.title) == key }.forEach { cancel(c, it.id) }
+        saveSeries(c, seriesList(c).filterNot { mine(c, it) && it.channel == ch.name && seriesKey(it.title) == key })
+        // Drop this person's episodes it had scheduled too.
+        val me = ProfileManager.activeKey(c)
+        list(c).filter { it.owner == me && it.channel == ch.name && seriesKey(it.title) == key }.forEach { cancel(c, it.id) }
     }
 
     /** Schedule every upcoming episode of every linked series. Returns how many were new. */
@@ -170,8 +178,8 @@ object TiviRecorder {
                 // Upcoming episodes (one already on is recorded straight away instead).
                 if (p.start <= now) continue
                 if (seriesKey(p.title) != seriesKey(rule.title)) continue
-                if (idOf(ch.name, p.start) in have) continue
-                schedule(c, ch, p)
+                if (idOf(rule.owner, ch.name, p.start) in have) continue
+                schedule(c, ch, p, rule.owner)
                 added++
             }
         }
@@ -215,7 +223,7 @@ object TiviRecorder {
         if (System.currentTimeMillis() > item.stop) return
         if (Xtream.isSetUp(c)) {
             // Recorded by the app in the background - nothing changes on screen.
-            Recordings.start(c, item.channel, item.title, item.stop, null)
+            Recordings.start(c, item.channel, item.title, item.stop, null, item.owner.ifEmpty { null })
             return
         }
         val intent = LiveGuide.launchIntent(c, LiveGuide.TIVIMATE) ?: return say(c, "TiviMate isn’t installed - couldn’t record ${item.title}")

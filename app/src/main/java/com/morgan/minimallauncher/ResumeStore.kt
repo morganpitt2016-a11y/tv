@@ -12,12 +12,12 @@ object ResumeStore {
         val url: String, val image: String?, val posSec: Int, val durSec: Int, val at: Long, val liveId: Int = -1,
     )
 
-    private const val KEY = "resume_v1"
+    private fun key(c: Context) = ProfileManager.scope(c, "resume_v1")
 
     fun keyOf(kind: String, name: String) = kind + ":" + name.lowercase().replace(Regex("[^a-z0-9]+"), "")
 
     @Synchronized fun all(c: Context): List<Item> = try {
-        val a = JSONArray(Prefs.string(c, KEY) ?: "[]")
+        val a = JSONArray(Prefs.string(c, key(c)) ?: "[]")
         (0 until a.length()).map { a.getJSONObject(it) }.map {
             Item(it.getString("k"), it.getString("kind"), it.getString("t"), it.optString("s").ifEmpty { null }, it.optInt("se"), it.optInt("ep"),
                 it.getString("u"), it.optString("i").ifEmpty { null }, it.optInt("p"), it.optInt("d"), it.optLong("at"), it.optInt("lid", -1))
@@ -30,7 +30,7 @@ object ResumeStore {
             a.put(JSONObject().put("k", it.key).put("kind", it.kind).put("t", it.title).put("s", it.series ?: "").put("se", it.season).put("ep", it.episode)
                 .put("u", it.url).put("i", it.image ?: "").put("p", it.posSec).put("d", it.durSec).put("at", it.at).put("lid", it.liveId))
         }
-        Prefs.setString(c, KEY, a.toString())
+        Prefs.setString(c, key(c), a.toString())
     }
 
     fun upsert(c: Context, item: Item) {

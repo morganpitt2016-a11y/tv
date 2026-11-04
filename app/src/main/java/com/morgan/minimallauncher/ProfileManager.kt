@@ -53,6 +53,9 @@ object ProfileManager {
     /** The active person, as a key that's unique across accounts (for history, My List…). */
     fun activeKey(context: Context) = Accounts.scoped(context, getActiveProfile(context))
 
+    /** A storage key that belongs to the person watching right now. */
+    fun scope(context: Context, key: String) = "$key@${activeKey(context)}"
+
     fun renameProfile(context: Context, old: String, new: String) {
         val name = new.trim().replace(",", "")
         if (name.isEmpty() || name == old || getProfiles(context).contains(name)) return

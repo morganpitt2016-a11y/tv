@@ -140,7 +140,7 @@ class EpisodesActivity : Activity() {
             val bar = View(c).apply { setBackgroundColor(0xE6FFFFFF.toInt()) }
             thumb.addView(bar, FrameLayout.LayoutParams(0, dp(c, 3f), Gravity.BOTTOM))
             row.addView(thumb, LinearLayout.LayoutParams(dp(c, 170f), dp(c, 96f)))
-            val col = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL }
+            val col = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL; isDuplicateParentStateEnabled = true }     // so the text turns dark on the white focused row
             val title = GlassUi.rowText(c, "", 16f, R.font.inter_semibold, GlassUi.primaryText())
             val plot = GlassUi.rowText(c, "", 12.5f, R.font.inter_regular, GlassUi.secondaryText()).apply { maxLines = 3; setLineSpacing(0f, 1.15f) }
             val meta = GlassUi.rowText(c, "", 11.5f, R.font.inter_medium, GlassUi.secondaryText())

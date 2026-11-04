@@ -276,11 +276,11 @@ object Xtream {
     fun liveGroup(c: Context, categoryId: String): List<Live> = best(liveInCategory(c, categoryId))
 
     // Favourites (channel ids), kept on the TV.
-    fun favourites(c: Context): Set<Int> = (Prefs.string(c, "fav_live") ?: "").split(",").mapNotNull { it.toIntOrNull() }.toSet()
+    fun favourites(c: Context): Set<Int> = (Prefs.string(c, ProfileManager.scope(c, "fav_live")) ?: "").split(",").mapNotNull { it.toIntOrNull() }.toSet()
     fun toggleFavourite(c: Context, id: Int): Boolean {
         val f = favourites(c).toMutableSet()
         val added = if (id in f) { f.remove(id); false } else { f.add(id); true }
-        Prefs.setString(c, "fav_live", f.joinToString(","))
+        Prefs.setString(c, ProfileManager.scope(c, "fav_live"), f.joinToString(","))
         return added
     }
     fun liveById(c: Context, ids: Set<Int>): List<Live> = try { live(c).filter { it.id in ids } } catch (e: Exception) { emptyList() }
