@@ -159,8 +159,16 @@ object Xtream {
     /** Some providers turn away anything that doesn't look like a video player, so ask as one. */
     val PLAYER_AGENT = "MinimalLauncher/1.0 (Linux;Android ${android.os.Build.VERSION.RELEASE}) AndroidXMedia3/1.3.1"
 
-    private fun apiGet(c: Context, action: String? = null, extra: String = "", timeoutMs: Int = 15_000): String =
-        gated { Net.get(api(c, action, extra), mapOf("User-Agent" to PLAYER_AGENT), timeoutMs = timeoutMs) }
+    private fun apiGet(c: Context, action: String? = null, extra: String = "", timeoutMs: Int = 15_000): String = gated {
+        val vpn = vpnOn(c)
+        try {
+            Net.get(api(c, action, extra), mapOf("User-Agent" to PLAYER_AGENT), timeoutMs = timeoutMs)
+                .also { if (!vpn) Prefs.setBool(c, "xt_needs_vpn", false) }          // works without one here
+        } catch (e: Exception) {
+            if (!vpn && e.message.orEmpty().contains("HTTP 466")) Prefs.setBool(c, "xt_needs_vpn", true)   // turned away without it
+            throw e
+        }
+    }
 
     fun apiForDiag(c: Context, action: String) = api(c, action)
 
@@ -311,6 +319,66 @@ object Xtream {
         val a = org.json.JSONArray(apiGet(c, "get_live_categories"))
         (0 until a.length()).associate { val o = a.getJSONObject(it); o.optString("category_id") to o.optString("category_name") }
     } catch (e: Exception) { emptyMap() }.also { if (it.isNotEmpty()) catMem = it }
+
+    // ---------- The library, for browsing and search ----------
+
+    @Volatile private var vodCatMem: Map<String, String>? = null
+    @Volatile private var seriesCatMem: Map<String, String>? = null
+
+    private fun cats(c: Context, action: String): Map<String, String> = try {
+        val a = org.json.JSONArray(apiGet(c, action))
+        (0 until a.length()).associate { val o = a.getJSONObject(it); o.optString("category_id") to o.optString("category_name").trim() }
+    } catch (e: Exception) { emptyMap() }
+
+    fun vodCategories(c: Context): Map<String, String> = vodCatMem ?: cats(c, "get_vod_categories").also { if (it.isNotEmpty()) vodCatMem = it }
+    fun seriesCategories(c: Context): Map<String, String> = seriesCatMem ?: cats(c, "get_series_categories").also { if (it.isNotEmpty()) seriesCatMem = it }
+
+    private val TAG_IN_FRONT = Regex("^\\s*(\\|[^|]{1,6}\\||\\[[^\\]]{1,6}]|[A-Z]{2,4}\\s*[-:|]\\s+)\\s*")
+
+    /** A tidy name for the screen: without the "EN - " / "|UK| " style tags providers put in front. */
+    fun clean(name: String): String = name.replace(TAG_IN_FRONT, "").replace(Regex("\\s{2,}"), " ").trim()
+
+    /** Most recently added first (the provider numbers things as it adds them). */
+    fun newestFilms(c: Context, n: Int = 40): List<Vod> = vod(c).sortedByDescending { it.id }.distinctBy { TextMatch.vodKey(clean(it.name)) }.take(n)
+    fun newestSeries(c: Context, n: Int = 40): List<Series> = series(c).sortedByDescending { it.id }.distinctBy { TextMatch.vodKey(clean(it.name)) }.take(n)
+
+    /** Category name -> its films (newest first), in the provider's own order of categories. */
+    fun filmsByCategory(c: Context): List<Pair<String, List<Vod>>> {
+        val groups = vod(c).groupBy { it.category }
+        return vodCategories(c).mapNotNull { (id, name) -> groups[id]?.takeIf { it.isNotEmpty() }?.let { name to it.sortedByDescending { v -> v.id } } }
+    }
+
+    fun seriesByCategory(c: Context): List<Pair<String, List<Series>>> {
+        val groups = series(c).groupBy { it.category }
+        return seriesCategories(c).mapNotNull { (id, name) -> groups[id]?.takeIf { it.isNotEmpty() }?.let { name to it.sortedByDescending { v -> v.id } } }
+    }
+
+    /** Films and series whose name matches what was typed - everything here really plays. */
+    fun searchLibrary(c: Context, query: String, n: Int = 40): Pair<List<Vod>, List<Series>> {
+        val q = TextMatch.vodKey(query)
+        if (q.isBlank()) return emptyList<Vod>() to emptyList()
+        fun score(name: String): Int {
+            val k = TextMatch.vodKey(clean(name))
+            return when { k == q -> 0; k.startsWith(q) -> 1; k.contains(" $q") -> 2; k.contains(q) -> 3; else -> -1 }
+        }
+        val films = vod(c).mapNotNull { v -> score(v.name).takeIf { it >= 0 }?.let { it to v } }
+            .sortedWith(compareBy({ it.first }, { -it.second.id })).map { it.second }.distinctBy { TextMatch.vodKey(clean(it.name)) }.take(n)
+        val shows = series(c).mapNotNull { v -> score(v.name).takeIf { it >= 0 }?.let { it to v } }
+            .sortedWith(compareBy({ it.first }, { -it.second.id })).map { it.second }.distinctBy { TextMatch.vodKey(clean(it.name)) }.take(n)
+        return films to shows
+    }
+
+    // ---------- VPN ----------
+
+    /** Is a VPN connected on this TV right now? */
+    fun vpnOn(c: Context): Boolean = try {
+        val cm = c.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+        @Suppress("DEPRECATION")
+        cm.allNetworks.any { cm.getNetworkCapabilities(it)?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN) == true }
+    } catch (e: Exception) { false }
+
+    /** Learned from use: on this TV, Dodgy Box only answers through the VPN. */
+    fun needsVpn(c: Context) = Prefs.bool(c, "xt_needs_vpn", false)
 
     private fun java.io.DataOutputStream.str(x: String?) = writeUTF((x ?: "").take(600))
 

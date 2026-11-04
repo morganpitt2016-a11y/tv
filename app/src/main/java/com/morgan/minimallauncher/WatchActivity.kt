@@ -324,6 +324,7 @@ class WatchActivity : AppCompatActivity() {
             }
         }
         appsRow()
+        dodgyHomeRows(token)
         WatchCatalog.history(this).firstOrNull()?.let { last ->
             val row = titleRow(token, "because", "Because You Watched ${last.name}") { done ->
                 WatchCatalog.detail(this, last) { d -> done(d?.similar) }
@@ -432,17 +433,36 @@ class WatchActivity : AppCompatActivity() {
 
     /** Every service as a tile; opens that service's page. */
     private fun appsRow() {
-        val list = installed + providers.filter { it.installed == null }
+        val dodgy: List<Any> = if (Xtream.isSetUp(this)) listOf("dodgy") else emptyList()
+        val list: List<Any> = dodgy + installed + providers.filter { it.installed == null }
         if (list.isEmpty()) return
         val r = row("apps", "Your Apps", height = 120f)
-        r.list.adapter = CardAdapter(list, { p -> serviceCard(p) }) { h, p ->
+        r.list.adapter = CardAdapter(list, { p -> serviceCard(p) }) { h, item ->
+            if (item == "dodgy") {
+                val expired = Xtream.isExpired(this)
+                h.label.text = if (expired) "Dodgy Box · Expired" else "Dodgy Box"
+                h.root.contentDescription = "Dodgy Box"
+                h.image.setImageResource(R.drawable.ic_lucide_film)
+                h.image.setColorFilter(0xFFFFFFFF.toInt())
+                h.image.setPadding(dp(this, 8f), dp(this, 8f), dp(this, 8f), dp(this, 8f))
+                h.image.background = GradientDrawable().apply { cornerRadius = dp(this@WatchActivity, 10f).toFloat(); setColor(0xFFE50914.toInt()) }
+                h.root.alpha = if (expired) 0.6f else 1f
+                h.root.setOnClickListener { openDodgyBoxPage("MOVIE") }
+                focusEffect(h.root) { showPlainHero("YOUR BOX", "Dodgy Box", if (expired) "The subscription has run out - renew it to watch again." else "Every film, series and channel on your Dodgy Box - it all plays right here.") }
+            } else bindProvider(h, item as WatchCatalog.Provider)
+        }
+        rows.addView(r.view)
+    }
+
+    private fun bindProvider(h: Holder, p: WatchCatalog.Provider) {
+        run {
+            h.image.colorFilter = null; h.image.background = null; h.image.setPadding(0, 0, 0, 0); h.root.alpha = 1f
             h.label.text = p.displayName
             h.root.contentDescription = p.displayName
             ImageLoader.load(h.image, p.icon, ImageLoader.ICON)
             h.root.setOnClickListener { openProviderPage(p) }
             focusEffect(h.root) { showPlainHero(if (p.installed != null) "YOUR APP" else "GET THE APP", p.displayName, "Every film and series on ${p.displayName}, by category.") }
         }
-        rows.addView(r.view)
     }
 
     /** A service tile: its logo on a dark glass card, name underneath. */
@@ -465,6 +485,158 @@ class WatchActivity : AppCompatActivity() {
     }
 
     private var providerType = "MOVIE"
+
+    // ---------- Dodgy Box library (everything here really plays) ----------
+
+    private fun libTitle(name: String, type: String, image: String?) = WatchCatalog.Title(
+        "dodgy:$type:${TextMatch.vodKey(name)}", type, Xtream.clean(name),
+        Regex("\\b(19|20)\\d{2}\\b").find(name)?.value?.toIntOrNull() ?: 0, image, image, "", null, emptyList(), emptyList())
+
+    private fun openLibraryFilm(v: Xtream.Vod) {
+        if (Xtream.isExpired(this)) { Xtream.showExpired(this); return }
+        playFilm(libTitle(v.name, "MOVIE", v.icon), Xtream.vodUrl(applicationContext, v))
+    }
+
+    private fun openLibrarySeries(s: Xtream.Series) {
+        if (Xtream.isExpired(this)) { Xtream.showExpired(this); return }
+        val t = libTitle(s.name, "SHOW", s.cover)
+        val dismiss = showFinding(t)
+        val app = applicationContext
+        Thread {
+            val eps = try { Xtream.episodes(app, s) } catch (e: Exception) { emptyList() }
+            runOnUiThread {
+                dismiss()
+                if (isDestroyed) return@runOnUiThread
+                if (eps.isEmpty()) GlassUi.toast(this, "${t.name} has no episodes on Dodgy Box right now") else chooseEpisode(t, eps)
+            }
+        }.start()
+    }
+
+    private fun bindVod(h: Holder, v: Xtream.Vod) {
+        val name = Xtream.clean(v.name)
+        h.label.text = name
+        h.root.contentDescription = name
+        ImageLoader.load(h.image, v.icon)
+        h.root.setOnClickListener { openLibraryFilm(v) }
+        focusEffect(h.root) { showPlainHero("DODGY BOX  ·  FILM", name, "Press OK to watch.") }
+    }
+
+    private fun bindSeries(h: Holder, s: Xtream.Series) {
+        val name = Xtream.clean(s.name)
+        h.label.text = name
+        h.root.contentDescription = name
+        ImageLoader.load(h.image, s.cover)
+        h.root.setOnClickListener { openLibrarySeries(s) }
+        focusEffect(h.root) { showPlainHero("DODGY BOX  ·  SERIES", name, "Press OK for the episodes.") }
+    }
+
+    /** A row of Dodgy Box films or series. */
+    private fun <T> libRow(key: String, title: String, items: List<T>, bind: (Holder, T) -> Unit): Row {
+        val r = row(key, title, height = 196f)
+        r.list.adapter = CardAdapter(items, { p -> posterCard(p) }, bind = bind)
+        return r
+    }
+
+    /** "New on Dodgy Box" rows for the Home tab (loaded in the background, then slotted in). */
+    private fun dodgyHomeRows(token: Int) {
+        if (!Xtream.isSetUp(this) || Xtream.isExpired(this)) return
+        val host = rows
+        val app = applicationContext
+        Thread {
+            val films = try { Xtream.newestFilms(app, 30) } catch (e: Exception) { emptyList() }
+            val shows = try { Xtream.newestSeries(app, 30) } catch (e: Exception) { emptyList() }
+            runOnUiThread {
+                if (containerToken[host] != token || isDestroyed) return@runOnUiThread
+                // Just under Your Apps.
+                var at = (0 until host.childCount).indexOfFirst { host.getChildAt(it).tag == "apps" }.let { if (it < 0) host.childCount else it + 1 }
+                if (films.isNotEmpty()) host.addView(libRow("dodgy_films", "New Films on Dodgy Box", films) { h, v -> bindVod(h, v) }.view, at++)
+                if (shows.isNotEmpty()) host.addView(libRow("dodgy_series", "New Series on Dodgy Box", shows) { h, v -> bindSeries(h, v) }.view, at)
+            }
+        }.start()
+    }
+
+    /** Dodgy Box's own page, like a streaming app: Films / Series, new first, then every category. */
+    private fun openDodgyBoxPage(type: String = providerType) {
+        if (Xtream.isExpired(this)) { Xtream.showExpired(this); return }
+        if (collectionFrom == null) collectionFrom = tab
+        tab = "collection"
+        providerType = type
+        freshRows()
+        scroll.scrollTo(0, 0)
+        val token = newBuild()
+        showPlainHero("DODGY BOX", "Dodgy Box", "Everything on your Dodgy Box - it all plays right here.")
+        val heads = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; clipChildren = false; clipToPadding = false; tag = "heads" }
+        var selected: View? = null
+        for ((id, label) in listOf("MOVIE" to "Films", "SHOW" to "Series", "LIVE" to "Live TV")) {
+            val b = pillButton(label, primary = id == type) {
+                if (id == "LIVE") startActivity(Intent(this, LiveGuideActivity::class.java))
+                else if (id != providerType) openDodgyBoxPage(id)
+            }
+            heads.addView(b, LinearLayout.LayoutParams(-2, dp(this, 38f)).apply { marginEnd = dp(this@WatchActivity, 12f) })
+            if (id == type) selected = b
+        }
+        rows.addView(heads, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(this@WatchActivity, 56f); topMargin = dp(this@WatchActivity, 8f) })
+        selected?.requestFocus()
+        // Continue Watching from Dodgy Box, of this kind.
+        ResumeStore.forTab(this, if (type == "MOVIE") "films" else "shows").takeIf { it.isNotEmpty() }?.let { items ->
+            val r = row("resume_db", "Continue Watching", height = 150f)
+            r.list.adapter = CardAdapter(items, { p -> wideCard(p) }) { h, item -> bindResume(h, item) }
+            rows.addView(r.view)
+        }
+        val loading = GlassUi.text(this, "Loading Dodgy Box…", 13f, R.font.inter_medium, 0x99FFFFFF.toInt())
+        rows.addView(loading, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(this@WatchActivity, 56f); topMargin = dp(this@WatchActivity, 14f) })
+        val host = rows
+        val app = applicationContext
+        Thread {
+            val newest: List<Any>; val groups: List<Pair<String, List<Any>>>
+            try {
+                if (type == "MOVIE") { newest = Xtream.newestFilms(app, 40); groups = Xtream.filmsByCategory(app) }
+                else { newest = Xtream.newestSeries(app, 40); groups = Xtream.seriesByCategory(app) }
+            } catch (e: Exception) {
+                runOnUiThread { if (containerToken[host] == token) loading.text = "Couldn’t reach Dodgy Box - check the internet and VPN" }
+                return@Thread
+            }
+            runOnUiThread {
+                if (containerToken[host] != token || isDestroyed) return@runOnUiThread
+                host.removeView(loading)
+                val what = if (type == "MOVIE") "Films" else "Series"
+                fun add(key: String, title: String, list: List<Any>) {
+                    val r = libRow(key, title, list.take(60)) { h, x -> if (x is Xtream.Vod) bindVod(h, x) else if (x is Xtream.Series) bindSeries(h, x) }
+                    host.addView(r.view)
+                }
+                if (newest.isNotEmpty()) add("db_new", "New $what", newest)
+                // The rest fill in a few at a time so the page stays smooth.
+                var i = 0
+                fun more() {
+                    if (containerToken[host] != token || isDestroyed) return
+                    val end = minOf(i + 4, groups.size)
+                    while (i < end) { val (name, list) = groups[i]; add("db_c$i", "${name}  ·  ${list.size}", list); i++ }
+                    if (i < groups.size) handler.postDelayed({ more() }, 120)
+                }
+                more()
+                if (newest.isEmpty() && groups.isEmpty()) host.addView(GlassUi.text(this, "Nothing here yet.", 13f, R.font.inter_medium, 0x99FFFFFF.toInt()),
+                    LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(this@WatchActivity, 56f) })
+            }
+        }.start()
+    }
+
+    /** Search results from the Dodgy Box library (shown first, because they play straight away). */
+    private fun dodgySearchRows(token: Int, query: String) {
+        if (!Xtream.isSetUp(this)) return
+        val host = rows
+        val app = applicationContext
+        Thread {
+            val (films, shows) = try { Xtream.searchLibrary(app, query) } catch (e: Exception) { emptyList<Xtream.Vod>() to emptyList() }
+            runOnUiThread {
+                if (containerToken[host] != token || isDestroyed) return@runOnUiThread
+                var at = 0
+                if (films.isNotEmpty()) host.addView(libRow("s_films", "Films on Dodgy Box", films) { h, v -> bindVod(h, v) }.view, at++)
+                if (shows.isNotEmpty()) host.addView(libRow("s_series", "Series on Dodgy Box", shows) { h, v -> bindSeries(h, v) }.view, at)
+                if ((films.isNotEmpty() || shows.isNotEmpty()) && rows.findFocus() == null) rows.post { firstItem()?.requestFocus() }
+            }
+        }.start()
+    }
+
 
     /**
      * A service's own page: Films / Series at the top, then everything it has of that
@@ -882,7 +1054,8 @@ class WatchActivity : AppCompatActivity() {
         scroll.scrollTo(0, 0)
         val token = newBuild()
         showPlainHero("SEARCH", "“$query”", "")
-        titleRow(token, "results", "Films & Shows") { done -> WatchCatalog.titles(this, search = query, first = 30, done = done) }
+        dodgySearchRows(token, query)
+        titleRow(token, "results", if (Xtream.isSetUp(this)) "On Your Other Apps" else "Films & Shows") { done -> WatchCatalog.titles(this, search = query, first = 30, done = done) }
         LiveGuide.load(this) { channels ->
             if (token != buildToken || channels == null) return@load
             val q = query.lowercase()

@@ -537,6 +537,35 @@ class PlayerActivity : Activity() {
                     ?: android.widget.Toast.makeText(c, "Dodgy Box subscription expired", android.widget.Toast.LENGTH_LONG).show()
                 return
             }
+            // On this TV Dodgy Box only works through the VPN: say so before it fails.
+            if (server != null && url.startsWith(server) && Xtream.needsVpn(c) && !Xtream.vpnOn(c) && c is android.app.Activity) {
+                val go = { playNow(c, url, title, live, subtitle, eyebrow, alt, fromStart, liveId, series, queue, image, season, episode, liveCat) }
+                val vpnApp = vpnApp(c)
+                val d = GlassDialog(c).title("Turn On the VPN").message("Dodgy Box only works through the VPN on this TV, and it’s off right now." +
+                    (vpnApp?.let { "\n\nOpen ${it.second}, connect, then come back and press play." } ?: ""))
+                vpnApp?.let { (pkg, label) -> d.button("Open $label", GlassDialog.Style.BOLD) {
+                    c.packageManager.getLeanbackLaunchIntentForPackage(pkg)?.let { i -> c.startActivity(i) } ?: c.packageManager.getLaunchIntentForPackage(pkg)?.let { i -> c.startActivity(i) }
+                } }
+                d.button("Play Anyway") { go() }.button("Cancel").show()
+                return
+            }
+            playNow(c, url, title, live, subtitle, eyebrow, alt, fromStart, liveId, series, queue, image, season, episode, liveCat)
+        }
+
+        /** The VPN app on this TV, if there is one: (package, name). */
+        fun vpnApp(c: Context): Pair<String, String>? = try {
+            val pm = c.packageManager
+            val known = listOf("com.surfshark.vpnclient.android", "com.nordvpn.android", "com.expressvpn.vpn", "ch.protonvpn.android", "com.ipvanish.ipvanish", "de.mobileconcepts.cyberghost", "com.privateinternetaccess.android")
+            val pkg = known.firstOrNull { pm.getLaunchIntentForPackage(it) != null || pm.getLeanbackLaunchIntentForPackage(it) != null }
+                ?: pm.getInstalledApplications(0).map { it.packageName }.firstOrNull { it.contains("vpn", true) && (pm.getLeanbackLaunchIntentForPackage(it) != null || pm.getLaunchIntentForPackage(it) != null) }
+            pkg?.let { it to pm.getApplicationLabel(pm.getApplicationInfo(it, 0)).toString() }
+        } catch (e: Exception) { null }
+
+        private fun playNow(
+            c: Context, url: String, title: String, live: Boolean, subtitle: String?, eyebrow: String?, alt: String?,
+            fromStart: Boolean, liveId: Int, series: String?, queue: List<Triple<String, Int, Int>>,
+            image: String?, season: Int, episode: Int, liveCat: String?,
+        ) {
             c.startActivity(Intent(c, PlayerActivity::class.java)
                 .putExtra(EXTRA_URL, url).putExtra(EXTRA_ALT_URL, alt).putExtra(EXTRA_LIVE, live)
                 .putExtra(EXTRA_TITLE, title).putExtra(EXTRA_SUBTITLE, subtitle).putExtra(EXTRA_EYEBROW, eyebrow).putExtra(EXTRA_FROM_START, fromStart)
