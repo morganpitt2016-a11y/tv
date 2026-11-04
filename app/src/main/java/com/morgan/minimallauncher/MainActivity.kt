@@ -218,6 +218,8 @@ class MainActivity : AppCompatActivity() {
         rotator.start()
         widgets.start()
         refreshAll(onlyIfChanged = true)
+        if (!Accounts.needsSetup(this)) Coach.firstRun(this)
+        Coach.resume(this, "home") { coachTarget(it) }
         Updater.maybeUpdate(this)                      // new builds arrive by themselves (rate limited)
         Xtream.expiryNotice(this)
         applyDimming(animate = false)
@@ -238,7 +240,17 @@ class MainActivity : AppCompatActivity() {
         if (::dogPet.isInitialized) dogPet.pause()
     }
 
+    private fun coachTarget(name: String): View? = when (name) {
+        "dock" -> dock
+        "firstTile" -> dock.getChildAt(0)
+        "watchTile" -> dock.getChildAt((dock.childCount - 2).coerceAtLeast(0))
+        "settingsTile" -> dock.getChildAt((dock.childCount - 1).coerceAtLeast(0))
+        "rails" -> rails.takeIf { it.childCount > 0 } ?: dock
+        else -> null
+    }
+
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (Coach.onKey(this, event) { coachTarget(it) }) return true
         if (event.action == KeyEvent.ACTION_DOWN) {
             val wasDim = idleDim.visibility == View.VISIBLE && idleDim.alpha > 0.08f
             wake()

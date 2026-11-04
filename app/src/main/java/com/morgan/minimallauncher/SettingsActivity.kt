@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.View
 import android.widget.FrameLayout
 import android.widget.LinearLayout
@@ -54,6 +55,11 @@ class SettingsActivity : AppCompatActivity() {
 
         section("Home Screen")
         group {
+            learnRow = vrow("Learning Mode", { if (Coach.isOn(this)) "On" else "Off" }) {
+                if (Coach.isOn(this)) { Coach.stop(this); GlassUi.toast(this, "Learning Mode is off") }
+                else { Coach.start(this); GlassUi.toast(this, "Learning Mode is on - press Back to go Home and begin") }
+                refreshValues()
+            }
             vrow("Account", { Accounts.active(this)?.name ?: "Not Set Up" }) {
                 startActivity(Intent(this, WhoActivity::class.java).putExtra(WhoActivity.EXTRA_MODE, WhoActivity.ACCOUNTS))
             }
@@ -248,9 +254,19 @@ class SettingsActivity : AppCompatActivity() {
         if (GoveeHelper.getApiKey(this) != null) refreshDevices()
     }
 
+    private var learnRow: Row? = null
+
+    private fun coachTarget(name: String): View? = when (name) { "learnRow" -> learnRow?.view; "list" -> list; else -> null }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (Coach.onKey(this, event) { coachTarget(it) }) return true
+        return super.dispatchKeyEvent(event)
+    }
+
     override fun onResume() {
         super.onResume()
         refreshValues() // e.g. coming back from the accessibility settings
+        Coach.resume(this, "settings") { coachTarget(it) }
     }
 
     private fun refreshValues() {

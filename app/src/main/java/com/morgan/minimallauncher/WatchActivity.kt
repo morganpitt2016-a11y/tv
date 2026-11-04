@@ -13,6 +13,7 @@ import android.speech.RecognizerIntent
 import android.text.TextUtils
 import android.text.format.DateFormat
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewOutlineProvider
@@ -207,8 +208,16 @@ class WatchActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         handler.postDelayed(rotateFeatured, FEATURE_MS)
+        Coach.resume(this, "watch") { coachTarget(it) }
         if (tab == "home" && rows.childCount > 0 && detail == null) { refreshPersonalRows(); refreshResumeRow() }
         else if (rows.childCount > 0 && detail == null) refreshResumeRow()
+    }
+
+    private fun coachTarget(name: String): View? = when (name) { "nav" -> nav; "rows" -> rows; else -> null }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (Coach.onKey(this, event) { coachTarget(it) }) return true
+        return super.dispatchKeyEvent(event)
     }
 
     override fun onPause() {
