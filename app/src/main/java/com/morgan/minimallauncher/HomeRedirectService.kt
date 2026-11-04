@@ -217,6 +217,7 @@ class HomeRedirectService : AccessibilityService() {
         override fun run() {
             try { Reminders.tick(this@HomeRedirectService) } catch (_: Exception) {}
             try { Health.nightly(this@HomeRedirectService) } catch (_: Exception) {}
+            try { Sync.tick(this@HomeRedirectService) } catch (_: Exception) {}
             mainHandler.postDelayed(this, 30_000)
         }
     }

@@ -208,6 +208,7 @@ class WatchActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        Sync.tick(this)
         handler.postDelayed(rotateFeatured, FEATURE_MS)
         Coach.resume(this, "watch") { coachTarget(it) }
         if (tab == "home" && rows.childCount > 0 && detail == null) { refreshPersonalRows(); refreshResumeRow() }

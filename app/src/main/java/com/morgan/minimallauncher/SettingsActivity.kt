@@ -242,6 +242,7 @@ class SettingsActivity : AppCompatActivity() {
 
         section("Copy to Another TV")
         group {
+            vrow("Keep Profiles in Step", { Sync.code(this)?.let { "On · " + Sync.pretty(it) } ?: "Off" }) { syncSettings() }
             row("Send This TV’s Setup", chevron = true) { sendSetup() }
             row("Get Setup From Another TV", chevron = true) { receiveSetup() }
         }
@@ -774,6 +775,34 @@ class SettingsActivity : AppCompatActivity() {
         }
         d.button("Close")
         d.show()
+    }
+
+    /** Profiles that follow you between TVs (My List, Continue Watching, favourites...). */
+    private fun syncSettings() {
+        val code = Sync.code(this)
+        if (code == null) {
+            GlassDialog(this).title("Keep Profiles in Step")
+                .message("Each person's My List, Continue Watching, favourites and places in films stay the same on every TV that uses the same code.")
+                .button("Start on This TV", GlassDialog.Style.BOLD) {
+                    val c = Sync.start(this); refreshValues(); Sync.tick(this, force = true)
+                    GlassDialog(this).title(c).message("On the other TV: Settings › Copy to Another TV › Keep Profiles in Step › Join With a Code, and type this code.")
+                        .button("Done", GlassDialog.Style.BOLD).show()
+                }
+                .button("Join With a Code") {
+                    val d = GlassDialog(this).title("Join").message("Type the code shown on the other TV.").input("Code, like K7QM-3XPA-H2RD")
+                    d.button("Join", GlassDialog.Style.BOLD) {
+                        if (Sync.join(this, d.inputText)) { refreshValues(); Sync.tick(this, force = true); GlassUi.toast(this, "Joined - profiles will match in a minute") }
+                        else GlassUi.toast(this, "That code should be 12 letters and numbers")
+                    }
+                    d.button("Cancel").show()
+                }
+                .button("Cancel").show()
+        } else {
+            GlassDialog(this).title("Keep Profiles in Step").message("On, with code ${Sync.pretty(code)}. Use the same code on the other TV.")
+                .button("Sync Now", GlassDialog.Style.BOLD) { Sync.tick(this, force = true); GlassUi.toast(this, "Syncing…") }
+                .button("Stop on This TV", GlassDialog.Style.DESTRUCTIVE) { Sync.stop(this); refreshValues() }
+                .button("Cancel").show()
+        }
     }
 
     private fun sendSetup() {

@@ -1,0 +1,12 @@
+# Ahead-of-time compile the launcher's own code and the libraries it leans on at start-up,
+# so the home screen, Watch, the TV guide and the player open quickly (even after an update).
+HSPLcom/morgan/minimallauncher/**->**(**)**
+Lcom/morgan/minimallauncher/**;
+HSPLandroidx/recyclerview/widget/**->**(**)**
+Landroidx/recyclerview/widget/**;
+HSPLandroidx/media3/exoplayer/**->**(**)**
+Landroidx/media3/exoplayer/**;
+HSPLandroidx/media3/extractor/**->**(**)**
+Landroidx/media3/ui/**;
+HSPLandroidx/appcompat/app/**->**(**)**
+Landroidx/appcompat/app/**;
