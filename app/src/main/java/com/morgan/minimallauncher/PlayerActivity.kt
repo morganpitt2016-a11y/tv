@@ -162,7 +162,10 @@ class PlayerActivity : Activity() {
         val load = androidx.media3.exoplayer.DefaultLoadControl.Builder()
             .setBufferDurationsMs(if (live) 2_000 else 15_000, if (live) 20_000 else 60_000, if (live) 500 else 900, if (live) 1_500 else 2_000)
             .build()
-        val p = ExoPlayer.Builder(this).setLoadControl(load).build()
+        // Files without a seek index (common with .ts/.mkv from providers) can still jump to a point.
+        val extractors = androidx.media3.extractor.DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true)
+        val sources = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(this, extractors)
+        val p = ExoPlayer.Builder(this).setLoadControl(load).setMediaSourceFactory(sources).build()
         p.addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
                 // Some providers only serve live TV one way: try the other before giving up.
@@ -200,9 +203,24 @@ class PlayerActivity : Activity() {
             if (tl == "off") b.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true) else if (tl != null) b.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false).setPreferredTextLanguage(tl)
             p.trackSelectionParameters = b.build()
         }
-        if (resume) Prefs.int(this, posKey(), 0).takeIf { it > 30 }?.let { p.seekTo(it * 1000L) }
+        val resumeAt = if (resume) Prefs.int(this, posKey(), 0).takeIf { it > 30 } else null
+        resumeAt?.let { p.seekTo(it * 1000L) }
         p.playWhenReady = true
         p.prepare()
+        // If it can't get going (often: it can't jump to where you left off), start from the beginning instead.
+        val startedFor = u
+        handler.postDelayed({
+            val q = player ?: return@postDelayed
+            if (url != startedFor || isFinishing || q.isPlaying || q.playerError != null) return@postDelayed
+            if (q.playbackState == Player.STATE_BUFFERING || q.playbackState == Player.STATE_IDLE) {
+                Diag.send(this, "player", "stuck: state=${q.playbackState} pos=${q.currentPosition / 1000}s dur=${q.duration / 1000}s resumeAt=${resumeAt ?: 0}s for \"$titleText\"")
+                if (resumeAt != null && !live) {
+                    GlassUi.toast(this, "Couldn’t pick up where you left off - starting from the beginning")
+                    Prefs.setInt(this, posKey(), 0)
+                    start(startedFor, resume = false)
+                }
+            }
+        }, 15_000)
     }
 
     // Near the end of an episode, offer the next one (rather than only when the picture stops).
