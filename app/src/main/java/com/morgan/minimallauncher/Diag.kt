@@ -136,7 +136,7 @@ object Diag {
                     main.post { PlayerActivity.play(app, Xtream.vodUrl(app, v), title, live = false, eyebrow = "FILM") }
                 }
             }
-            cmd == "update" -> Updater.maybeUpdate(app, force = true) { send(app, "update", it) }
+            cmd == "update" -> Updater.maybeUpdate(app, force = true, asked = true) { send(app, "update", it) }
             cmd == "xcheck" -> thread(isDaemon = true) {
                 // The result only - never the server, username or password.
                 fun clean(e: Exception) = "${e.javaClass.simpleName}: ${e.message.orEmpty().replace(Regex("https?://\\S+"), "<link>").take(200)}"
