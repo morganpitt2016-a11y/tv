@@ -64,6 +64,7 @@ class PlayerActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (Activation.guard(this)) return
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         url = intent.getStringExtra(EXTRA_URL) ?: return finish()
         altUrl = intent.getStringExtra(EXTRA_ALT_URL)

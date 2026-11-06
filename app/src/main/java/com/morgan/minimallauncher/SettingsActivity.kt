@@ -49,6 +49,7 @@ class SettingsActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (Activation.guard(this)) return
         base = isBase(this)
         setContentView(R.layout.activity_settings)
         val settingsRoot = findViewById<FrameLayout>(R.id.settingsRoot)
@@ -242,6 +243,7 @@ class SettingsActivity : AppCompatActivity() {
 
         section("Copy to Another TV")
         group {
+            row("Activation Code", chevron = true) { activationCode() }
             vrow("Keep Profiles in Step", { Sync.code(this)?.let { "On · " + Sync.pretty(it) } ?: "Off" }) { syncSettings() }
             row("Send This TV’s Setup", chevron = true) { sendSetup() }
             row("Get Setup From Another TV", chevron = true) { receiveSetup() }
@@ -775,6 +777,41 @@ class SettingsActivity : AppCompatActivity() {
         }
         d.button("Close")
         d.show()
+    }
+
+    /** The owner's code that any new install must enter. Set once, from here. */
+    private fun activationCode() {
+        GlassUi.toast(this, "Checking…")
+        Thread {
+            val set = try { Activation.salt() != null } catch (e: Exception) { null }
+            runOnUiThread {
+                if (isDestroyed) return@runOnUiThread
+                when (set) {
+                    null -> GlassUi.toast(this, "Couldn’t check - try again in a moment")
+                    true -> GlassDialog(this).title("Activation Code").message("Your code is set. Any new TV that installs this launcher has to enter it first. (This TV and others already set up stay unlocked.)")
+                        .button("OK", GlassDialog.Style.BOLD).show()
+                    false -> {
+                        val d = GlassDialog(this).title("Choose an Activation Code")
+                            .message("At least 6 letters or numbers. Anyone who installs this launcher will need it. It can only be set once, so pick one you'll remember.")
+                            .input("Code", secret = true)
+                        d.button("Next", GlassDialog.Style.BOLD) {
+                            val code = d.inputText.trim()
+                            if (code.length < 6) { GlassUi.toast(this, "Use at least 6 letters or numbers"); return@button }
+                            val again = GlassDialog(this).title("Type It Again").input("Code", secret = true)
+                            again.button("Set Code", GlassDialog.Style.BOLD) {
+                                if (again.inputText.trim().uppercase() != code.uppercase()) { GlassUi.toast(this, "Those didn’t match - try again"); return@button }
+                                Thread {
+                                    val ok = try { Activation.set(code) } catch (e: Exception) { false }
+                                    runOnUiThread { GlassUi.toast(this, if (ok) "Activation code set" else "Couldn’t set it - it may already be set") }
+                                }.start()
+                            }
+                            again.button("Cancel").show()
+                        }
+                        d.button("Cancel").show()
+                    }
+                }
+            }
+        }.start()
     }
 
     /** Profiles that follow you between TVs (My List, Continue Watching, favourites...). */

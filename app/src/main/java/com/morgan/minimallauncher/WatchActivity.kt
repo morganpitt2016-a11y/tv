@@ -106,6 +106,7 @@ class WatchActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (Activation.guard(this)) return
         val c = this
         root = FrameLayout(c).apply { setBackgroundColor(0xFF000000.toInt()) }
 

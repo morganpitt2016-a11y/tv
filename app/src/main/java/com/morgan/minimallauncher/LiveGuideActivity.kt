@@ -59,6 +59,7 @@ class LiveGuideActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (Activation.guard(this)) return
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         if (Xtream.isExpired(this)) window.decorView.post { if (!isDestroyed) Xtream.showExpired(this) }
         val c = this

@@ -15,6 +15,7 @@ import kotlin.concurrent.thread
 class ExternalPlayActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (Activation.guard(this)) return
         val link = intent?.data?.toString()
         if (link == null) { finish(); return }
         val app = applicationContext

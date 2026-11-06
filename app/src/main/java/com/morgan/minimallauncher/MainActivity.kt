@@ -86,6 +86,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (Activation.guard(this)) return
         setContentView(R.layout.activity_main)
 
         root = findViewById(R.id.root)
