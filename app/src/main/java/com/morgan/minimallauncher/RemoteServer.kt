@@ -323,6 +323,13 @@ object Foreground : Application.ActivityLifecycleCallbacks {
 class LauncherApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        // If the launcher ever crashes, keep what went wrong so it can be fixed (sent next time, only with Share with Claude on).
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { t, e ->
+            try { getSharedPreferences("launcher_settings", Context.MODE_PRIVATE).edit()
+                .putString("last_crash", "Build ${try { Updater.installedBuild(this) } catch (_: Exception) { 0 }} · ${t.name}\n" + android.util.Log.getStackTraceString(e).take(6000)).commit() } catch (_: Exception) {}
+            previous?.uncaughtException(t, e)
+        }
         registerActivityLifecycleCallbacks(Foreground)
         // Keep the cached app list in step with installs, removals and updates.
         val filter = android.content.IntentFilter().apply {
@@ -342,6 +349,7 @@ class LauncherApp : Application() {
         // Scheduled TiviMate recordings survive a restart.
         try { TiviRecorder.rearm(this) } catch (e: Exception) {}
         Diag.start(this)
+        Prefs.string(this, "last_crash")?.let { Diag.send(this, "crash", it); Prefs.setString(this, "last_crash", null) }
         try { Xtream.warm(this) } catch (e: Exception) {}
         android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ Updater.maybeUpdate(this) }, 25_000)      // films, series and channels ready before you ask
         // A few seconds after start (not during it), get the TV guide and the streaming services

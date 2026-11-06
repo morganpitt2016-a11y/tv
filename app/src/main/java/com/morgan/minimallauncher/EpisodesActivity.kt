@@ -100,6 +100,8 @@ class EpisodesActivity : Activity() {
 
     private fun selectSeason(s: Int) {
         if (s == season) return
+        // Never change the list while it's in the middle of laying itself out (moving focus can land here then).
+        if (list.isComputingLayout) { list.post { selectSeason(s) }; return }
         season = s
         seasonViews.forEach { (k, v) -> v.alpha = if (k == s) 1f else 0.62f }
         adapter.items = all.filter { it.season == s }
