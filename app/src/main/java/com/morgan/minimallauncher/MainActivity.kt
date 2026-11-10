@@ -227,6 +227,7 @@ class MainActivity : AppCompatActivity() {
         Xtream.expiryNotice(this)
         Health.mention(this)
         Fleet.checkin(this)
+        NewEpisodes.mention(this)
         offerUpdate()
         applyDimming(animate = false)
         handler.post(ambientTick)
