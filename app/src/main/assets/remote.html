@@ -115,6 +115,16 @@
 
 <section id="apps"><div class="apps" id="appGrid"></div></section>
 
+<section id="cast">
+  <h2>Play on TV</h2>
+  <div class="note">Search your Dodgy Box for a film, series or channel and tap it to play it on the TV.</div>
+  <form class="field" id="castForm"><input type="search" id="castQ" placeholder="Film, series or channel"><button class="btn">Search</button></form>
+  <div id="castResults"></div>
+  <h2>Play a Link</h2>
+  <div class="note">Paste a video link (for example from Safari or another app) to play it on the TV.</div>
+  <form class="field" id="linkForm"><input type="url" id="castUrl" placeholder="https://…"><button class="btn">Play</button></form>
+</section>
+
 <section id="photos">
   <h2>My Photos</h2>
   <div class="note">Add photos for the TV's ambient picture frame and wallpaper. Then choose <b>My Photos</b> in Settings › Home Screen › Wallpaper, or Settings › Ambient › Pictures.</div>
@@ -172,6 +182,7 @@
 <nav>
   <button data-tab="remote" class="on"><svg viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="4"/><circle cx="12" cy="8" r="2"/></svg>Remote</button>
   <button data-tab="apps"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>Apps</button>
+  <button data-tab="cast"><svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="14" rx="2.5"/><path d="M9 21h6M10 9l5 2.5-5 2.5z"/></svg>Play</button>
   <button data-tab="photos"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg>Photos</button>
   <button data-tab="more"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>More</button>
 </nav>
@@ -303,6 +314,37 @@
     });
     appsLoaded = true;
   }
+
+  // Play on TV (cast)
+  function castItem(kind, it) {
+    const b = document.createElement('button'); b.className = 'castItem';
+    b.style.cssText = 'display:flex;align-items:center;gap:12px;width:100%;padding:8px;margin:6px 0;border:0;border-radius:14px;background:var(--fill);color:#fff;text-align:left;font-size:16px';
+    const img = new Image(); img.alt = ''; img.style.cssText = 'width:' + (kind === 'live' ? '64px;height:40px;object-fit:contain' : '46px;height:68px;object-fit:cover') + ';border-radius:8px;background:#2c2c2e;flex:0 0 auto';
+    if (it.icon) img.src = it.icon;
+    const t = document.createElement('span'); t.textContent = it.name;
+    b.append(img, t);
+    b.onclick = () => api('/api/play', { kind, id: it.id }).then(r => toast(r.ok ? 'Playing on the TV' : 'Couldn’t play that')).catch(() => toast('TV not reachable'));
+    return b;
+  }
+  $('#castForm').onsubmit = async e => {
+    e.preventDefault();
+    const q = $('#castQ').value.trim(); if (!q) return;
+    const box = $('#castResults'); box.innerHTML = '<div class="note">Searching…</div>';
+    try {
+      const r = await api('/api/lib/search?q=' + encodeURIComponent(q));
+      box.innerHTML = '';
+      const add = (title, kind, list) => { if (!list.length) return; const h = document.createElement('div'); h.className = 'note'; h.style.margin = '14px 4px 2px'; h.textContent = title; box.append(h); list.forEach(it => box.append(castItem(kind, it))); };
+      add('Channels', 'live', r.channels); add('Films', 'film', r.films); add('Series', 'series', r.series);
+      if (!r.channels.length && !r.films.length && !r.series.length) box.innerHTML = '<div class="note">Nothing found on your Dodgy Box.</div>';
+    } catch (_) { box.innerHTML = '<div class="note">TV not reachable.</div>'; }
+  };
+  $('#linkForm').onsubmit = e => {
+    e.preventDefault();
+    const url = $('#castUrl').value.trim(); if (!url) return;
+    api('/api/play', { kind: 'url', url }).then(r => { toast(r.ok ? 'Playing on the TV' : 'That link didn’t work'); if (r.ok) $('#castUrl').value = ''; });
+  };
+  // A link shared into the page (…/?play=https://…) plays straight away.
+  if (qs.get('play')) api('/api/play', { kind: 'url', url: qs.get('play') }).then(r => toast(r.ok ? 'Playing on the TV' : 'That link didn’t work'));
 
   // Photos
   $('#files').onchange = async e => {

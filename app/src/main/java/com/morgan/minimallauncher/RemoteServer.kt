@@ -232,6 +232,37 @@ class RemoteServer(private val context: Context) {
                 val who = req.query["p"]?.takeIf { it in ProfileManager.getProfiles(context) } ?: ProfileManager.getActiveProfile(context)
                 json(out, JSONObject().put("ok", Avatars.savePhoto(context, who, req.body)))
             }
+            // ---- Cast from the iPhone: find something in your Dodgy Box and play it on the TV ----
+            "/api/lib/search" -> {
+                val q = req.query["q"].orEmpty().trim()
+                val o = JSONObject()
+                if (q.isEmpty() || !Xtream.isSetUp(context)) { json(out, o.put("films", JSONArray()).put("series", JSONArray()).put("channels", JSONArray())); return }
+                val (films, shows) = try { Xtream.searchLibrary(context, q, 25) } catch (e: Exception) { emptyList<Xtream.Vod>() to emptyList() }
+                val want = TextMatch.normalise(q)
+                val chans = try { Xtream.best(Xtream.live(context)).filter { TextMatch.normalise(it.name).contains(want) }.take(15) } catch (e: Exception) { emptyList() }
+                o.put("films", JSONArray().apply { films.forEach { put(JSONObject().put("id", it.id).put("name", Xtream.clean(it.name)).put("icon", it.icon ?: "")) } })
+                o.put("series", JSONArray().apply { shows.forEach { put(JSONObject().put("id", it.id).put("name", Xtream.clean(it.name)).put("icon", it.cover ?: "")) } })
+                o.put("channels", JSONArray().apply { chans.forEach { put(JSONObject().put("id", it.id).put("name", it.name).put("icon", it.icon ?: "")) } })
+                json(out, o)
+            }
+            "/api/play" -> {
+                val c = context
+                val ok = try {
+                    when (body.optString("kind")) {
+                        "film" -> Xtream.vod(c).firstOrNull { it.id == body.optInt("id") }?.let { v ->
+                            PlayerActivity.play(c, Xtream.vodUrl(c, v), Xtream.clean(v.name), live = false, eyebrow = "FILM", image = v.icon); true } ?: false
+                        "series" -> Xtream.series(c).firstOrNull { it.id == body.optInt("id") }?.let { s ->
+                            start(Intent(c, EpisodesActivity::class.java).putExtra(EpisodesActivity.EXTRA_NAME, Xtream.clean(s.name)).putExtra(EpisodesActivity.EXTRA_IMAGE, s.cover)) } ?: false
+                        "live" -> Xtream.live(c).firstOrNull { it.id == body.optInt("id") }?.let { ch ->
+                            PlayerActivity.play(c, Xtream.liveUrl(c, ch.id), ch.name, live = true, subtitle = LiveGuide.nowNext(c, ch.name), eyebrow = "LIVE",
+                                alt = Xtream.liveUrl(c, ch.id, hls = true), liveId = ch.id, liveCat = ch.category); true } ?: false
+                        "url" -> body.optString("url").trim().takeIf { it.startsWith("http") }?.let { u ->
+                            PlayerActivity.play(c, u, body.optString("name").ifBlank { "From your iPhone" }, live = false, eyebrow = "FROM IPHONE"); true } ?: false
+                        else -> false
+                    }
+                } catch (e: Exception) { false }
+                json(out, JSONObject().put("ok", ok))
+            }
             "/api/photos/clear" -> {
                 WallpaperLibrary.albumDir(context).listFiles()?.forEach { it.delete() }
                 json(out, JSONObject().put("ok", true))
