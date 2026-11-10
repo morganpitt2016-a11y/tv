@@ -59,6 +59,15 @@ object ImageLoader {
         pool.execute(Runnable { try { fetch(app, url, maxWidth) } catch (e: Throwable) {} })
     }
 
+    @Volatile private var lastTrim = 0L
+    /** Keep the folder from growing without end - checked every few minutes, not on every image (listing it is slow). */
+    private fun trimDisk(dir: File) {
+        val now = System.currentTimeMillis()
+        if (now - lastTrim < 5 * 60_000L) return
+        lastTrim = now
+        pool.execute { try { dir.listFiles()?.takeIf { it.size > 800 }?.sortedBy { it.lastModified() }?.take(300)?.forEach { it.delete() } } catch (e: Exception) {} }
+    }
+
     /** Fetches (blocking), scaled down to at most [maxWidth] pixels wide. */
     fun fetch(c: Context, url: String, maxWidth: Int): Bitmap? {
         val key = "$maxWidth|$url"
@@ -81,7 +90,7 @@ object ImageLoader {
         } else decoded
         memory.put(key, bmp)
         file.setLastModified(System.currentTimeMillis())
-        dir.listFiles()?.takeIf { it.size > 800 }?.sortedBy { it.lastModified() }?.take(300)?.forEach { it.delete() }
+        trimDisk(dir)
         return bmp
     }
 }

@@ -41,21 +41,31 @@ object GlassUi {
 
     fun font(c: Context, res: Int): Typeface? = ResourcesCompat.getFont(c, res)
 
+    private var backdropFor: Any? = null
+    private var backdropBmp: android.graphics.Bitmap? = null
+
+    /** The small copy of the current wallpaper used behind glass screens, decoded once per photo. */
+    private fun backdropBitmap(c: Context): android.graphics.Bitmap? {
+        val p = WallpaperRotator.current
+        if (p == backdropFor) return backdropBmp
+        // Decoding small and scaling up already softens it; RenderEffect (Android 12+) adds a proper blur on top.
+        val small = BitmapFactory.Options().apply { inSampleSize = 8 }
+        val bmp = try {
+            when (p) {
+                is WallpaperLibrary.Photo.Bundled -> BitmapFactory.decodeResource(c.resources, p.res, small)
+                is WallpaperLibrary.Photo.Local -> WallpaperLibrary.decodeFile(p.file, 240)
+            }
+        } catch (e: Exception) { null }
+        backdropFor = p; backdropBmp = bmp
+        return bmp
+    }
+
     /** Full-screen blurred, darkened wallpaper behind a screen's content. */
     fun installBackdrop(root: ViewGroup) {
         val c = root.context
         val image = ImageView(c).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
-            // Decoding small and scaling up already softens it; RenderEffect
-            // (Android 12+) adds a proper blur on top.
-            val small = BitmapFactory.Options().apply { inSampleSize = 8 }
-            val bmp = try {
-                when (val p = WallpaperRotator.current) {
-                    is WallpaperLibrary.Photo.Bundled -> BitmapFactory.decodeResource(c.resources, p.res, small)
-                    is WallpaperLibrary.Photo.Local -> WallpaperLibrary.decodeFile(p.file, 240)
-                }
-            } catch (e: Exception) { null }
-            setImageBitmap(bmp)
+            setImageBitmap(backdropBitmap(c))
             if (Build.VERSION.SDK_INT >= 31) {
                 setRenderEffect(RenderEffect.createBlurEffect(dp(c, 18f).toFloat(), dp(c, 18f).toFloat(), Shader.TileMode.CLAMP))
             }

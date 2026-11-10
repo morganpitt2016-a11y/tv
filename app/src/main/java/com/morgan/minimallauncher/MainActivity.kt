@@ -226,6 +226,7 @@ class MainActivity : AppCompatActivity() {
         Updater.maybeUpdate(this)                      // new builds arrive by themselves (rate limited)
         Xtream.expiryNotice(this)
         Health.mention(this)
+        offerUpdate()
         applyDimming(animate = false)
         handler.post(ambientTick)
         if (::claudePet.isInitialized) claudePet.resume()
@@ -389,6 +390,20 @@ class MainActivity : AppCompatActivity() {
             }
         }
         dateText.text = DateFormat.format("EEEE d MMMM", now)
+    }
+
+    /** An update is downloaded and Android wants a confirmation: ask here, once per version, never over a film. */
+    private fun offerUpdate() {
+        val confirm = Updater.pendingConfirm ?: return
+        val build = Updater.pendingBuild
+        if (Prefs.int(this, "upd_offered", 0) == build || Updater.busy(this)) return
+        Prefs.setInt(this, "upd_offered", build)
+        GlassDialog(this).title("Update Ready").message("Version 1.$build is downloaded. Installing takes about 20 seconds and the launcher restarts.\n\nPress Install on the next screen.")
+            .button("Install Now", GlassDialog.Style.BOLD) {
+                Updater.pendingConfirm = null
+                try { startActivity(confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) { GlassUi.toast(this, "Couldn’t start the install - try Settings › About › Check for Updates") }
+            }
+            .button("Later").show()
     }
 
     // ---------- Night mode, cinema mode, ambient lighting, idle ----------
@@ -910,15 +925,7 @@ class MainActivity : AppCompatActivity() {
             when {
                 opened?.backdrop != null -> ImageLoader.load(thumb, opened.backdrop, ImageLoader.CARD)
                 playing?.art != null -> thumb.setImageBitmap(playing.art)
-                else -> {
-                    val banner = bannerFor(app)
-                    if (banner != null) thumb.setImageDrawable(banner) else {
-                        val pad = dp(12)
-                        thumb.setPadding(pad, pad, pad, pad)
-                        thumb.scaleType = ImageView.ScaleType.FIT_CENTER
-                        thumb.setImageBitmap(TileRenderer.forApp(app, dp(40)))
-                    }
-                }
+                else -> thumb.setImageBitmap(AppTiles.forApp(this, app, dp(100), dp(60)))   // rendered once, reused (reading banners is slow)
             }
             // Which service it's on: the app's icon in the corner of the artwork.
             if (opened != null || playing != null) {

@@ -285,12 +285,13 @@ object LiveGuide {
 
     private fun writeCache(f: File, list: List<Channel>) {
         val keepFrom = System.currentTimeMillis() - 3_600_000L
+        val keepTo = System.currentTimeMillis() + 48 * 3_600_000L      // two days is plenty; the rest just makes the file slow to read
         java.io.DataOutputStream(java.io.BufferedOutputStream(java.io.FileOutputStream(f), 64 * 1024)).use { o ->
             o.writeInt(MAGIC)
             o.writeInt(list.size)
             for (c in list) {
                 o.writeUTF(c.id); o.writeUTF(c.name); o.writeUTF(c.logo ?: "")
-                val ps = c.programmes.filter { it.stop > keepFrom }
+                val ps = c.programmes.filter { it.stop > keepFrom && it.start < keepTo }
                 o.writeInt(ps.size)
                 for (p in ps) {
                     o.writeUTF(p.title.take(300)); o.writeUTF(p.desc.take(400)); o.writeLong(p.start); o.writeLong(p.stop)

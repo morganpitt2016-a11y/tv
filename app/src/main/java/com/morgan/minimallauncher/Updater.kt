@@ -19,6 +19,11 @@ object Updater {
     private const val BASE = "https://raw.githubusercontent.com/morganpitt2016-a11y/tv/main/dist"
     @Volatile private var running = false
     @Volatile var guideOpen = false
+    /** True while an update the person asked for (Check for Updates) is going through: Android's box opens straight away. */
+    @Volatile var askedNow = false
+    /** Android's "Install" confirmation, held until the home screen can ask first (so it never pops up over a film). */
+    @Volatile var pendingConfirm: Intent? = null
+    @Volatile var pendingBuild = 0
 
     /** Someone is watching: the player or the guide is up, or sound is playing (from any app). */
     fun busy(c: Context): Boolean {
@@ -71,6 +76,7 @@ object Updater {
         if (Build.VERSION.SDK_INT >= 26 && !c.packageManager.canRequestPackageInstalls())
             return "Build $latest is ready but this TV hasn't allowed the launcher to install updates yet"
         Prefs.setString(c, "upd_pending", "$latest:${System.currentTimeMillis()}")
+        askedNow = asked; pendingBuild = latest
         install(c, file)
         return "Installing build $latest (was $have)"
     }
@@ -98,7 +104,9 @@ class UpdateReceiver : BroadcastReceiver() {
                 // Android wants a confirmation the first time: show its Install button.
                 val confirm = if (Build.VERSION.SDK_INT >= 33) i.getParcelableExtra(Intent.EXTRA_INTENT, Intent::class.java)
                               else @Suppress("DEPRECATION") i.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)
-                confirm?.let { try { c.startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {} }
+                confirm ?: return
+                if (Updater.askedNow) { try { c.startActivity(confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {} }
+                else Updater.pendingConfirm = confirm          // the home screen asks at a quiet moment
             }
             PackageInstaller.STATUS_SUCCESS -> {}
             else -> Diag.send(c, "update", "Install didn't finish: ${i.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE)}")

@@ -701,7 +701,7 @@ class WatchActivity : AppCompatActivity() {
         val r = row(key, title, height = 196f)
         val items = mutableListOf<WatchCatalog.Title>()
         val adapter = CardAdapter(items.toList(), { p -> posterCard(p) }) { h, t -> bindTitle(h, t) }
-        r.list.adapter = adapter
+        r.list.adapter = SkeletonAdapter(104f, 156f)
         val host = rows
         host.addView(r.view)
         var cursor: String? = null
@@ -717,7 +717,7 @@ class WatchActivity : AppCompatActivity() {
                 if (list.isEmpty() && items.isEmpty()) { host.removeView(r.view); finished = true; return@page }
                 val first = items.isEmpty()
                 items += list
-                if (first) adapter.update(items.toList()) else adapter.append(list)
+                if (first) { r.list.adapter = adapter; adapter.update(items.toList()) } else adapter.append(list)
                 cursor = next
                 if (next == null) finished = true
                 // Show how much there is: "Comedy · 412".
@@ -1599,16 +1599,17 @@ class WatchActivity : AppCompatActivity() {
         val r = row(key, title, icon = icon, height = 196f)
         val moreCard: ((ViewGroup) -> Holder)? = if (more != null) { p -> seeMoreCard(p) } else null
         val adapter = CardAdapter(emptyList<WatchCatalog.Title>(), { p -> posterCard(p, ranked) }, more, moreCard) { h, t -> bindTitle(h, t) }
-        r.list.adapter = adapter
+        r.list.adapter = SkeletonAdapter(104f, 156f)            // soft placeholders until the titles arrive
         val host = rows
         host.addView(r.view)
         load { titles ->
             if (containerToken[host] != token || isDestroyed) return@load
             when {
                 titles.isNullOrEmpty() && (quietFail || titles != null) -> host.removeView(r.view)
-                titles == null -> r.view.addView(GlassUi.text(this, "Couldn’t load - check the internet connection", 12f, R.font.inter_regular, 0x99FFFFFF.toInt()),
-                    LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(this@WatchActivity, 56f) })
+                titles == null -> { r.list.adapter = adapter; r.view.addView(GlassUi.text(this, "Couldn’t load - check the internet connection", 12f, R.font.inter_regular, 0x99FFFFFF.toInt()),
+                    LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(this@WatchActivity, 56f) }) }
                 else -> {
+                    r.list.adapter = adapter
                     adapter.update(titles)
                     // A collection page puts the highlight on its first title as soon as it arrives.
                     if (focusFirstLoaded) { focusFirstLoaded = false; r.list.post { r.list.getChildAt(0)?.requestFocus() } }
@@ -1765,6 +1766,28 @@ class WatchActivity : AppCompatActivity() {
         }
     }
 
+    /** Grey cards that breathe gently while a row's titles load (so the page never looks empty or jumps). */
+    private inner class SkeletonAdapter(private val w: Float, private val h: Float, private val count: Int = 7) : RecyclerView.Adapter<Holder>() {
+        override fun getItemCount() = count
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder {
+            val c = parent.context
+            val root = FrameLayout(c).apply {
+                layoutParams = RecyclerView.LayoutParams(dp(c, w), dp(c, h)).apply { marginEnd = dp(c, 14f) }
+                background = GradientDrawable().apply { cornerRadius = dp(c, 10f).toFloat(); setColor(0x1AFFFFFF) }
+                isFocusable = false
+            }
+            return Holder(root, ImageView(c), TextView(c))
+        }
+        override fun onBindViewHolder(holder: Holder, position: Int) {
+            holder.root.alpha = 0.5f
+            holder.root.animate().cancel()
+            holder.root.animate().alpha(1f).setStartDelay((position * 90L) % 500).setDuration(700).withEndAction {
+                holder.root.animate().alpha(0.5f).setDuration(700).withEndAction { if (holder.root.isAttachedToWindow) onBindViewHolder(holder, position) }.start()
+            }.start()
+        }
+        override fun onViewRecycled(holder: Holder) { holder.root.animate().cancel() }
+    }
+
     /** The last card of a row: "See More". */
     private fun seeMoreCard(parent: ViewGroup): Holder {
         val c = parent.context
@@ -1844,18 +1867,9 @@ class WatchActivity : AppCompatActivity() {
     private fun bindApp(h: Holder, app: AppEntry) {
         h.label.text = app.label
         h.root.contentDescription = "Open ${app.label}"
-        val banner = try {
-            packageManager.getApplicationBanner(app.packageName) ?: app.launchIntent?.let { packageManager.getActivityBanner(it) }
-        } catch (e: PackageManager.NameNotFoundException) { null }
-        if (banner != null) {
-            h.image.scaleType = ImageView.ScaleType.CENTER_CROP
-            h.image.setImageDrawable(banner)
-        } else {
-            h.image.scaleType = ImageView.ScaleType.FIT_CENTER
-            val pad = dp(this, 22f)
-            h.image.setPadding(pad, pad, pad, pad)
-            h.image.setImageBitmap(TileRenderer.forApp(app, dp(this, 48f)))
-        }
+        h.image.scaleType = ImageView.ScaleType.CENTER_CROP
+        h.image.setPadding(0, 0, 0, 0)
+        h.image.setImageBitmap(AppTiles.forApp(this, app, dp(this, 200f), dp(this, 120f)))
     }
 
     private fun focusEffect(v: View, onFocus: () -> Unit) {

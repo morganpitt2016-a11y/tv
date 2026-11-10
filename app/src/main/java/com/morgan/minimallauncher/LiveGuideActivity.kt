@@ -215,6 +215,8 @@ class LiveGuideActivity : Activity() {
         }
     }
 
+    private val HD = Regex("(?i)\\b(uhd|fhd|hd|4k)\\b")
+
     private fun selectCategory(id: String, focusGrid: Boolean) {
         if (id == current) { if (focusGrid) (if (id == "_rec") recList.getChildAt(0) else epg)?.requestFocus(); return }
         current = id
@@ -230,7 +232,7 @@ class LiveGuideActivity : Activity() {
                         val pool = java.util.concurrent.Executors.newFixedThreadPool(4)
                         val parts = allUk.map { gid -> pool.submit<List<Xtream.Live>> { try { Xtream.liveInCategory(app, gid) } catch (e: Exception) { emptyList() } } }
                         val merged = parts.flatMap { it.get() }; pool.shutdown()
-                        Xtream.best(merged).filter { Regex("(?i)\\b(uhd|fhd|hd|4k)\\b").containsMatchIn(it.name) }
+                        Xtream.best(merged).filter { HD.containsMatchIn(it.name) }
                     }
                     "_all" -> {
                         val pool = java.util.concurrent.Executors.newFixedThreadPool(4)

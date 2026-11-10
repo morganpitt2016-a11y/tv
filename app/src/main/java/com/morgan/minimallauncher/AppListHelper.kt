@@ -63,7 +63,7 @@ object AppListHelper {
                 AppEntry(
                     label = it.loadLabel(pm).toString(),
                     packageName = it.activityInfo.packageName,
-                    icon = hiResIcon(pm, it),
+                    iconLoader = { hiResIcon(pm, it) },
                     launchIntent = pm.getLeanbackLaunchIntentForPackage(it.activityInfo.packageName)
                         ?: pm.getLaunchIntentForPackage(it.activityInfo.packageName)
                 )
