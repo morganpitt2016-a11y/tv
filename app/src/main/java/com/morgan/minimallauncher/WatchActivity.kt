@@ -114,6 +114,8 @@ class WatchActivity : AppCompatActivity() {
         heroA = heroImage(); heroB = heroImage()
         heroLayer.addView(heroA, FrameLayout.LayoutParams(-1, -1))
         heroLayer.addView(heroB, FrameLayout.LayoutParams(-1, -1))
+        trailerHost = FrameLayout(c).apply { alpha = 0f }
+        heroLayer.addView(trailerHost, FrameLayout.LayoutParams(-1, -1))
         root.addView(heroLayer, FrameLayout.LayoutParams(-1, -1))
         root.addView(View(c).apply {
             background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(0xF2000000.toInt(), 0xA6000000.toInt(), 0x26000000, 0x00000000))
@@ -230,8 +232,15 @@ class WatchActivity : AppCompatActivity() {
         return super.dispatchKeyEvent(event)
     }
 
+    override fun onDestroy() {
+        try { trailerView?.destroy() } catch (e: Exception) {}
+        trailerView = null
+        super.onDestroy()
+    }
+
     override fun onPause() {
         super.onPause()
+        stopTrailer()
         handler.removeCallbacks(rotateFeatured)
     }
 
@@ -1493,12 +1502,65 @@ class WatchActivity : AppCompatActivity() {
             if (tab == "home" && detail == null && featured.isNotEmpty() && rowOf(currentFocus ?: nav) == null) {
                 featuredIndex = (featuredIndex + 1) % featured.size
                 showTitleHero(featured[featuredIndex], now = true)
+                queueTrailer(null)
             }
             handler.postDelayed(this, FEATURE_MS)
         }
     }
 
+    // ---------- Trailers behind the hero (Netflix-style) ----------
+
+    private lateinit var trailerHost: FrameLayout
+    private var trailerView: android.webkit.WebView? = null
+    private var trailerFor: String? = null
+    private val trailerJob = Runnable { startTrailer() }
+    private var trailerTitle: WatchCatalog.Title? = null
+
+    /** Rest on a title for 3 seconds and its trailer plays quietly behind the details. */
+    private fun queueTrailer(t: WatchCatalog.Title?) {
+        handler.removeCallbacks(trailerJob)
+        if (t?.id != trailerFor) stopTrailer()
+        trailerTitle = t
+        if (t != null && Prefs.bool(this, "hero_trailers", true) && !Kids.isOn(this)) handler.postDelayed(trailerJob, 3000)
+    }
+
+    private fun startTrailer() {
+        val t = trailerTitle ?: return
+        if (detail != null || isFinishing || t.id.startsWith("dodgy:")) return
+        WatchCatalog.detail(this, t) { d ->
+            val id = d?.trailer ?: return@detail
+            if (trailerTitle?.id != t.id || detail != null || isFinishing) return@detail
+            trailerFor = t.id
+            val w = trailerView ?: android.webkit.WebView(this).apply {
+                isFocusable = false; isFocusableInTouchMode = false
+                setBackgroundColor(0xFF000000.toInt())
+                settings.javaScriptEnabled = true
+                settings.mediaPlaybackRequiresUserGesture = false
+                settings.domStorageEnabled = true
+                trailerView = this
+                trailerHost.addView(this, FrameLayout.LayoutParams(-1, -1))
+            }
+            val html = """<html><body style="margin:0;background:#000;overflow:hidden">
+                <iframe width="100%" height="100%" frameborder="0" allow="autoplay; encrypted-media"
+                src="https://www.youtube-nocookie.com/embed/$id?autoplay=1&mute=1&controls=0&rel=0&iv_load_policy=3&modestbranding=1&disablekb=1&fs=0&playsinline=1&start=8&loop=1&playlist=$id"></iframe>
+                </body></html>"""
+            w.loadDataWithBaseURL("https://www.youtube-nocookie.com", html, "text/html", "utf-8", null)
+            // Fade in once the video has had a moment to start, so there's no black flash.
+            trailerHost.animate().cancel()
+            trailerHost.animate().alpha(1f).setStartDelay(1800).setDuration(900).start()
+        }
+    }
+
+    private fun stopTrailer() {
+        handler.removeCallbacks(trailerJob)
+        trailerFor = null
+        if (!::trailerHost.isInitialized) return
+        trailerHost.animate().cancel()
+        trailerHost.animate().alpha(0f).setStartDelay(0).setDuration(250).withEndAction { trailerView?.loadUrl("about:blank") }.start()
+    }
+
     private fun showTitleHero(t: WatchCatalog.Title, now: Boolean = false) = setHero(now) {
+        queueTrailer(t)
         val on = t.offers.filter { it.provider.installed != null }.map { it.provider.displayName }.distinct()
         eyebrow.text = listOfNotNull(on.firstOrNull()?.uppercase(), if (t.type == "SHOW") "SERIES" else "FILM").joinToString("  ·  ")
         heroTitle.text = t.name
@@ -1513,6 +1575,7 @@ class WatchActivity : AppCompatActivity() {
     }
 
     private fun showProgrammeHero(ch: LiveGuide.Channel, p: LiveGuide.Programme) = setHero(false) {
+        queueTrailer(null)
         eyebrow.text = (if (p.isOn()) "ON NOW  ·  " else "LATER  ·  ") + ch.name.uppercase()
         heroTitle.text = p.title
         heroMeta.text = listOf(timeRange(p), p.episode).filter { it.isNotBlank() }.joinToString("  ·  ")
@@ -1522,6 +1585,7 @@ class WatchActivity : AppCompatActivity() {
     }
 
     private fun showPlainHero(top: String, title: String, text: String) = setHero(true) {
+        queueTrailer(null)
         eyebrow.text = top
         heroTitle.text = title
         heroMeta.text = ""
