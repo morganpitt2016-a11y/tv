@@ -145,7 +145,7 @@ class WatchActivity : AppCompatActivity() {
 
         // Tabs.
         nav = LinearLayout(c).apply { gravity = Gravity.CENTER_VERTICAL }
-        for ((id, label) in listOf("home" to "Home", "films" to "Films", "shows" to "Shows", "live" to "Live TV", "sport" to "Sport", "list" to "My List", "search" to "Search")) {
+        for ((id, label) in listOf("home" to "Home", "tonight" to "Tonight", "films" to "Films", "shows" to "Shows", "live" to "Live TV", "sport" to "Sport", "list" to "My List", "search" to "Search")) {
             nav.addView(tabButton(id, label), LinearLayout.LayoutParams(-2, dp(c, 30f)).apply { marginEnd = dp(c, 4f) })
         }
         root.addView(nav, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(c, 22f) })
@@ -318,6 +318,7 @@ class WatchActivity : AppCompatActivity() {
             "live" -> buildLive(token)
             "list" -> buildList()
             "sport" -> buildSport(token)
+            "tonight" -> buildTonight(token)
             "search" -> lastSearch?.let { search(it) }
         }
         refreshResumeRow()
@@ -1056,6 +1057,84 @@ class WatchActivity : AppCompatActivity() {
             focusEffect(h.root) { showPlainHero("RECORDING", rec.title, rec.channel) }
         }
         return r.view
+    }
+
+    // ---------- Tonight ----------
+
+    private val BIG_CHANNELS = listOf("bbc one", "bbc two", "itv1", "channel 4", "5", "sky showcase", "sky max", "sky atlantic", "sky cinema premiere",
+        "sky cinema hits", "film4", "e4", "more4", "dave", "itv2", "bbc three", "bbc four", "sky sports main event", "sky sports premier league", "tnt sports 1")
+    private val NOT_FILM = Regex("(?i)\\b(news|weather|live|football|darts|snooker|racing|rugby|cricket|golf|boxing|f1|grand prix|teleshopping|programmes resume|close)\\b")
+    private val SPORT = Regex("(?i)(\\bv\\b|\\bvs\\b|live:|premier league|champions league|football|darts|boxing|grand prix|rugby|snooker|cricket|golf)")
+
+    private fun buildTonight(token: Int) {
+        showPlainHero("TONIGHT", "What’s On Tonight", "The best of tonight’s TV, the newest films on Dodgy Box, and your new episodes - all in one place.")
+        val host = rows
+        val loading = GlassUi.text(this, "Finding tonight’s best…", 13f, R.font.inter_medium, 0x99FFFFFF.toInt())
+        host.addView(loading, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(this@WatchActivity, 56f); topMargin = dp(this@WatchActivity, 14f) })
+        val app = applicationContext
+        LiveGuide.load(this) { guide ->
+            Thread {
+                val now = System.currentTimeMillis()
+                val cal = java.util.Calendar.getInstance()
+                cal.set(java.util.Calendar.HOUR_OF_DAY, 18); cal.set(java.util.Calendar.MINUTE, 0)
+                val from = maxOf(now - 20 * 60_000L, cal.timeInMillis)
+                cal.add(java.util.Calendar.DAY_OF_YEAR, 1); cal.set(java.util.Calendar.HOUR_OF_DAY, 1)
+                val to = cal.timeInMillis
+                val all = guide.orEmpty().flatMap { ch -> ch.programmes.filter { it.stop > from && it.start < to }.map { ch to it } }
+                fun big(ch: LiveGuide.Channel) = TextMatch.normalise(ch.name).let { n -> BIG_CHANNELS.any { TextMatch.matches(n, it) } }
+                val films = all.filter { (ch, p) -> p.stop - p.start >= 85 * 60_000L && !NOT_FILM.containsMatchIn(p.title) &&
+                        (p.start >= from - 30 * 60_000L) && (big(ch) || ch.name.contains("film", true) || ch.name.contains("cinema", true) || ch.name.contains("movie", true)) }
+                    .distinctBy { it.second.title.lowercase() }.sortedBy { it.second.start }.take(30)
+                val sport = all.filter { (_, p) -> SPORT.containsMatchIn(p.title) && p.stop - p.start >= 60 * 60_000L }
+                    .distinctBy { it.second.title.lowercase() }.sortedBy { it.second.start }.take(20)
+                val picks = all.filter { (ch, p) -> big(ch) && p.start in (from - 5 * 60_000L)..(to - 2 * 3_600_000L) && !NOT_FILM.containsMatchIn(p.title) &&
+                        p.stop - p.start in 25 * 60_000L..85 * 60_000L }
+                    .distinctBy { it.second.title.lowercase() }.sortedBy { it.second.start }.take(30)
+                val newFilms = if (Xtream.isSetUp(app) && !Xtream.isExpired(app)) try { kidsFilms(Xtream.newestFilms(app, 30)) } catch (e: Exception) { emptyList() } else emptyList()
+                runOnUiThread {
+                    if (containerToken[host] != token || isDestroyed) return@runOnUiThread
+                    host.removeView(loading)
+                    fun progRow(key: String, title: String, list: List<Pair<LiveGuide.Channel, LiveGuide.Programme>>) {
+                        if (list.isEmpty()) return
+                        val r = row(key, title, height = 150f)
+                        r.list.adapter = CardAdapter(list, { p -> wideCard(p) }) { h, (ch, p) -> bindProgramme(h, ch, p); h.root.setOnClickListener { tonightOpen(ch, p) } }
+                        host.addView(r.view)
+                    }
+                    progRow("tn_films", "Films on TV Tonight", films)
+                    progRow("tn_picks", "Tonight’s Best on the Main Channels", picks)
+                    progRow("tn_sport", "Sport Tonight", sport)
+                    if (newFilms.isNotEmpty()) host.addView(libRow("tn_new", "Just Added to Dodgy Box", newFilms) { h, v -> bindVod(h, v) }.view)
+                    if (films.isEmpty() && picks.isEmpty() && sport.isEmpty() && newFilms.isEmpty())
+                        host.addView(GlassUi.text(this, "The TV guide hasn’t loaded yet - try again in a moment.", 13f, R.font.inter_medium, 0x99FFFFFF.toInt()),
+                            LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(this@WatchActivity, 56f); topMargin = dp(this@WatchActivity, 14f) })
+                    refreshResumeRow()
+                    rows.post { firstItem()?.requestFocus() }
+                }
+            }.start()
+        }
+    }
+
+    /** On now: watch it here. Later: a reminder (or the usual options). */
+    private fun tonightOpen(ch: LiveGuide.Channel, p: LiveGuide.Programme) {
+        if (!Xtream.isSetUp(this)) { playOrAsk(ch, p); return }
+        val app = applicationContext
+        Thread {
+            val live = Sport.liveFor(app, ch)
+            runOnUiThread {
+                if (isDestroyed) return@runOnUiThread
+                when {
+                    live == null -> programmeDialog(ch, p)
+                    p.isOn() -> playLive(live)
+                    else -> GlassDialog(this).title(p.title).message("${ch.name}  ·  ${timeRange(p)}" + if (p.desc.isNotBlank()) "\n\n" + p.desc.take(260) else "")
+                        .button(if (Reminders.has(this, live.id, p.start)) "Reminder Set ✓" else "Remind Me", GlassDialog.Style.BOLD) {
+                            Reminders.add(this, Reminders.Item(live.id, live.name, live.category, p.title, p.start))
+                            GlassUi.toast(this, "We’ll remind you when ${p.title} starts")
+                        }
+                        .button("Watch ${ch.name} Now") { playLive(live) }
+                        .button("Cancel").show()
+                }
+            }
+        }.start()
     }
 
     // ---------- Sport ----------
@@ -1875,7 +1954,7 @@ class WatchActivity : AppCompatActivity() {
     /** The row at the top of Home, Films, Shows and Live TV: click to carry on where you left off. */
     private fun refreshResumeRow() {
         findRow("resume")?.let { rows.removeView(it) }
-        if (tab !in listOf("home", "films", "shows", "live")) return
+        if (tab !in listOf("home", "tonight", "films", "shows", "live")) return
         val items = ResumeStore.forTab(this, tab)
         if (items.isEmpty()) return
         val r = row("resume", if (tab == "live") "Recently Watched" else "Continue Watching", height = 150f)
