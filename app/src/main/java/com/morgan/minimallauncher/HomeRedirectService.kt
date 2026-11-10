@@ -220,6 +220,7 @@ class HomeRedirectService : AccessibilityService() {
             try { Sync.tick(this@HomeRedirectService) } catch (_: Exception) {}
             try { freshen() } catch (_: Exception) {}
             try { Fleet.checkin(this@HomeRedirectService) } catch (_: Exception) {}
+            try { Sport.tick(this@HomeRedirectService) { line, goal -> showScore(line, goal) } } catch (_: Exception) {}
             mainHandler.postDelayed(this, 30_000)
         }
     }
@@ -232,6 +233,36 @@ class HomeRedirectService : AccessibilityService() {
         lastFreshen = now
         WatchCatalog.refreshHome(this)
         Thread { try { Xtream.vod(this); Xtream.series(this); NewEpisodes.check(this) } catch (_: Exception) {} }.start()
+    }
+
+    // ---------- Live score in the corner ----------
+
+    private var scoreView: android.widget.TextView? = null
+
+    fun showScore(line: String?, goal: Boolean) {
+        val wm = getSystemService(WINDOW_SERVICE) as WindowManager
+        if (line == null) {
+            scoreView?.let { v -> v.animate().alpha(0f).setDuration(400).withEndAction { try { wm.removeView(v) } catch (_: Exception) {} }.start() }
+            scoreView = null
+            return
+        }
+        val v = scoreView ?: GlassUi.text(this, "", 15f, R.font.inter_semibold).apply {
+            background = GlassUi.panel(context, 14f, 0x50).let { android.graphics.drawable.LayerDrawable(arrayOf(
+                android.graphics.drawable.GradientDrawable().apply { cornerRadius = GlassUi.dp(context, 14f).toFloat(); setColor(0xCC111114.toInt()) }, it)) }
+            setPadding(GlassUi.dp(context, 16f), GlassUi.dp(context, 9f), GlassUi.dp(context, 16f), GlassUi.dp(context, 9f))
+            alpha = 0f
+            val params = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+                PixelFormat.TRANSLUCENT
+            ).apply { gravity = Gravity.TOP or Gravity.END; x = GlassUi.dp(context, 28f); y = GlassUi.dp(context, 22f) }
+            try { wm.addView(this, params); scoreView = this } catch (e: Exception) { return }
+        }
+        v.text = if (goal) "⚽  GOAL  ·  $line" else line
+        v.animate().alpha(1f).setDuration(400).start()
+        if (goal) { v.scaleX = 1.15f; v.scaleY = 1.15f; v.animate().scaleX(1f).scaleY(1f).setDuration(900).start()
+            mainHandler.postDelayed({ scoreView?.text = line }, 12_000) }
     }
 
     // ---------- Night mode across the whole screen ----------
