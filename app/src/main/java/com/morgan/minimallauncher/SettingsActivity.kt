@@ -72,6 +72,9 @@ class SettingsActivity : AppCompatActivity() {
                 startActivity(Intent(this, WhoActivity::class.java).putExtra(WhoActivity.EXTRA_MODE, WhoActivity.ACCOUNTS))
             }
             vrow("Profile Style", { "" }, chevron = true) { startActivity(Intent(this, ProfileStyleActivity::class.java)) }
+            vrow("Remote Mic Button", { if (Prefs.bool(this, "voice_launcher", true)) "Launcher Voice" else "Google Assistant" }) {
+                Prefs.setBool(this, "voice_launcher", !Prefs.bool(this, "voice_launcher", true)); refreshValues()
+            }
             vrow("Who’s Watching at Start", { if (Prefs.bool(this, "who_at_start", true)) "On" else "Off" }) {
                 Prefs.setBool(this, "who_at_start", !Prefs.bool(this, "who_at_start", true)); refreshValues()
             }

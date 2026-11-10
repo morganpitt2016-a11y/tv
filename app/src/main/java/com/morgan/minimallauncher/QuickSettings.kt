@@ -184,7 +184,7 @@ class QuickSettings(private val activity: AppCompatActivity, private val host: H
         // ---- Round shortcuts ----
         val buttons = LinearLayout(c).apply { gravity = Gravity.CENTER }
         val shortcuts = listOf(
-            Triple(R.drawable.ic_lucide_search, "Search") { search() },
+            Triple(R.drawable.ic_lucide_search, "Voice") { dialog.dismiss(); activity.startActivity(Intent(c, VoiceActivity::class.java)) },
             Triple(R.drawable.ic_lucide_grid, "Apps") { open(Intent(c, AllAppsActivity::class.java), inApp = true) },
             Triple(R.drawable.ic_lucide_monitor, "Display & sound") { openSettings(Settings.ACTION_DISPLAY_SETTINGS) },
             Triple(R.drawable.ic_lucide_settings, "Launcher settings") { open(Intent(c, SettingsActivity::class.java), inApp = true) },

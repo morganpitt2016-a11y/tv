@@ -88,6 +88,14 @@ class HomeRedirectService : AccessibilityService() {
         if (event.deviceId == android.view.KeyCharacterMap.VIRTUAL_KEYBOARD) return false
         // Hold Home: the launcher's Control Centre (a quick press still goes Home).
         if (event.keyCode == android.view.KeyEvent.KEYCODE_HOME && !(TiviTuner.busy || TiviTuner.covering)) return homeKey(event)
+        // The remote's mic button: the launcher's own voice control (unless switched back to Google in Settings).
+        if (event.keyCode in listOf(android.view.KeyEvent.KEYCODE_SEARCH, android.view.KeyEvent.KEYCODE_ASSIST, android.view.KeyEvent.KEYCODE_VOICE_ASSIST) &&
+            Prefs.bool(this, "voice_launcher", true) && !(TiviTuner.busy || TiviTuner.covering)) {
+            if (event.action == android.view.KeyEvent.ACTION_UP) {
+                try { startActivity(Intent(this, VoiceActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (_: Exception) {}
+            }
+            return true
+        }
         // While a channel is being found, the remote is held back so a stray press can't
         // send TiviMate somewhere else. Back stops the search and returns to the guide.
         if (TiviTuner.busy || TiviTuner.covering) {

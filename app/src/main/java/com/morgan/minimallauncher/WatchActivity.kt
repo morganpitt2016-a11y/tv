@@ -195,7 +195,8 @@ class WatchActivity : AppCompatActivity() {
             handler.post {
                 if (!isDestroyed) {
                     heroWhere.text = ""
-                    showTab(intent.getStringExtra(EXTRA_TAB) ?: "home", focusContent = true)
+                    val q = intent.getStringExtra(EXTRA_QUERY)
+                    if (q != null) search(q) else showTab(intent.getStringExtra(EXTRA_TAB) ?: "home", focusContent = true)
                     handler.postDelayed({ if (!isDestroyed) prefetch() }, 2500)
                 }
             }
@@ -205,6 +206,7 @@ class WatchActivity : AppCompatActivity() {
     /** Back from TiviMate brings this screen back: keep where you were, or open the asked-for tab. */
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        intent.getStringExtra(EXTRA_QUERY)?.let { if (providers.isNotEmpty()) { search(it); return } }
         val wanted = intent.getStringExtra(EXTRA_TAB) ?: return
         if (wanted != tab && providers.isNotEmpty()) showTab(wanted, focusContent = true)
     }
@@ -2076,5 +2078,6 @@ class WatchActivity : AppCompatActivity() {
     companion object {
         private const val FEATURE_MS = 8000L
         const val EXTRA_TAB = "tab"
+        const val EXTRA_QUERY = "query"
     }
 }
