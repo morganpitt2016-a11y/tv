@@ -255,7 +255,7 @@ object Xtream {
                 }
             } catch (e: Exception) { bin.delete(); null }
             if (!items.isNullOrEmpty()) {
-                if (System.currentTimeMillis() - bin.lastModified() > 12 * 3600_000L) {
+                if (System.currentTimeMillis() - bin.lastModified() > 2 * 3600_000L) {
                     bin.setLastModified(System.currentTimeMillis())      // one refresh at a time
                     Thread { try { write(listJson(c, action, extra, cacheName, parse, force = true)) } catch (e: Exception) {} }.start()
                 }
@@ -267,7 +267,7 @@ object Xtream {
 
     private fun <T> listJson(c: Context, action: String, extra: String, cacheName: String, parse: (JsonReader) -> T?, force: Boolean): List<T> {
         val f = File(dir(c), "$cacheName.json")
-        if (force || !f.exists() || System.currentTimeMillis() - f.lastModified() > 12 * 3600_000L) {
+        if (force || !f.exists() || System.currentTimeMillis() - f.lastModified() > 2 * 3600_000L) {
             val tmp = File(dir(c), "$cacheName.tmp")
             gated {
                 val conn = URL(api(c, action, extra)).openConnection() as HttpURLConnection

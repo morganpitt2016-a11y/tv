@@ -182,15 +182,54 @@ object WatchCatalog {
         val vars = JSONObject().put("country", country()).put("language", "en").put("first", first)
             .put("filter", filter).put("sortBy", sort)
         val key = "t_" + (vars.toString().hashCode().toLong() and 0xffffffffL)
-        // Already loaded this session: show it instantly.
-        memory[key]?.let { (at, list) -> if (System.currentTimeMillis() - at < 3 * 3600_000L) { done(list); return } }
+        val fresh = if (search != null) 30 * 60_000L else FRESH_MS
+        // Already loaded recently: show it instantly.
+        memory[key]?.let { (at, list) -> if (System.currentTimeMillis() - at < fresh) { done(list); return } }
         pool.execute {
+            // Whatever is saved shows straight away; if it's getting old, a fresh copy follows quietly.
+            val saved = cachedIfAny(app, key)
+            val stale = saved == null || System.currentTimeMillis() - saved.second > fresh
+            var shown: List<Title>? = null
+            if (saved != null) {
+                shown = try { parse(app, saved.first) } catch (e: Exception) { null }
+                shown?.let { l -> if (!stale) memory[key] = System.currentTimeMillis() to l; main.post { done(l) } }
+            }
+            if (!stale && shown != null) return@execute
             val result = try {
-                val json = cached(app, key, if (search != null) 30 * 60_000L else 6 * 3600_000L) { post(TITLE_QUERY, vars) }
+                val json = cached(app, key, 0L) { post(TITLE_QUERY, vars) }
                 parse(app, json).also { memory[key] = System.currentTimeMillis() to it }
             } catch (e: Exception) { null }
+            if (result == null && shown != null) return@execute                              // offline: what's shown stands
+            if (shown != null && result != null && result.map { it.id } == shown.map { it.id }) return@execute   // nothing new
             main.post { done(result) }
         }
+    }
+
+    /** How old a row can be before it's refreshed (an hour: new releases show within the hour). */
+    const val FRESH_MS = 60 * 60_000L
+
+    /** The home rows, fetched again in the background so Watch is up to date the moment it opens. */
+    fun refreshHome(c: Context) {
+        val app = c.applicationContext
+        pool.execute {
+            try {
+                val providers = featuredProviders(app)
+                val mine = providers.filter { it.installed != null }.ifEmpty { providers }.map { it.short }
+                val quiet: (List<Title>?) -> Unit = {}
+                titles(app, sort = "TRENDING", packages = mine, first = 10, done = quiet)
+                for (p in providers) titles(app, packages = listOf(p.short), done = quiet)
+                for (type in listOf("MOVIE", "SHOW")) {
+                    titles(app, sort = "TRENDING", packages = mine, types = listOf(type), first = 60, done = quiet)
+                    titles(app, packages = mine, types = listOf(type), first = 60, done = quiet)
+                }
+            } catch (e: Exception) {}
+        }
+    }
+
+    private fun cachedIfAny(c: Context, key: String): Pair<JSONObject, Long>? {
+        val f = File(File(c.cacheDir, "watch"), "$key.json")
+        if (!f.exists()) return null
+        return try { JSONObject(f.readText()) to f.lastModified() } catch (e: Exception) { null }
     }
 
     private val PAGE_QUERY = """

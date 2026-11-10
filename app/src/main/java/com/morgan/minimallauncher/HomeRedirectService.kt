@@ -218,8 +218,19 @@ class HomeRedirectService : AccessibilityService() {
             try { Reminders.tick(this@HomeRedirectService) } catch (_: Exception) {}
             try { Health.nightly(this@HomeRedirectService) } catch (_: Exception) {}
             try { Sync.tick(this@HomeRedirectService) } catch (_: Exception) {}
+            try { freshen() } catch (_: Exception) {}
             mainHandler.postDelayed(this, 30_000)
         }
+    }
+
+    private var lastFreshen = 0L
+    /** Once an hour (never while something is playing): new films and shows arrive before anyone opens Watch. */
+    private fun freshen() {
+        val now = System.currentTimeMillis()
+        if (now - lastFreshen < 60 * 60_000L || Updater.busy(this)) return
+        lastFreshen = now
+        WatchCatalog.refreshHome(this)
+        Thread { try { Xtream.vod(this); Xtream.series(this) } catch (_: Exception) {} }.start()
     }
 
     // ---------- Night mode across the whole screen ----------

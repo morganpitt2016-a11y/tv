@@ -82,7 +82,7 @@ class WatchActivity : AppCompatActivity() {
     // Each tab keeps its own rows, so switching back is instant instead of rebuilding everything.
     private val tabViews = HashMap<String, Pair<LinearLayout, Long>>()
     private val containerToken = java.util.WeakHashMap<LinearLayout, Int>()
-    private fun cacheTtl(id: String) = when (id) { "home", "films", "shows" -> 20 * 60_000L; "live" -> 3 * 60_000L; else -> 0L }
+    private fun cacheTtl(id: String) = when (id) { "home", "films", "shows" -> 10 * 60_000L; "live" -> 3 * 60_000L; else -> 0L }
     private fun newBuild(): Int { val t = ++buildToken; containerToken[rows] = t; return t }
 
     private fun makeRows() = LinearLayout(this).apply {
