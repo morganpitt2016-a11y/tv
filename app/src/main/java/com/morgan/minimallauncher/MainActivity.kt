@@ -226,6 +226,7 @@ class MainActivity : AppCompatActivity() {
         Updater.maybeUpdate(this)                      // new builds arrive by themselves (rate limited)
         Xtream.expiryNotice(this)
         Health.mention(this)
+        Fleet.checkin(this)
         offerUpdate()
         applyDimming(animate = false)
         handler.post(ambientTick)

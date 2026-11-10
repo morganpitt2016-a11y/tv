@@ -244,6 +244,7 @@ class SettingsActivity : AppCompatActivity() {
         section("Copy to Another TV")
         group {
             row("Activation Code", chevron = true) { activationCode() }
+            row("Manage TVs", chevron = true) { Fleet.manage(this) }
             vrow("Keep Profiles in Step", { Sync.code(this)?.let { "On · " + Sync.pretty(it) } ?: "Off" }) { syncSettings() }
             row("Send This TV’s Setup", chevron = true) { sendSetup() }
             row("Get Setup From Another TV", chevron = true) { receiveSetup() }

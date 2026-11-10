@@ -32,13 +32,18 @@ object Activation {
 
     /** Call at the top of a screen: shows the lock instead if this TV isn't activated. Returns true if it's locked. */
     fun guard(a: Activity): Boolean {
+        if (Fleet.isBlocked(a)) {
+            a.startActivity(Intent(a, BlockedActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP))
+            a.finish()
+            return true
+        }
         if (isActivated(a)) return false
         a.startActivity(Intent(a, ActivationActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP))
         a.finish()
         return true
     }
 
-    private fun hash(salt: String, code: String) =
+    fun hash(salt: String, code: String) =
         MessageDigest.getInstance("SHA-256").digest("tv-activation:$salt:${code.trim().uppercase()}".toByteArray()).joinToString("") { "%02x".format(it) }
 
     /** The salt, or null if no code has been set yet (call off the main thread). */
@@ -58,7 +63,7 @@ object Activation {
         return rpc("activation_set", JSONObject().put("p_salt", salt).put("p_hash", hash(salt, code))).trim() == "true"
     }
 
-    private fun rpc(fn: String, body: JSONObject): String {
+    fun rpc(fn: String, body: JSONObject): String {
         val conn = URL("$BASE/$fn").openConnection() as HttpURLConnection
         try {
             conn.requestMethod = "POST"; conn.connectTimeout = 15_000; conn.readTimeout = 20_000
