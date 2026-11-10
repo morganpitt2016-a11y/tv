@@ -38,6 +38,12 @@ class PlayerActivity : Activity() {
     private lateinit var numberView: android.widget.TextView
     private lateinit var nextView: android.widget.TextView
     private lateinit var skipView: android.widget.TextView
+    /** Live TV pause/rewind: the saved stream, and where in it the player started reading. */
+    private var ts: Timeshift? = null
+    private var tsStart = 0L
+    private var tsOffFor: String? = null
+    private lateinit var tsView: android.widget.TextView
+    private var okLong = false
     private var skipDismissed = false
     /** Sleep timer: when to stop (0 = off), or stop at the end of this episode. */
     private var sleepAt = 0L
@@ -122,6 +128,13 @@ class PlayerActivity : Activity() {
             visibility = View.GONE
         }
         root.addView(nextView, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, dp(this@PlayerActivity, 48f), dp(this@PlayerActivity, 56f)) })
+        // Live TV: paused / behind live.
+        tsView = GlassUi.text(this, "", 14f, R.font.inter_semibold).apply {
+            background = GlassUi.panel(context, 16f, 0x50)
+            setPadding(dp(context, 20f), dp(context, 11f), dp(context, 20f), dp(context, 11f))
+            visibility = View.GONE
+        }
+        root.addView(tsView, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = dp(this@PlayerActivity, 56f) })
         // "Skip Intro" (episodes): bottom-left, OK skips.
         skipView = GlassUi.text(this, "Skip Intro  ›", 15f, R.font.inter_semibold).apply {
             background = GlassUi.panel(context, 18f, 0x60)
@@ -183,6 +196,8 @@ class PlayerActivity : Activity() {
         val p = ExoPlayer.Builder(this).setLoadControl(load).setMediaSourceFactory(sources).build()
         p.addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
+                // Pause/rewind couldn't keep up with this channel: play it straight from the internet instead.
+                if (live && ts != null) { tsOffFor = url; ts?.stop(); ts = null; tsView.visibility = View.GONE; start(url, resume = false); return }
                 // Some providers only serve live TV one way: try the other before giving up.
                 val alt = altUrl
                 if (!triedAlt && alt != null) { triedAlt = true; url = alt; start(alt, resume = false); return }
@@ -204,6 +219,8 @@ class PlayerActivity : Activity() {
                 skippingIntro = false
             }
             override fun onPlaybackStateChanged(state: Int) {
+                // Live pause buffer filled up (or the stream ended): start a fresh one from live.
+                if (state == Player.STATE_ENDED && live && ts != null) { ts?.stop(); ts = null; tsStart = 0L; start(url, resume = false); return }
                 if (state == Player.STATE_ENDED && !live) {
                     Prefs.setInt(this@PlayerActivity, posKey(), 0)
                     if (sleepAfterEpisode) goToSleep()
@@ -217,7 +234,17 @@ class PlayerActivity : Activity() {
     private fun start(u: String, resume: Boolean) {
         val p = player ?: newPlayer().also { player = it; view.player = it }   // changing channel reuses the player
         p.stop()
-        p.setMediaItem(MediaItem.fromUri(u))
+        val useTs = live && tsOffFor != u && Prefs.bool(this, "timeshift_on", true) && u.substringBefore('?').endsWith(".ts")
+        if (useTs) {
+            if (ts?.url != u) { ts?.stop(); ts = Timeshift(applicationContext, u).also { it.start() }; tsStart = 0L }
+            val t = ts!!
+            val extractors = androidx.media3.extractor.DefaultExtractorsFactory()
+            p.setMediaSource(androidx.media3.exoplayer.source.ProgressiveMediaSource.Factory(t.factory(tsStart), extractors)
+                .createMediaSource(MediaItem.fromUri("timeshift://$liveId/$tsStart")))
+        } else {
+            if (live) { ts?.stop(); ts = null }
+            p.setMediaItem(MediaItem.fromUri(u))
+        }
         // Pick up the subtitle and audio language you chose last time for this title.
         val key = trackKey()
         val tl = Prefs.string(this, ProfileManager.scope(this, "trk_t_$key")); val al = Prefs.string(this, ProfileManager.scope(this, "trk_a_$key"))
@@ -281,6 +308,7 @@ class PlayerActivity : Activity() {
 
     override fun onStop() {
         super.onStop()
+        ts?.stop(); ts = null; tsStart = 0L
         watching = false
         handler.removeCallbacks(progressTick)
         saveProgress()
@@ -432,18 +460,26 @@ class PlayerActivity : Activity() {
                 k == KeyEvent.KEYCODE_DPAD_DOWN || k == KeyEvent.KEYCODE_CHANNEL_DOWN -> { zap(-1); return true }
                 k in KeyEvent.KEYCODE_0..KeyEvent.KEYCODE_9 -> { typeDigit(k - KeyEvent.KEYCODE_0); return true }
                 (k == KeyEvent.KEYCODE_DPAD_CENTER || k == KeyEvent.KEYCODE_ENTER) && numberBuf.isNotEmpty() -> { commitNumberNow(); return true }
+                ts != null && (k == KeyEvent.KEYCODE_DPAD_LEFT || k == KeyEvent.KEYCODE_MEDIA_REWIND) -> { tsJump(-30); return true }
+                ts != null && (k == KeyEvent.KEYCODE_DPAD_RIGHT || k == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD) -> { tsJump(30); return true }
+                ts != null && (k == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || k == KeyEvent.KEYCODE_MEDIA_PAUSE || k == KeyEvent.KEYCODE_MEDIA_PLAY) -> { tsTogglePause(); return true }
             }
         }
         if (event.action == KeyEvent.ACTION_DOWN && event.keyCode in listOf(KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_CAPTIONS, KeyEvent.KEYCODE_SETTINGS, KeyEvent.KEYCODE_INFO)) {
             options(); return true
         }
-        if (event.action == KeyEvent.ACTION_DOWN && event.keyCode in listOf(KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER) && live) {
-            banner.animate().cancel(); banner.alpha = 1f
-            optionsPill.visibility = View.VISIBLE; optionsPill.requestFocus()
-            handler.postDelayed({ if (!optionsPill.isFocused) optionsPill.visibility = View.GONE }, 6000)
-            handler.removeCallbacksAndMessages(null)
-            handler.postDelayed({ banner.animate().alpha(0f).setDuration(600).start() }, 3500)
-            return true
+        // Live: OK pauses / plays (with pause and rewind on); hold OK for subtitles, audio and picture.
+        if (live && !optionsPill.isFocused && event.keyCode in listOf(KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER)) {
+            if (event.action == KeyEvent.ACTION_DOWN) {
+                if (event.repeatCount == 0) okLong = false
+                else if (event.repeatCount == 1 || ts == null && event.repeatCount == 0) { okLong = true; showLiveOptions() }
+                return true
+            }
+            if (event.action == KeyEvent.ACTION_UP) {
+                if (!okLong) { if (ts != null) tsTogglePause() else showLiveOptions() }
+                okLong = false
+                return true
+            }
         }
         return super.dispatchKeyEvent(event)
     }
@@ -537,6 +573,68 @@ class PlayerActivity : Activity() {
         d.button("Back") { options() }
         d.show()
     }
+
+    // ---------- Live: pause and rewind ----------
+
+    private fun showLiveOptions() {
+        showBanner()
+        optionsPill.visibility = View.VISIBLE; optionsPill.requestFocus()
+        handler.postDelayed({ if (!optionsPill.isFocused) optionsPill.visibility = View.GONE }, 6000)
+    }
+
+    /** Where in the saved stream the picture is now. */
+    private fun tsPlayingByte(): Long {
+        val t = ts ?: return 0L
+        val p = player ?: return tsStart
+        return tsStart + p.currentPosition.coerceAtLeast(0) * t.bytesPerSecond / 1000L
+    }
+
+    private fun tsBehindSecs(): Long {
+        val t = ts ?: return 0L
+        return ((t.written - tsPlayingByte()) / t.bytesPerSecond).coerceAtLeast(0)
+    }
+
+    private fun tsRestartAt(byte: Long) {
+        val t = ts ?: return
+        tsStart = t.align(byte.coerceIn(0, t.liveEdge()))
+        val playing = player?.playWhenReady ?: true
+        start(url, resume = false)
+        player?.playWhenReady = playing
+    }
+
+    private fun tsJump(secs: Int) {
+        val t = ts ?: return
+        val target = tsPlayingByte() + secs * t.bytesPerSecond
+        when {
+            target >= t.liveEdge() -> { tsRestartAt(t.liveEdge()); player?.playWhenReady = true }
+            target <= 0 -> { tsRestartAt(0); GlassUi.toast(this, "That’s as far back as this channel goes") }
+            else -> tsRestartAt(target)
+        }
+        tsShowStatus()
+    }
+
+    private fun tsTogglePause() {
+        val p = player ?: return
+        p.playWhenReady = !p.playWhenReady
+        tsShowStatus()
+    }
+
+    private fun clock(s: Long) = if (s >= 3600) "%d:%02d:%02d".format(s / 3600, s / 60 % 60, s % 60) else "%d:%02d".format(s / 60, s % 60)
+
+    /** "Paused" / "2:10 behind live", with what the buttons do. */
+    private fun tsShowStatus() {
+        val paused = player?.playWhenReady == false
+        val behind = tsBehindSecs()
+        tsView.text = when {
+            paused -> "❚❚  Paused" + (if (behind > 5) "  ·  ${clock(behind)} behind live" else "") + "     OK play  ·  ◀ 30s  ·  ▶ 30s"
+            behind > 8 -> "${clock(behind)} behind live     ◀ 30s  ·  ▶ 30s  ·  keep pressing ▶ to catch up"
+            else -> "● LIVE     OK pause  ·  ◀ rewind 30s"
+        }
+        tsView.visibility = View.VISIBLE
+        handler.removeCallbacks(hideTs)
+        if (!paused) handler.postDelayed(hideTs, 4000)
+    }
+    private val hideTs = Runnable { if (player?.playWhenReady != false) tsView.visibility = View.GONE }
 
     // ---------- Skip intro ----------
 
