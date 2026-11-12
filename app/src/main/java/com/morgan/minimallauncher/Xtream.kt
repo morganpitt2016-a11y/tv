@@ -65,9 +65,13 @@ object Xtream {
         if (!isSetUp(activity)) return
         val app = activity.applicationContext
         val today = (System.currentTimeMillis() / 86_400_000L).toString()
-        if (Prefs.string(app, "xt_notice_day") == today) return
+        // Ask the provider again (it may have been renewed) - at most every 15 minutes; the reminder itself shows once a day.
+        val now = System.currentTimeMillis()
+        if (now - lastStatusCheck < 15 * 60_000L) return
+        lastStatusCheck = now
         Thread {
             try { check(app) } catch (e: Exception) { return@Thread }
+            if (Prefs.string(app, "xt_notice_day") == today) return@Thread
             val exp = Prefs.string(app, "xt_exp")?.toLongOrNull() ?: return@Thread
             val days = ((exp - System.currentTimeMillis()) / 86_400_000L).toInt()
             if (days <= 7) {
@@ -85,6 +89,19 @@ object Xtream {
     }
 
     // ---------- Subscription ended ----------
+
+    @Volatile private var lastStatusCheck = 0L
+
+    /** Shown as expired? Ask the provider now (renewals show straight away), then [done] on the main thread with the answer. */
+    fun recheckIfExpired(c: Context, done: (stillExpired: Boolean) -> Unit) {
+        if (!isExpired(c)) return
+        val app = c.applicationContext
+        Thread {
+            try { check(app) } catch (e: Exception) {}
+            val still = isExpired(app)
+            android.os.Handler(android.os.Looper.getMainLooper()).post { done(still) }
+        }.start()
+    }
 
     /** True once the subscription has run out (by its end date, or the provider saying so). */
     fun isExpired(c: Context): Boolean {
@@ -164,6 +181,10 @@ object Xtream {
         try {
             Net.get(api(c, action, extra), mapOf("User-Agent" to PLAYER_AGENT), timeoutMs = timeoutMs)
                 .also { if (!vpn) Prefs.setBool(c, "xt_needs_vpn", false) }          // works without one here
+                .also { r -> if (action != null && r.trimStart().startsWith("[") && r.length > 2 && isExpired(c)) {
+                    // The provider is handing out lists again, so it's been renewed: forget the old end date until the next check.
+                    Prefs.setString(c, "xt_status", "Active"); Prefs.setString(c, "xt_exp", null)
+                } }
         } catch (e: Exception) {
             if (!vpn && e.message.orEmpty().contains("HTTP 466")) Prefs.setBool(c, "xt_needs_vpn", true)   // turned away without it
             throw e

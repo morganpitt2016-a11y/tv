@@ -214,6 +214,8 @@ class WatchActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         Sync.tick(this)
+        // Marked expired? Check with Dodgy Box straight away - if it's been renewed, redraw without "Expired".
+        Xtream.recheckIfExpired(this) { still -> if (!still && !isDestroyed && providers.isNotEmpty()) { tabViews.clear(); showTab(tab, focusContent = false) } }
         handler.postDelayed(rotateFeatured, FEATURE_MS)
         Coach.resume(this, "watch") { coachTarget(it) }
         if (tab == "home" && rows.childCount > 0 && detail == null) { refreshPersonalRows(); refreshResumeRow() }
