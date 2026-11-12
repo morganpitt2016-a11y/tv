@@ -1142,53 +1142,57 @@ class WatchActivity : AppCompatActivity() {
     // ---------- Sport ----------
 
     private fun buildSport(token: Int) {
-        val team = Sport.team(this)
+        val follows = Sport.follows(this)
         val heads = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; clipChildren = false; clipToPadding = false; tag = "heads" }
         fun head(label: String, primary: Boolean = false, click: () -> Unit) =
             heads.addView(pillButton(label, primary, click), LinearLayout.LayoutParams(-2, dp(this, 38f)).apply { marginEnd = dp(this@WatchActivity, 12f) })
-        if (team == null) {
-            showPlainHero("SPORT", "Your Team", "Choose your team to see their fixtures, results, which of your channels each match is on, and the live score in the corner while you watch anything else.")
-            head("Choose Your Team", primary = true) { chooseTeam() }
+        if (follows.isEmpty()) {
+            showPlainHero("SPORT", "Follow Your Sport", "Follow any teams and sports - football, F1, rugby, NFL, NBA, golf, tennis, UFC. See what’s coming up, results, which of your channels it’s on, and live scores in the corner.")
+            head("Add a Team or Sport", primary = true) { addFollow() }
             rows.addView(heads, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(this@WatchActivity, 56f); topMargin = dp(this@WatchActivity, 8f) })
             return
         }
-        showPlainHero("SPORT", team.name, "Fixtures, results and where to watch.")
-        team.logo?.let { setHeroImage(null) }
-        head("Change Team") { chooseTeam() }
+        showPlainHero("SPORT", follows.joinToString(" · ") { it.short.ifBlank { it.name } }.take(80), "What’s on now, what’s coming up, and where to watch.")
+        head("Add") { addFollow() }
+        head("Following (${follows.size})") { manageFollows() }
         val overlayOn = Prefs.bool(this, "sport_overlay", true)
-        head(if (overlayOn) "Live Score in Corner: On" else "Live Score in Corner: Off") {
+        head(if (overlayOn) "Live Scores in Corner: On" else "Live Scores in Corner: Off") {
             Prefs.setBool(this, "sport_overlay", !overlayOn); showTab("sport", focusContent = false)
         }
         rows.addView(heads, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(this@WatchActivity, 56f); topMargin = dp(this@WatchActivity, 8f) })
-        val loading = GlassUi.text(this, "Loading ${team.short.ifBlank { team.name }}…", 13f, R.font.inter_medium, 0x99FFFFFF.toInt())
+        val loading = GlassUi.text(this, "Loading…", 13f, R.font.inter_medium, 0x99FFFFFF.toInt())
         rows.addView(loading, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(this@WatchActivity, 56f); topMargin = dp(this@WatchActivity, 14f) })
         val host = rows
-        val app = applicationContext
         LiveGuide.load(this) { guide ->
             Thread {
-                val live = try { Sport.liveMatch(team) } catch (e: Exception) { null }
-                val fixtures = try { Sport.fixtures(team).take(10) } catch (e: Exception) { null }
-                val results = try { Sport.results(team).take(10) } catch (e: Exception) { emptyList() }
+                val pool = java.util.concurrent.Executors.newFixedThreadPool(4)
+                val parts = follows.map { f -> pool.submit<List<Sport.Match>> { try { Sport.matches(f) } catch (e: Exception) { emptyList() } } }
+                val all = parts.flatMap { it.get() }.distinctBy { it.id }
+                pool.shutdown()
+                val now = System.currentTimeMillis()
+                val live = all.filter { it.live }.sortedBy { it.start }
+                val next = all.filter { !it.live && !it.finished && it.start > now - 3 * 3_600_000L }.sortedBy { it.start }.take(25)
+                val done = all.filter { it.finished }.sortedByDescending { it.start }.take(20)
                 val g = guide.orEmpty()
-                val channels = (listOfNotNull(live) + fixtures.orEmpty()).associate { m -> m.id to Sport.channelFor(m, g) }
+                val channels = (live + next.take(15)).associate { m -> m.id to Sport.channelFor(m, g) }
                 runOnUiThread {
                     if (containerToken[host] != token || isDestroyed) return@runOnUiThread
                     host.removeView(loading)
-                    if (fixtures == null) {
-                        host.addView(GlassUi.text(this, "Couldn’t load the fixtures - check the internet connection", 13f, R.font.inter_medium, 0x99FFFFFF.toInt()),
+                    if (all.isEmpty()) {
+                        host.addView(GlassUi.text(this, "Nothing to show yet - check the internet connection, or it may be the off-season.", 13f, R.font.inter_medium, 0x99FFFFFF.toInt()),
                             LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(this@WatchActivity, 56f); topMargin = dp(this@WatchActivity, 14f) })
                         return@runOnUiThread
                     }
                     fun matchRow(key: String, title: String, list: List<Sport.Match>) {
                         if (list.isEmpty()) return
                         val r = row(key, title, height = 150f)
-                        r.list.adapter = CardAdapter(list, { p -> wideCard(p) }) { h, m -> bindMatch(h, m, channels[m.id], team) }
+                        r.list.adapter = CardAdapter(list, { p -> wideCard(p) }) { h, m -> bindMatch(h, m, channels[m.id]) }
                         host.addView(r.view)
                     }
-                    matchRow("sp_live", "On Now", listOfNotNull(live))
-                    matchRow("sp_fix", "Fixtures", fixtures.filter { it.id != live?.id })
-                    matchRow("sp_res", "Results", results)
-                    if (live != null) showMatchHero(live, channels[live.id], team)
+                    matchRow("sp_live", "On Now", live)
+                    matchRow("sp_fix", "Coming Up", next)
+                    matchRow("sp_res", "Results", done)
+                    live.firstOrNull()?.let { showMatchHero(it, channels[it.id]) }
                 }
             }.start()
         }
@@ -1196,29 +1200,31 @@ class WatchActivity : AppCompatActivity() {
 
     private val matchDay = java.text.SimpleDateFormat("EEE d MMM  ·  h:mma", java.util.Locale.UK)
 
-    private fun bindMatch(h: Holder, m: Sport.Match, ch: LiveGuide.Channel?, team: Sport.Team) {
-        h.label.text = if (m.finished || m.live) m.scoreLine() else "${m.home} v ${m.away}"
-        h.sub?.text = when {
+    private fun bindMatch(h: Holder, m: Sport.Match, ch: LiveGuide.Channel?) {
+        val f = m.follow
+        h.label.text = (if ((m.finished || m.live) && m.teamGame) m.scoreLine() else m.title)
+        val whenText = matchDay.format(java.util.Date(m.start)).replace("AM", "am").replace("PM", "pm")
+        h.sub?.text = "${f.icon}  " + when {
             m.live -> "LIVE ${m.detail}" + (ch?.let { "  ·  ${it.name}" } ?: "")
-            m.finished -> matchDay.format(java.util.Date(m.start)).substringBefore("  ·") + "  ·  ${m.competition}".trimEnd(' ', '·')
-            else -> matchDay.format(java.util.Date(m.start)).replace("AM", "am").replace("PM", "pm") + "  ·  " + (ch?.name ?: "Not on your channels")
+            m.finished -> whenText.substringBefore("  ·") + (if (!m.teamGame && m.detail.isNotBlank()) "  ·  ${m.detail}" else "")
+            else -> whenText + "  ·  " + (ch?.name ?: "Not on your channels yet")
         }
         h.image.scaleType = ImageView.ScaleType.FIT_CENTER
         val pad = dp(this, 26f)
         h.image.setPadding(pad, pad / 2, pad, pad)
-        val opponentLogo = if (m.home == team.name) m.awayLogo else m.homeLogo
-        ImageLoader.load(h.image, opponentLogo ?: team.logo, ImageLoader.ICON)
+        val logo = if (m.teamGame) (if (f.isTeam && m.home == f.name) m.awayLogo else m.homeLogo) ?: f.logo else f.logo
+        if (logo != null) ImageLoader.load(h.image, logo, ImageLoader.ICON) else h.image.setImageDrawable(null)
         h.progress?.let { it.layoutParams.width = 0 }
         h.root.contentDescription = h.label.text
         h.root.setOnClickListener { openMatch(m, ch) }
-        focusEffect(h.root) { showMatchHero(m, ch, team) }
+        focusEffect(h.root) { showMatchHero(m, ch) }
     }
 
-    private fun showMatchHero(m: Sport.Match, ch: LiveGuide.Channel?, team: Sport.Team) = showPlainHero(
-        if (m.live) "LIVE  ·  ${m.detail}" else if (m.finished) "RESULT" else "FIXTURE",
-        if (m.finished || m.live) m.scoreLine() else "${m.home} v ${m.away}",
+    private fun showMatchHero(m: Sport.Match, ch: LiveGuide.Channel?) = showPlainHero(
+        (if (m.live) "LIVE  ·  ${m.detail}" else if (m.finished) "RESULT" else "COMING UP") + "  ·  " + m.follow.name.uppercase(),
+        if ((m.finished || m.live) && m.teamGame) m.scoreLine() else m.title,
         when {
-            m.finished -> m.competition
+            m.finished -> m.detail.ifBlank { m.competition }
             ch != null -> "On ${ch.name}" + if (m.live) " - press OK to watch" else " - press OK to be reminded"
             else -> "Not on your channels yet. It may appear on the guide closer to the day."
         })
@@ -1235,29 +1241,53 @@ class WatchActivity : AppCompatActivity() {
                 val soon = m.start - System.currentTimeMillis() < 20 * 60_000L
                 if (m.live || soon) playLive(live)
                 else {
-                    Reminders.add(this, Reminders.Item(live.id, live.name, live.category, "${m.home} v ${m.away}", m.start - 5 * 60_000L))
-                    GlassUi.toast(this, "We’ll remind you 5 minutes before kick-off (on ${live.name})")
+                    Reminders.add(this, Reminders.Item(live.id, live.name, live.category, m.title, m.start - 5 * 60_000L))
+                    GlassUi.toast(this, "We’ll remind you 5 minutes before it starts (on ${live.name})")
                 }
             }
         }.start()
     }
 
-    private fun chooseTeam() {
-        val d = GlassDialog(this).title("Which League?").scrolling()
-        for ((id, name) in Sport.LEAGUES) d.button(name) {
-            GlassUi.toast(this, "Loading teams…")
-            Thread {
-                val teams = try { Sport.teams(id) } catch (e: Exception) { null }
-                runOnUiThread {
-                    if (isDestroyed) return@runOnUiThread
-                    if (teams.isNullOrEmpty()) { GlassUi.toast(this, "Couldn’t load the teams - try again"); return@runOnUiThread }
-                    val t = GlassDialog(this).title(name).scrolling()
-                    for (team in teams) t.button(team.name) { Sport.setTeam(this, team); showTab("sport", focusContent = true) }
-                    t.button("Cancel").show()
+    /** Add a team, or a whole sport (F1, golf, tennis...). */
+    private fun addFollow() {
+        val d = GlassDialog(this).title("Which Sport?").scrolling()
+        for ((group, choices) in Sport.GROUPS) d.button(group) {
+            val c = GlassDialog(this).title(group).scrolling()
+            for (ch in choices) c.button("${ch.icon}  ${ch.name}") {
+                if (!ch.teams) {
+                    Sport.add(this, Sport.Follow(ch.path, null, ch.name, ch.name, "", null, ch.icon))
+                    GlassUi.toast(this, "Following ${ch.name}"); tabViews.remove("sport"); showTab("sport", focusContent = true)
+                    return@button
                 }
-            }.start()
+                GlassUi.toast(this, "Loading teams…")
+                Thread {
+                    val teams = try { Sport.teams(ch) } catch (e: Exception) { null }
+                    runOnUiThread {
+                        if (isDestroyed) return@runOnUiThread
+                        if (teams.isNullOrEmpty()) { GlassUi.toast(this, "Couldn’t load the teams - try again"); return@runOnUiThread }
+                        val t = GlassDialog(this).title(ch.name).scrolling()
+                        for (team in teams) t.button(team.name) {
+                            Sport.add(this, team); GlassUi.toast(this, "Following ${team.name}"); showTab("sport", focusContent = true)
+                        }
+                        t.button("Cancel").show()
+                    }
+                }.start()
+            }
+            c.button("Cancel").show()
         }
         d.button("Cancel").show()
+    }
+
+    private fun manageFollows() {
+        val list = Sport.follows(this)
+        val d = GlassDialog(this).title("Following").message("Choose one to stop following it.").scrolling()
+        for (f in list) d.button("${f.icon}  ${f.name}") {
+            GlassDialog(this).title(f.name).button("Stop Following", GlassDialog.Style.DESTRUCTIVE) {
+                Sport.remove(this, f); showTab("sport", focusContent = true)
+            }.button("Cancel").show()
+        }
+        d.button("Add a Team or Sport", GlassDialog.Style.BOLD) { addFollow() }
+        d.button("Done").show()
     }
 
     private fun buildList() {

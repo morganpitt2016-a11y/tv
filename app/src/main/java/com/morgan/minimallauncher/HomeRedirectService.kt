@@ -267,7 +267,7 @@ class HomeRedirectService : AccessibilityService() {
             ).apply { gravity = Gravity.TOP or Gravity.END; x = GlassUi.dp(context, 28f); y = GlassUi.dp(context, 22f) }
             try { wm.addView(this, params); scoreView = this } catch (e: Exception) { return }
         }
-        v.text = if (goal) "⚽  GOAL  ·  $line" else line
+        v.text = if (goal) "SCORE!\n$line" else line
         v.animate().alpha(1f).setDuration(400).start()
         if (goal) { v.scaleX = 1.15f; v.scaleY = 1.15f; v.animate().scaleX(1f).scaleY(1f).setDuration(900).start()
             mainHandler.postDelayed({ scoreView?.text = line }, 12_000) }
