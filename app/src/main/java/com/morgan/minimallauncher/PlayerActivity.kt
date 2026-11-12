@@ -45,6 +45,11 @@ class PlayerActivity : Activity() {
     private lateinit var tsView: android.widget.TextView
     private var okLong = false
     private var skipDismissed = false
+    /** When "Skip Intro" appeared (it goes away by itself after a few seconds, like Netflix). */
+    private var skipShownAt = 0L
+    private var hideControlsOnStart = true
+    /** A press we've already acted on: its key-up mustn't also pop up the controls. */
+    private var swallowOkUp = false
     /** Sleep timer: when to stop (0 = off), or stop at the end of this episode. */
     private var sleepAt = 0L
     private var sleepAfterEpisode = false
@@ -80,6 +85,7 @@ class PlayerActivity : Activity() {
         view = PlayerView(this).apply {
             useController = !live
             controllerShowTimeoutMs = 3500
+            controllerAutoShow = false          // the play/pause controls only appear when you ask for them
             setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
             keepScreenOn = true
         }
@@ -218,6 +224,10 @@ class PlayerActivity : Activity() {
                 }
                 skippingIntro = false
             }
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                // A new episode (or film) has started: clear any controls left over from the last one.
+                if (isPlaying && hideControlsOnStart) { hideControlsOnStart = false; view.hideController() }
+            }
             override fun onPlaybackStateChanged(state: Int) {
                 // Live pause buffer filled up (or the stream ended): start a fresh one from live.
                 if (state == Player.STATE_ENDED && live && ts != null) { ts?.stop(); ts = null; tsStart = 0L; start(url, resume = false); return }
@@ -289,9 +299,13 @@ class PlayerActivity : Activity() {
             if (p != null && !live && seriesTitle != null) {
                 val pos = p.currentPosition
                 val end = introEnd()
-                val show = !skipDismissed && pos in 8_000 until minOf(end - 3_000, 240_000L)
-                if (show && skipView.visibility != View.VISIBLE) skipView.visibility = View.VISIBLE
-                else if (!show && skipView.visibility == View.VISIBLE) skipView.visibility = View.GONE
+                val inIntro = pos in 8_000 until minOf(end - 3_000, 240_000L)
+                if (inIntro && !skipDismissed && skipShownAt == 0L) skipShownAt = System.currentTimeMillis()
+                // Ignored for 12 seconds: it goes away (and stays away for this episode).
+                if (skipShownAt > 0 && System.currentTimeMillis() - skipShownAt > 12_000L) skipDismissed = true
+                val show = inIntro && !skipDismissed
+                if (show && skipView.visibility != View.VISIBLE) { skipView.alpha = 0f; skipView.visibility = View.VISIBLE; skipView.animate().alpha(1f).setDuration(300).start() }
+                else if (!show && skipView.visibility == View.VISIBLE) skipView.animate().alpha(0f).setDuration(400).withEndAction { skipView.visibility = View.GONE }.start()
             }
             if (++ticks % 15 == 0) saveProgress()
             handler.postDelayed(this, 1000)
@@ -407,7 +421,9 @@ class PlayerActivity : Activity() {
     private fun playNext() {
         counting = false
         nextView.visibility = View.GONE
-        skipDismissed = false; skipView.visibility = View.GONE
+        skipDismissed = false; skipShownAt = 0L; skipView.visibility = View.GONE
+        hideControlsOnStart = true
+        view.hideController()
         val n = queue.removeFirstOrNull() ?: return finish()
         url = n.url
         bannerSub.text = "Season ${n.season}, Episode ${n.episode}"
@@ -423,6 +439,9 @@ class PlayerActivity : Activity() {
     private var nextDismissed = false
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (swallowOkUp && event.action == KeyEvent.ACTION_UP && (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER)) {
+            swallowOkUp = false; return true
+        }
         // Back: first clear the playback controls and pop-ups so the picture is clean; only then leave.
         if (event.keyCode == KeyEvent.KEYCODE_BACK && !counting) {
             val controls = !live && view.isControllerFullyVisible
@@ -444,15 +463,15 @@ class PlayerActivity : Activity() {
         }
         if (counting && event.action == KeyEvent.ACTION_DOWN) {
             when (event.keyCode) {
-                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> { handler.removeCallbacksAndMessages(null); playNext(); return true }
+                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> { handler.removeCallbacksAndMessages(null); swallowOkUp = true; playNext(); return true }
                 KeyEvent.KEYCODE_BACK -> { counting = false; finish(); return true }
             }
             return true
         }
         if (!live && skipView.visibility == View.VISIBLE && !view.isControllerFullyVisible && event.action == KeyEvent.ACTION_DOWN &&
-            (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER)) { skipIntro(); return true }
+            (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER)) { swallowOkUp = true; skipIntro(); return true }
         if (!live && !counting && queue.isNotEmpty() && nextView.visibility == View.VISIBLE && event.action == KeyEvent.ACTION_DOWN &&
-            (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER)) { playNext(); return true }
+            (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER)) { swallowOkUp = true; playNext(); return true }
         if (live && event.action == KeyEvent.ACTION_DOWN && !optionsPill.isFocused) {
             val k = event.keyCode
             when {
@@ -645,6 +664,7 @@ class PlayerActivity : Activity() {
 
     private fun skipIntro() {
         val p = player ?: return
+        view.hideController()
         skippingIntro = true
         val learned = Prefs.int(this, introKey(), 0)
         p.seekTo(if (learned > 0) learned * 1000L else maxOf(p.currentPosition + 60_000L, 80_000L))
