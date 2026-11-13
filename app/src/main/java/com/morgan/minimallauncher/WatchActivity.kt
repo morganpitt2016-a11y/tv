@@ -272,8 +272,88 @@ class WatchActivity : AppCompatActivity() {
             return true
         }
         if (event.action == KeyEvent.ACTION_DOWN) armSaver()
+        rail?.let {
+            if (event.action == KeyEvent.ACTION_DOWN && (event.keyCode == KeyEvent.KEYCODE_BACK || event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT)) {
+                val back = railReturn
+                closeRail()
+                (back?.takeIf { it.isAttachedToWindow } ?: firstItem())?.requestFocus()
+                return true
+            }
+            if (event.keyCode == KeyEvent.KEYCODE_BACK) return true
+        }
+        if ((tab == "films" || tab == "shows") && rail == null && detail == null && event.action == KeyEvent.ACTION_DOWN && event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
+            val f = currentFocus
+            val rv = f?.parent as? RecyclerView
+            if (f != null && rv != null && rowOf(f) != null && rv.getChildAdapterPosition(f) == 0) { openRail(); return true }
+        }
         if (Coach.onKey(this, event) { coachTarget(it) }) return true
         return super.dispatchKeyEvent(event)
+    }
+
+    // ---------- Categories rail down the left (Films / Shows), like Apple TV's sidebar ----------
+
+    private var rail: FrameLayout? = null
+    private var railReturn: View? = null
+
+    private fun railItems(): List<Pair<String, String>> =
+        listOf("trend" to "Trending", "new" to "New", "best" to "Best Rated", "pop" to "Everything") + railGenres.map { "g_${it.first}" to it.second }
+
+    /** Opens the rail; picking a category jumps to its row. */
+    private fun openRail() {
+        if (rail != null) return
+        railReturn = currentFocus
+        val c = this
+        val panel = FrameLayout(c).apply {
+            background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(0xF5101014.toInt(), 0xE6101014.toInt(), 0x00101014))
+            alpha = 0f; translationX = -dp(c, 40f).toFloat()
+        }
+        val list = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(c, 40f), dp(c, 70f), dp(c, 30f), dp(c, 40f)); clipChildren = false; clipToPadding = false }
+        list.addView(GlassUi.text(c, if (tab == "films") "Films" else "Shows", 22f, R.font.inter_semibold), LinearLayout.LayoutParams(-2, -2).apply { bottomMargin = dp(c, 12f); marginStart = dp(c, 14f) })
+        // The category whose row you're on is highlighted.
+        val here = rowOf(currentFocus ?: nav)?.tag as? String
+        var focusMe: View? = null
+        for ((key, label) in railItems()) {
+            val item = GlassUi.text(c, label, 15f, R.font.inter_semibold, 0xB3FFFFFF.toInt()).apply {
+                gravity = Gravity.CENTER_VERTICAL; setPadding(dp(c, 14f), 0, dp(c, 14f), 0)
+                isFocusable = true; isClickable = true
+                setOnFocusChangeListener { v, has ->
+                    v.background = if (has) GradientDrawable().apply { cornerRadius = dp(c, 10f).toFloat(); setColor(0xFFFFFFFF.toInt()) } else null
+                    (v as TextView).setTextColor(if (has) 0xFF000000.toInt() else if (key == here) 0xFFFFFFFF.toInt() else 0xB3FFFFFF.toInt())
+                    Motion.spring(v, if (has) 1.04f else 1f)
+                }
+                setOnClickListener { closeRail(); jumpToRow(key) }
+                if (key == here) setTextColor(0xFFFFFFFF.toInt())
+            }
+            list.addView(item, LinearLayout.LayoutParams(dp(c, 200f), dp(c, 34f)).apply { bottomMargin = dp(c, 2f) })
+            if (key == here) focusMe = item
+        }
+        val sv = ScrollView(c).apply { isVerticalScrollBarEnabled = false; overScrollMode = View.OVER_SCROLL_NEVER; clipChildren = false; clipToPadding = false; addView(list) }
+        panel.addView(sv, FrameLayout.LayoutParams(dp(c, 300f), -1))
+        root.addView(panel, FrameLayout.LayoutParams(dp(c, 340f), -1, Gravity.START))
+        rail = panel
+        panel.animate().alpha(1f).translationX(0f).setDuration(240).setInterpolator(Motion.focusEase).start()
+        (focusMe ?: list.getChildAt(1))?.let { f -> f.post { f.requestFocus() } }
+    }
+
+    private fun closeRail() {
+        val r = rail ?: return
+        rail = null
+        r.animate().alpha(0f).translationX(-dp(this, 40f).toFloat()).setDuration(180).withEndAction { root.removeView(r) }.start()
+    }
+
+    /** Scroll to a category's row and put the highlight on its first title (it loads if it hasn't yet). */
+    private fun jumpToRow(key: String) {
+        val r = findRow(key)
+        if (r == null) {
+            // Not on the page (e.g. empty): show that category's whole collection instead.
+            val g = key.removePrefix("g_")
+            val name = railGenres.firstOrNull { it.first == g }?.second ?: return
+            openCollection("$name ${if (tab == "films") "Films" else "Series"}", catalogue(shorts(), types = listOf(if (tab == "films") "MOVIE" else "SHOW"), genre = g))
+            return
+        }
+        setHeroCollapsed(true)
+        scroll.smoothScrollTo(0, r.top)
+        r.post { ((r as? ViewGroup)?.getFocusables(View.FOCUS_DOWN)?.firstOrNull() ?: r).requestFocus() }
     }
 
     // ---------- Screensaver of your shows (Apple's Top Shelf idea) ----------
@@ -640,6 +720,11 @@ class WatchActivity : AppCompatActivity() {
 
     // ---------- Films / Shows ----------
 
+    /** Every category, in the order shown down the side rail (Apple TV style). */
+    private val railGenres = listOf("act" to "Action", "cmy" to "Comedy", "drm" to "Drama", "trl" to "Thriller", "hrr" to "Horror", "scf" to "Sci-Fi",
+        "crm" to "Crime", "rma" to "Romance", "fnt" to "Fantasy", "ani" to "Animation", "fml" to "Family", "doc" to "Documentary",
+        "hst" to "History", "war" to "War", "wsn" to "Western", "msc" to "Music", "spt" to "Sport", "rly" to "Reality TV")
+
     private val genreList = listOf("act" to "Action", "cmy" to "Comedy", "drm" to "Drama", "trl" to "Thrillers", "crm" to "Crime",
         "scf" to "Sci-Fi", "fml" to "Family", "doc" to "Documentaries")
 
@@ -667,11 +752,9 @@ class WatchActivity : AppCompatActivity() {
         row("new", "New $what", emptyList(), "TRENDING") { newest(it) }
         row("best", "Best Rated $what", emptyList()) { best(it) }
         list += Triple<String, String, TitleLoader>("pop", "All $what") { d -> WatchCatalog.titles(this, packages = shorts(), types = listOf(type), first = 60, done = d) }
-        for ((g, name) in genreList) {
-            row("g_$g", name, listOf(g)) { it?.take(40) }
-            row("gb_$g", "Best $name", listOf(g)) { best(it) }
-            row("gn_$g", "New in $name", listOf(g), "TRENDING") { newest(it) }
-        }
+        for ((g, name) in railGenres) row("g_$g", name, listOf(g)) { it?.take(40) }
+        // A few extras for the big genres.
+        for ((g, name) in genreList.take(4)) row("gb_$g", "Best $name", listOf(g)) { best(it) }
         return list
     }
 
@@ -1021,7 +1104,7 @@ class WatchActivity : AppCompatActivity() {
 
     private fun buildCategory(token: Int, type: String) {
         val what = if (type == "MOVIE") "Films" else "Series"
-        val all = categoryLoads(type).take(8) + listOfNotNull(if (Xtream.isSetUp(this)) Triple("soon", "Not on Dodgy Box Yet · Remind Me", comingSoon(type)) else null)
+        val all = categoryLoads(type) + listOfNotNull(if (Xtream.isSetUp(this)) Triple("soon", "Not on Dodgy Box Yet · Remind Me", comingSoon(type)) else null)
         val host = rows
         fun add(from: Int, to: Int) {
             if (containerToken[host] != token || isDestroyed) return
@@ -2416,7 +2499,7 @@ class WatchActivity : AppCompatActivity() {
             // Each title once per page: a row only shows what earlier rows haven't (and goes if little is left).
             if (ranked) liked?.forEach { top10Ids.add(it.id) }
             val titles = if (liked == null || ranked || key == "results" || key == "loved" || key == "because" || key == "soon") liked
-                else liked.filter { it.id !in shownTitles }.let { fresh -> if (fresh.size >= 5 || liked.size < 5) fresh else emptyList() }
+                else liked.partition { it.id !in shownTitles }.let { (fresh, seen) -> if (fresh.size >= 12) fresh else fresh + seen.take(12 - fresh.size) }
             titles?.forEach { shownTitles.add(it.id) }
             when {
                 titles.isNullOrEmpty() && (quietFail || titles != null) -> host.removeView(r.view)
