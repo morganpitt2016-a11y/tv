@@ -253,8 +253,11 @@ object Sport {
         lastPoll = now
         Thread {
             val live = list.flatMap { f ->
-                try { events(JSONObject(Net.get("$ROOT/${f.path}/scoreboard", timeoutMs = 10_000))).mapNotNull { parseEvent(it, f) } } catch (e: Exception) { emptyList() }
-                    .filter { m -> m.live && (!f.isTeam || m.home == f.name || m.away == f.name) }
+                val today = day.format(java.util.Date())
+                val evs = (try { events(JSONObject(Net.get("$ROOT/${f.path}/scoreboard?dates=$today", timeoutMs = 10_000))) } catch (e: Exception) { emptyList() }) +
+                    (try { events(JSONObject(Net.get("$ROOT/${f.path}/scoreboard", timeoutMs = 10_000))) } catch (e: Exception) { emptyList() })
+                evs.distinctBy { it.optString("id") }.mapNotNull { parseEvent(it, f) }
+                    .filter { m -> m.live && (!f.isTeam || m.home.equals(f.name, true) || m.away.equals(f.name, true) || (f.abbr.isNotBlank() && (m.homeAbbr == f.abbr || m.awayAbbr == f.abbr))) }
             }.distinctBy { it.id }.take(3)
             var goal = false
             val lines = live.map { m ->

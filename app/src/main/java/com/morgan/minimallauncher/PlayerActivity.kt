@@ -439,7 +439,7 @@ class PlayerActivity : Activity() {
             val n = queue.firstOrNull()
             if (n != null && seriesTitle != null) ResumeStore.upsert(c, ResumeStore.Item(key, kind, name, seriesTitle, n.season, n.episode, n.url, image, 0, 0, now))
             else ResumeStore.remove(c, key)
-        } else if (pos > 30) ResumeStore.upsert(c, ResumeStore.Item(key, kind, name, seriesTitle, curSeason, curEpisode, url, image, pos, dur, now))
+        } else if (pos >= 2) ResumeStore.upsert(c, ResumeStore.Item(key, kind, name, seriesTitle, curSeason, curEpisode, url, image, pos, dur, now))
     }
 
     private fun trackKey() = (seriesTitle ?: titleText).lowercase().replace(Regex("[^a-z0-9]+"), "")

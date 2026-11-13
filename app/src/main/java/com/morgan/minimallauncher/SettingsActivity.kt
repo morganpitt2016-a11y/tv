@@ -744,21 +744,39 @@ class SettingsActivity : AppCompatActivity() {
         val catScroll = ScrollView(this).apply { isVerticalScrollBarEnabled = false; overScrollMode = View.OVER_SCROLL_NEVER; clipChildren = false; clipToPadding = false; addView(cats) }
         left.addView(catScroll, LinearLayout.LayoutParams(-1, 0, 1f))
         pages.forEachIndexed { i, (title, _) ->
-            val row = GlassUi.rowText(this, title, 15f, R.font.inter_medium, GlassUi.primaryText()).apply {
+            val row = GlassUi.text(this, title, 15f, R.font.inter_medium, 0xCCFFFFFF.toInt()).apply {
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(dp(context, 14f), 0, dp(context, 14f), 0)
-                background = GlassUi.rowBackground(context, 12f)
                 isFocusable = true; isClickable = true
                 // Moving down the categories shows each page straight away; OK or Right goes into it.
-                setOnFocusChangeListener { _, has -> if (has) showPage(i) }
+                setOnFocusChangeListener { v, has ->
+                    if (has) showPage(i)
+                    Motion.spring(v, if (has) 1.04f else 1f)
+                    paintCategories()
+                }
                 setOnClickListener { focusPage() }
                 setOnKeyListener { _, k, e -> if (e.action == KeyEvent.ACTION_DOWN && k == KeyEvent.KEYCODE_DPAD_RIGHT) { focusPage(); true } else false }
             }
             cats.addView(row, LinearLayout.LayoutParams(-1, dp(this, 40f)).apply { bottomMargin = dp(this@SettingsActivity, 3f) })
         }
+        catColumn = cats
         showPage(0)
         cats.post { cats.getChildAt(0)?.requestFocus() }
-        catColumn = cats
+    }
+
+    /** White pill on the category you're highlighting; a soft glass one on the page that's showing. */
+    private fun paintCategories() {
+        val cats = catColumn ?: return
+        for (j in 0 until cats.childCount) {
+            val t = cats.getChildAt(j) as? TextView ?: continue
+            val focused = t.isFocused
+            t.background = when {
+                focused -> android.graphics.drawable.GradientDrawable().apply { cornerRadius = dp(this@SettingsActivity, 12f).toFloat(); setColor(0xFFFFFFFF.toInt()) }
+                j == shownPage -> GlassUi.panel(this, 12f, 0x40)
+                else -> null
+            }
+            t.setTextColor(if (focused) 0xFF000000.toInt() else if (j == shownPage) 0xFFFFFFFF.toInt() else 0xB3FFFFFF.toInt())
+        }
     }
 
     private var catColumn: LinearLayout? = null
@@ -770,6 +788,7 @@ class SettingsActivity : AppCompatActivity() {
         for (v in pages[i].second) { (v.parent as? ViewGroup)?.removeView(v); list.addView(v) }
         pageScroll.scrollTo(0, 0)
         list.alpha = 0f; list.animate().alpha(1f).setDuration(140).start()
+        paintCategories()
     }
 
     private fun focusPage() {

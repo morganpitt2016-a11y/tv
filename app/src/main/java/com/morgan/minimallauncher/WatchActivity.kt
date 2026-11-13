@@ -281,6 +281,26 @@ class WatchActivity : AppCompatActivity() {
             }
             if (event.keyCode == KeyEvent.KEYCODE_BACK) return true
         }
+        // Holding Left/Right along a row: the highlight stays in that row. At the end it stops (it used to slip into
+        // another row when the remote repeated faster than the row could lay out its next cards).
+        if (event.action == KeyEvent.ACTION_DOWN && rail == null && (event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT || event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT)) {
+            val f = currentFocus
+            val rv = f?.parent as? RecyclerView
+            if (f != null && rv != null) {
+                val dir = if (event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) View.FOCUS_RIGHT else View.FOCUS_LEFT
+                val next = android.view.FocusFinder.getInstance().findNextFocus(rv, f, dir)
+                if (next == null) {
+                    val sign = if (dir == View.FOCUS_RIGHT) 1 else -1
+                    // Left at the very start of a Films/Shows row opens the categories (below); otherwise stay put.
+                    val openRail = sign < 0 && (tab == "films" || tab == "shows") && detail == null && rv.getChildAdapterPosition(f) == 0
+                    if (!openRail) {
+                        if (rv.canScrollHorizontally(sign)) rv.smoothScrollBy(sign * dp(this, 160f), 0)
+                        return true
+                    }
+                }
+                if (event.repeatCount > 0 && rv.scrollState != RecyclerView.SCROLL_STATE_IDLE && next != null && next.parent !== rv) return true
+            }
+        }
         if ((tab == "films" || tab == "shows") && rail == null && detail == null && event.action == KeyEvent.ACTION_DOWN && event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
             val f = currentFocus
             val rv = f?.parent as? RecyclerView
