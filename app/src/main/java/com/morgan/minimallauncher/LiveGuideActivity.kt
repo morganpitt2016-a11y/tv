@@ -239,7 +239,8 @@ class LiveGuideActivity : Activity() {
                         val parts = allUk.map { gid -> pool.submit<List<Xtream.Live>> { try { Xtream.liveInCategory(app, gid) } catch (e: Exception) { emptyList() } } }
                         val merged = parts.flatMap { it.get() }
                         pool.shutdown()
-                        Xtream.best(merged)
+                        // Like a TV box: BBC One 1, BBC Two 2, ITV1 3, Channel 4 4, Channel 5 5 ... one of each, no HD/SD clutter.
+                        Xtream.guideOrder(Xtream.best(merged))
                     }
                     else -> if (id.startsWith("m:")) {
                         val pool = java.util.concurrent.Executors.newFixedThreadPool(4)
@@ -251,7 +252,7 @@ class LiveGuideActivity : Activity() {
             } catch (e: Exception) { emptyList() }
             runOnUiThread {
                 if (current != id || isDestroyed) return@runOnUiThread
-                epg.setRows(list.take(250).map { EpgView.Row(it, LiveGuide.guideFor(it.name)) })
+                epg.setRows(list.take(300).map { EpgView.Row(it.copy(name = Xtream.displayName(it.name)), LiveGuide.guideFor(it.name)) })
                 if (list.isEmpty()) {
                     title.text = if (id == "_fav") "No favourites yet" else "No channels here"
                     desc.text = if (id == "_fav") "Highlight a channel and press Menu to add it to your favourites." else ""

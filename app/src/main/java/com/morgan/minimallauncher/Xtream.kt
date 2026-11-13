@@ -447,6 +447,38 @@ object Xtream {
             .map { g -> g.sortedWith(compareByDescending<Live> { qualityRank(it.name) }.thenBy { it.num }).first() }
             .sortedBy { it.num }
 
+    // ---------- Channels in TV-guide order (BBC One 1, BBC Two 2, ITV1 3 ...) ----------
+
+    private val GUIDE_ORDER = listOf("bbc one", "bbc two", "itv1", "channel 4", "5", "itv2", "bbc three", "bbc four", "itv3", "itv4",
+        "e4", "more4", "film4", "5star", "5usa", "5action", "dave", "drama", "yesterday", "quest", "really", "gold", "alibi", "w", "comedy central",
+        "sky showcase", "sky atlantic", "sky max", "sky witness", "sky comedy", "sky crime", "sky documentaries", "sky nature", "sky history", "sky arts",
+        "sky cinema premiere", "sky cinema select", "sky cinema hits", "sky cinema action", "sky cinema comedy", "sky cinema family", "sky cinema thriller",
+        "sky cinema drama", "sky cinema sci fi horror", "sky cinema animation", "sky cinema greats",
+        "sky sports main event", "sky sports premier league", "sky sports football", "sky sports f1", "sky sports cricket", "sky sports golf",
+        "sky sports racing", "sky sports arena", "sky sports action", "sky sports mix", "sky sports news",
+        "tnt sports 1", "tnt sports 2", "tnt sports 3", "tnt sports 4", "premier sports 1", "premier sports 2", "eurosport 1", "eurosport 2",
+        "bbc news", "sky news", "gb news", "cnn", "al jazeera",
+        "cbbc", "cbeebies", "cartoon network", "cartoonito", "nickelodeon", "nick jr", "disney junior", "pop",
+        "discovery", "national geographic", "animal planet", "history", "crime investigation", "investigation discovery")
+
+    /** "UK: BBC ONE FHD (F)" -> "BBC ONE"; tidier for the guide. */
+    fun displayName(name: String): String = name
+        .replace(Regex("(?i)^\\s*(uk|gb|vip)\\s*[:|~\\-]+\\s*"), "")
+        .replace(Regex("(?i)\\b(uhd|fhd|hd|sd|4k|hevc|h\\.?265|1080p?|720p?|50fps|60fps|backup|raw)\\b|\\(f\\)|\\[[^\\]]*\\]"), "")
+        .replace(Regex("\\s{2,}"), " ").trim(' ', '-', '|', ':').ifBlank { name }
+
+    /** The big channels first in the usual UK order and numbered from 1, then everything else; quality tags dropped from names. */
+    fun guideOrder(list: List<Live>): List<Live> {
+        val left = list.toMutableList()
+        val first = mutableListOf<Live>()
+        for (key in GUIDE_ORDER) {
+            val exact = left.firstOrNull { TextMatch.normalise(it.name) == key }
+            val hit = exact ?: if (key.length >= 4) left.firstOrNull { TextMatch.matches(TextMatch.normalise(it.name), key) && !TextMatch.normalise(it.name).contains("+1") } else null
+            if (hit != null) { first += hit; left.remove(hit) }
+        }
+        return (first + left).mapIndexed { i, l -> l.copy(num = i + 1, name = displayName(l.name)) }
+    }
+
     /** A group's channels, one per station. */
     fun liveGroup(c: Context, categoryId: String): List<Live> = best(liveInCategory(c, categoryId))
 
