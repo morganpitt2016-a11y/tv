@@ -286,7 +286,17 @@ class WatchActivity : AppCompatActivity() {
             background = GlassUi.rowBackground(c, 15f)
             isFocusable = true; isClickable = true
             tag = id
-            setOnClickListener { if (id == "search") askSearch() else if (id != tab) showTab(id, focusContent = true) else firstItem()?.requestFocus() }
+            setOnClickListener {
+                when {
+                    id == "live" -> openGuide()
+                    id == "search" -> askSearch()
+                    id != tab -> showTab(id, focusContent = true)
+                    else -> firstItem()?.requestFocus()
+                }
+            }
+            if (id == "live") setOnKeyListener { _, k, e ->
+                if (e.action == KeyEvent.ACTION_DOWN && k == KeyEvent.KEYCODE_DPAD_DOWN) { openGuide(); true } else false
+            }
             // tvOS: moving onto a tab shows it (after a short pause, so passing over doesn't load everything).
             setOnFocusChangeListener { v, has ->
                 v.animate().scaleX(if (has) 1.05f else 1f).scaleY(if (has) 1.05f else 1f)
@@ -295,7 +305,7 @@ class WatchActivity : AppCompatActivity() {
                 if (has && id != tab) {
                     val r = Runnable {
                         if (!v.isFocused) return@Runnable
-                        if (id == "search") showSearchTab() else showTab(id, focusContent = false)
+                        when (id) { "search" -> showSearchTab(); "live" -> showLiveTab(); else -> showTab(id, focusContent = false) }
                     }
                     pendingTab = r
                     handler.postDelayed(r, 320)
@@ -305,6 +315,20 @@ class WatchActivity : AppCompatActivity() {
     }
 
     private var pendingTab: Runnable? = null
+
+    /** Live TV: just a doorway to the guide (OK or Down opens it), so moving past it loads nothing. */
+    private fun showLiveTab() {
+        tab = "live"
+        for (i in 0 until nav.childCount) nav.getChildAt(i).isSelected = nav.getChildAt(i).tag == "live"
+        ++buildToken
+        freshRows()
+        setHeroImage(null)
+        val now = LiveGuide.nowNext(this, "BBC One")
+        showPlainHero("LIVE TV", "TV Guide", "Press OK or ↓ to open the guide - every channel, what’s on now and next, pause and rewind." +
+            (now?.let { "\n\nBBC One: $it" } ?: ""))
+    }
+
+    private fun openGuide() = startActivity(Intent(this, LiveGuideActivity::class.java))
 
     /** The Search tab: last results, or a hint to press OK. */
     private fun showSearchTab() {
@@ -1203,7 +1227,13 @@ class WatchActivity : AppCompatActivity() {
             rows.addView(heads, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(this@WatchActivity, 56f); topMargin = dp(this@WatchActivity, 8f) })
             return
         }
-        showPlainHero("SPORT", follows.joinToString(" · ") { it.short.ifBlank { it.name } }.take(80), "What’s on now, what’s coming up, and where to watch.")
+        showPlainHero("SPORT", "Your Sport", "What’s on now, what’s coming up, tables and where to watch.")
+        setHeroImage(null)
+        val heroPaths = follows.map { it.path }.distinct()
+        Bg.run {
+            val img = Sport.newsImage(heroPaths)
+            runOnUiThread { if (tab == "sport" && !isDestroyed && img != null) setHeroImage(img) }
+        }
         head("Add") { addFollow() }
         head("Following (${follows.size})") { manageFollows() }
         head("Tables & Fixtures", primary = true) {
@@ -1261,7 +1291,7 @@ class WatchActivity : AppCompatActivity() {
                     matchRow("sp_live", "On Now", live)
                     matchRow("sp_fix", "Coming Up", next)
                     matchRow("sp_res", "Results", done)
-                    live.firstOrNull()?.let { showMatchHero(it, channels[it.id]) }
+                    (live.firstOrNull() ?: next.firstOrNull())?.let { showMatchHero(it, channels[it.id]) }
                 }
             }
         }
@@ -1397,57 +1427,68 @@ class WatchActivity : AppCompatActivity() {
             pool.shutdown()
             runOnUiThread {
                 if (containerToken[host] != token || isDestroyed) return@runOnUiThread
-                for ((p, groups) in tables) for (g in groups) strip.addView(miniTable(p, g), LinearLayout.LayoutParams(dp(c, 330f), -2).apply { marginEnd = dp(c, 18f) })
+                val seen = HashSet<String>()
+                for ((p, groups) in tables) for (g in groups) {
+                    // The feed sometimes gives one competition's table for another: show each table once.
+                    if (!seen.add(g.rows.joinToString(",") { it.name + it.pts })) continue
+                    strip.addView(miniTable(p, g, groups.size > 1), LinearLayout.LayoutParams(dp(c, 300f), -2).apply { marginEnd = dp(c, 16f) })
+                }
                 if (strip.childCount == 0) box.visibility = View.GONE
             }
         }
         return box
     }
 
-    private fun miniTable(path: String, g: SportTables.Group): View {
+    /** A league table card in the style of Apple Sports: dark glass, a thin colour line, clean numbers. */
+    private fun miniTable(path: String, g: SportTables.Group, showGroup: Boolean): View {
         val c = this
         val theme = SportTableActivity.themeFor(path)
         val f1 = path.startsWith("racing/f1")
         val card = LinearLayout(c).apply {
             orientation = LinearLayout.VERTICAL; clipChildren = false
-            background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(theme.bg[0], theme.bg[1])).apply { cornerRadius = dp(c, 16f).toFloat() }
-            setPadding(dp(c, 12f), dp(c, 10f), dp(c, 12f), dp(c, 12f))
-            // One stop per table: OK opens it, and the teams can be picked in there.
+            background = GradientDrawable().apply { cornerRadius = dp(c, 18f).toFloat(); setColor(0xE614151A.toInt()); setStroke(dp(c, 1f), 0x1AFFFFFF) }
+            setPadding(dp(c, 16f), dp(c, 14f), dp(c, 16f), dp(c, 12f))
             isFocusable = true; isClickable = true
             setOnClickListener { SportTableActivity.open(c, path, SportTables.nameOf(path)) }
             setOnFocusChangeListener { v, has ->
-                Motion.spring(v, if (has) 1.04f else 1f)
-                (v.background as? GradientDrawable)?.setStroke(dp(c, if (has) 2f else 0f), theme.accent)
+                Motion.focus(v, has, 1.04f)
+                (v.background as? GradientDrawable)?.setStroke(dp(c, if (has) 2f else 1f), if (has) 0xE6FFFFFF.toInt() else 0x1AFFFFFF)
             }
         }
-        val title = SportTables.nameOf(path) + if (g.name.isNotBlank() && !g.name.equals(SportTables.nameOf(path), true)) " · ${g.name}" else ""
-        val head = GlassUi.text(c, "${SportTables.iconOf(path)}  $title  ›", 13f, R.font.inter_semibold, theme.accent).apply {
-            maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
-            setPadding(dp(c, 8f), dp(c, 6f), dp(c, 8f), dp(c, 6f))
+        card.addView(View(c).apply { background = GradientDrawable().apply { cornerRadius = dp(c, 2f).toFloat(); setColor(theme.accent) } },
+            LinearLayout.LayoutParams(dp(c, 28f), dp(c, 4f)).apply { bottomMargin = dp(c, 10f) })
+        card.addView(GlassUi.text(c, SportTables.nameOf(path), 16f, R.font.inter_semibold).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })
+        val sub = when {
+            f1 -> "Drivers"
+            showGroup && g.name.isNotBlank() -> g.name.replace(Regex("(?i)\\b(20\\d\\d(-\\d\\d)?)\\b"), "").trim()
+            else -> ""
         }
-        card.addView(head, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(c, 4f) })
-        fun cellView(t: String, colour: Int, bold: Boolean = false) = GlassUi.text(c, t, 12f, if (bold) R.font.inter_semibold else R.font.inter_medium, colour).apply { gravity = Gravity.CENTER; maxLines = 1 }
-        val hdr = LinearLayout(c).apply { setPadding(dp(c, 8f), 0, 0, 0) }
+        if (sub.isNotBlank()) card.addView(GlassUi.text(c, sub, 12f, R.font.inter_medium, 0x8CFFFFFF.toInt()).apply { maxLines = 1 })
+        fun num(t: String, colour: Int = 0xB3FFFFFF.toInt(), bold: Boolean = false) = GlassUi.text(c, t, 12.5f, if (bold) R.font.inter_semibold else R.font.inter_medium, colour).apply {
+            gravity = Gravity.END; maxLines = 1; fontFeatureSettings = "tnum"
+        }
+        val hdr = LinearLayout(c).apply { gravity = Gravity.CENTER_VERTICAL }
         hdr.addView(View(c), LinearLayout.LayoutParams(0, 1, 1f))
-        if (!f1) { hdr.addView(cellView("P", 0x99FFFFFF.toInt()), LinearLayout.LayoutParams(dp(c, 28f), -2)); hdr.addView(cellView("PD", 0x99FFFFFF.toInt()), LinearLayout.LayoutParams(dp(c, 38f), -2)) }
-        hdr.addView(cellView("PTS", 0x99FFFFFF.toInt()), LinearLayout.LayoutParams(dp(c, 44f), -2))
-        card.addView(hdr)
-        for (r in g.rows.take(12)) {
-            val row = LinearLayout(c).apply {
-                gravity = Gravity.CENTER_VERTICAL; setPadding(dp(c, 8f), 0, 0, 0)
-            }
-            row.addView(cellView(r.rank.toString(), 0xFFFFFFFF.toInt(), true), LinearLayout.LayoutParams(dp(c, 22f), -2))
+        if (!f1) { hdr.addView(num("P", 0x66FFFFFF), LinearLayout.LayoutParams(dp(c, 26f), -2)); hdr.addView(num("GD".takeIf { path.startsWith("soccer") } ?: "PD", 0x66FFFFFF), LinearLayout.LayoutParams(dp(c, 38f), -2)) }
+        hdr.addView(num("PTS", 0x66FFFFFF), LinearLayout.LayoutParams(dp(c, 38f), -2))
+        card.addView(hdr, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(c, 12f); bottomMargin = dp(c, 4f) })
+        val shown = g.rows.take(8)
+        shown.forEachIndexed { i, r ->
+            val row = LinearLayout(c).apply { gravity = Gravity.CENTER_VERTICAL }
+            row.addView(num(r.rank.toString(), 0x8CFFFFFF.toInt()).apply { gravity = Gravity.START }, LinearLayout.LayoutParams(dp(c, 22f), -2))
             if (!f1) row.addView(ImageView(c).apply { scaleType = ImageView.ScaleType.FIT_CENTER; r.logo?.let { ImageLoader.load(this, it, ImageLoader.ICON) } },
-                LinearLayout.LayoutParams(dp(c, 20f), dp(c, 20f)).apply { marginStart = dp(c, 6f) })
-            row.addView(GlassUi.text(c, if (f1) r.name else r.name.ifBlank { r.abbr }, 13f, R.font.inter_semibold).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END },
-                LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(c, 8f) })
-            if (!f1) { row.addView(cellView(r.p, 0xCCFFFFFF.toInt()), LinearLayout.LayoutParams(dp(c, 28f), -2)); row.addView(cellView(r.pd, 0xCCFFFFFF.toInt()), LinearLayout.LayoutParams(dp(c, 38f), -2)) }
-            row.addView(cellView(r.pts, theme.onAccent, true).apply {
-                background = GradientDrawable().apply { cornerRadius = dp(c, 6f).toFloat(); setColor(theme.accent) } }, LinearLayout.LayoutParams(dp(c, 40f), dp(c, 22f)).apply { marginStart = dp(c, 4f) })
-            card.addView(row, LinearLayout.LayoutParams(-1, dp(c, 28f)))
+                LinearLayout.LayoutParams(dp(c, 20f), dp(c, 20f)).apply { marginEnd = dp(c, 10f) })
+            else row.addView(View(c).apply { setBackgroundColor(F1.teamFor(r.abbr)?.colour ?: 0x55FFFFFF) }, LinearLayout.LayoutParams(dp(c, 3f), dp(c, 16f)).apply { marginEnd = dp(c, 10f) })
+            val nm = if (f1) r.name.substringAfterLast(' ') else r.name.replace(" & Hove Albion", "").replace("Wolverhampton Wanderers", "Wolves").ifBlank { r.abbr }
+            row.addView(GlassUi.text(c, nm, 13.5f, R.font.inter_medium).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END },
+                LinearLayout.LayoutParams(0, -2, 1f))
+            if (!f1) { row.addView(num(r.p), LinearLayout.LayoutParams(dp(c, 26f), -2)); row.addView(num(r.pd), LinearLayout.LayoutParams(dp(c, 38f), -2)) }
+            row.addView(num(r.pts, 0xFFFFFFFF.toInt(), bold = true), LinearLayout.LayoutParams(dp(c, 38f), -2))
+            card.addView(row, LinearLayout.LayoutParams(-1, dp(c, 30f)))
+            if (i < shown.size - 1) card.addView(View(c).apply { setBackgroundColor(0x12FFFFFF) }, LinearLayout.LayoutParams(-1, 1))
         }
-        if (g.rows.size > 12) card.addView(GlassUi.text(c, "+${g.rows.size - 12} more  ·  OK to open", 11f, R.font.inter_medium, 0x99FFFFFF.toInt()),
-            LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(c, 4f); marginStart = dp(c, 8f) })
+        card.addView(GlassUi.text(c, if (g.rows.size > shown.size) "Full table  ›" else "Table & fixtures  ›", 12f, R.font.inter_semibold, 0x99FFFFFF.toInt()),
+            LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(c, 10f) })
         return card
     }
 
@@ -1811,6 +1852,9 @@ class WatchActivity : AppCompatActivity() {
         val app = applicationContext
         val sorted = episodes.sortedWith(compareBy({ it.season }, { it.number }))
         lastEpisodes = sorted
+        // The full-screen show page (Play / Resume, seasons, episodes) - like Apple TV.
+        return episodeList(t, sorted)
+        @Suppress("UNREACHABLE_CODE")
         val last = WatchHistory.last(app, t.name)?.let { l -> sorted.indexOfFirst { it.season == l.season && it.number == l.episode } }?.takeIf { it >= 0 }
         if (last == null) return episodeList(t, sorted)
         // Been here before: offer to pick up where you were, move on, or start again - not always episode one.
@@ -2192,7 +2236,7 @@ class WatchActivity : AppCompatActivity() {
     /** The row at the top of Home, Films, Shows and Live TV: click to carry on where you left off. */
     private fun refreshResumeRow() {
         findRow("resume")?.let { rows.removeView(it) }
-        if (tab !in listOf("home", "tonight", "films", "shows", "live")) return
+        if (tab != "home") return
         val items = ResumeStore.forTab(this, tab)
         if (items.isEmpty()) return
         val r = row("resume", if (tab == "live") "Recently Watched" else "Continue Watching", height = 150f)

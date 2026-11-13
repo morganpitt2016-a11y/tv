@@ -167,6 +167,23 @@ object Sport {
         return if (f.isTeam) merged.filter { it.home == f.name || it.away == f.name || it.homeAbbr == f.abbr && it.homeAbbr.isNotEmpty() || it.awayAbbr == f.abbr && it.awayAbbr.isNotEmpty() } else merged
     }
 
+    /** A real sports photo for the Sport tab's header: the top story's picture from what you follow. Call off the main thread. */
+    fun newsImage(paths: List<String>): String? {
+        for (p in paths.take(4)) {
+            val o = try { JSONObject(Net.get("$ROOT/$p/news?limit=5", timeoutMs = 8_000)) } catch (e: Exception) { continue }
+            val arts = o.optJSONArray("articles") ?: continue
+            for (i in 0 until arts.length()) {
+                val imgs = arts.optJSONObject(i)?.optJSONArray("images") ?: continue
+                for (j in 0 until imgs.length()) {
+                    val im = imgs.optJSONObject(j) ?: continue
+                    val url = im.optString("url")
+                    if (url.startsWith("http") && im.optInt("width", 1000) >= 600) return url
+                }
+            }
+        }
+        return null
+    }
+
     // ---------- Catch Up: the key moments so far (like Apple's MLS Catch Up) ----------
 
     /** "23'  ⚽  Goal - Saka (Arsenal)" lines for a live or finished match. Call off the main thread. */
