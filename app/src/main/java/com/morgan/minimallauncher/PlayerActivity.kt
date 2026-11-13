@@ -9,6 +9,7 @@ import android.os.Looper
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.LinearLayout
@@ -197,7 +198,7 @@ class PlayerActivity : Activity() {
         pauseInfo.addView(pausePlot, LinearLayout.LayoutParams(dp(this@PlayerActivity, 520f), -2).apply { topMargin = dp(this@PlayerActivity, 10f) })
         root.addView(pauseInfo, 1, FrameLayout.LayoutParams(dp(this, 900f), -1, Gravity.START))
         setContentView(root)
-        if (!live) view.post { setUpScrubPreview() }
+        if (!live) view.post { setUpScrubPreview(); styleControls() }
         handler.postDelayed({ banner.animate().alpha(0f).setDuration(600).start() }, 4500)
 
         seriesTitle = intent.getStringExtra(EXTRA_SERIES)
@@ -522,6 +523,12 @@ class PlayerActivity : Activity() {
             hidePauseInfo()
         }
         if (event.action == KeyEvent.ACTION_DOWN) pressedThisEpisode = true
+        infoPanel?.let {
+            if (event.keyCode == KeyEvent.KEYCODE_BACK || (event.keyCode == KeyEvent.KEYCODE_DPAD_UP && currentFocus?.getTag(R.id.blur_anim) == "tab")) {
+                if (event.action == KeyEvent.ACTION_DOWN) hideInfoPanel(); return true
+            }
+            return super.dispatchKeyEvent(event)
+        }
         // Episodes strip open: Back closes it; everything else moves around it.
         strip?.let { st ->
             if (event.keyCode == KeyEvent.KEYCODE_BACK) { if (event.action == KeyEvent.ACTION_DOWN) hideStrip(); return true }
@@ -545,6 +552,9 @@ class PlayerActivity : Activity() {
                 return true
             }
         }
+        // On the progress bar, Up: the Info / Subtitles / Audio / Sound panel along the top (like Apple TV's swipe down).
+        if (!live && event.action == KeyEvent.ACTION_DOWN && event.keyCode == KeyEvent.KEYCODE_DPAD_UP && view.isControllerFullyVisible &&
+            currentFocus?.id == androidx.media3.ui.R.id.exo_progress) { showInfoPanel(); return true }
         // On the progress bar, Down again: this season's episodes.
         if (!live && event.action == KeyEvent.ACTION_DOWN && event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN && view.isControllerFullyVisible &&
             currentFocus?.id == androidx.media3.ui.R.id.exo_progress && seriesTitle != null && curSeason > 0) {
@@ -1067,6 +1077,144 @@ class PlayerActivity : Activity() {
     }
 
     // ---------- Previews while skipping through ----------
+
+    // ---------- Info panel (Up from the progress bar) ----------
+
+    private var infoPanel: LinearLayout? = null
+    private var infoBody: LinearLayout? = null
+    private val infoTabs = LinkedHashMap<String, android.widget.TextView>()
+
+    private fun glassPill(label: String, selected: Boolean = false, click: () -> Unit) = GlassUi.text(this, label, 14f, R.font.inter_semibold,
+            if (selected) 0xFF000000.toInt() else 0xFFFFFFFF.toInt()).apply {
+        val c = this@PlayerActivity
+        gravity = Gravity.CENTER; setPadding(dp(c, 18f), dp(c, 9f), dp(c, 18f), dp(c, 9f))
+        isFocusable = true; isClickable = true
+        fun paint(f: Boolean) {
+            background = android.graphics.drawable.GradientDrawable().apply { cornerRadius = dp(c, 20f).toFloat()
+                setColor(if (f) 0xFFFFFFFF.toInt() else if (selected) 0xD9FFFFFF.toInt() else 0x33FFFFFF) }
+            setTextColor(if (f || selected) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
+        }
+        paint(false)
+        setOnFocusChangeListener { v, has -> paint(has); Motion.spring(v, if (has) 1.06f else 1f) }
+        setOnClickListener { click() }
+    }
+
+    private fun showInfoPanel(tab: String = "info") {
+        val c = this
+        hideInfoPanel()
+        view.hideController()
+        val panel = LinearLayout(c).apply {
+            orientation = LinearLayout.VERTICAL
+            background = android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
+                intArrayOf(0xF2000000.toInt(), 0xCC000000.toInt(), 0x00000000))
+            setPadding(dp(c, 56f), dp(c, 30f), dp(c, 56f), dp(c, 70f))
+            alpha = 0f; translationY = -dp(c, 30f).toFloat()
+        }
+        val tabs = LinearLayout(c).apply { gravity = Gravity.CENTER_HORIZONTAL }
+        infoTabs.clear()
+        for ((id, label) in listOf("info" to "Info", "subs" to "Subtitles", "audio" to "Audio", "sound" to "Sound")) {
+            val t = GlassUi.text(c, label, 15f, R.font.inter_semibold, 0x99FFFFFF.toInt()).apply {
+                setPadding(dp(c, 16f), dp(c, 6f), dp(c, 16f), dp(c, 6f)); isFocusable = true; isClickable = true
+                setTag(R.id.blur_anim, "tab")
+                setOnFocusChangeListener { v, has -> if (has) fillInfo(id); Motion.spring(v, if (has) 1.08f else 1f)
+                    (v as android.widget.TextView).setTextColor(if (has) 0xFFFFFFFF.toInt() else 0x99FFFFFF.toInt()) }
+                setOnClickListener { infoBody?.getChildAt(0)?.let { b -> (b as? ViewGroup)?.let { firstFocusable(it) }?.requestFocus() } }
+            }
+            infoTabs[id] = t
+            tabs.addView(t)
+        }
+        panel.addView(tabs)
+        val body = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL; clipChildren = false }
+        panel.addView(body, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(c, 18f) })
+        infoBody = body
+        (view.parent as? FrameLayout)?.addView(panel, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
+        infoPanel = panel
+        panel.animate().alpha(1f).translationY(0f).setDuration(300).start()
+        infoTabs[tab]?.requestFocus()
+        fillInfo(tab)
+        if (seriesTitle != null && episodeList == null) showPauseInfoFetchOnly { if (infoPanel != null && infoTabs["info"]?.isFocused == true) fillInfo("info") }
+    }
+
+    private fun firstFocusable(g: ViewGroup): View? {
+        for (i in 0 until g.childCount) { val ch = g.getChildAt(i); if (ch.isFocusable) return ch; if (ch is ViewGroup) firstFocusable(ch)?.let { return it } }
+        return null
+    }
+
+    private fun hideInfoPanel() {
+        infoPanel?.let { p -> p.animate().alpha(0f).setDuration(180).withEndAction { (p.parent as? FrameLayout)?.removeView(p) }.start() }
+        infoPanel = null; infoBody = null
+        view.requestFocus()
+    }
+
+    private fun fillInfo(tab: String) {
+        val body = infoBody ?: return
+        val c = this
+        body.removeAllViews()
+        val row = LinearLayout(c).apply { gravity = Gravity.CENTER_VERTICAL; clipChildren = false }
+        fun pill(label: String, selected: Boolean = false, click: () -> Unit) =
+            row.addView(glassPill(label, selected, click), LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(c, 12f) })
+        val p = player
+        when (tab) {
+            "info" -> {
+                val ep = if (curSeason > 0) episodeList?.firstOrNull { it.season == curSeason && it.number == curEpisode } else null
+                val txt = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL }
+                txt.addView(GlassUi.text(c, seriesTitle ?: titleText, 24f, R.font.inter_semibold))
+                val line = when { curSeason > 0 -> "Season $curSeason, Episode $curEpisode" + (ep?.title?.let { cleanEpTitle(it) }?.takeIf { it.isNotBlank() }?.let { "  ·  $it" } ?: "")
+                                  else -> bannerSub.text?.toString().orEmpty() }
+                if (line.isNotBlank()) txt.addView(GlassUi.text(c, line, 15f, R.font.inter_medium, 0xE6FFFFFF.toInt()), LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(c, 4f) })
+                ep?.plot?.takeIf { it.isNotBlank() }?.let { txt.addView(GlassUi.text(c, it, 13.5f, R.font.inter_medium, 0xB3FFFFFF.toInt()).apply { maxLines = 3 },
+                    LinearLayout.LayoutParams(dp(c, 620f), -2).apply { topMargin = dp(c, 8f) }) }
+                body.addView(txt)
+                pill("Start Over") { hideInfoPanel(); player?.seekTo(0) }
+                if (seriesTitle != null && curSeason > 0) pill("Episodes") { hideInfoPanel(); showStrip() }
+                if (queue.isNotEmpty()) pill("Next Episode") { hideInfoPanel(); playNext() }
+                pill("Sleep Timer · ${sleepLabel()}") { hideInfoPanel(); pickSleep() }
+            }
+            "subs" -> {
+                val off = p?.trackSelectionParameters?.disabledTrackTypes?.contains(C.TRACK_TYPE_TEXT) != false
+                pill("Off", off) { p?.let { it.trackSelectionParameters = it.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build() }
+                    rememberTrack(C.TRACK_TYPE_TEXT, "off"); fillInfo("subs") }
+                val list = choices(C.TRACK_TYPE_TEXT)
+                if (list.isEmpty()) row.addView(GlassUi.text(c, "No subtitles in this file", 13f, R.font.inter_medium, 0x99FFFFFF.toInt()))
+                for (ch in list) pill(ch.label, !off && ch.group.isTrackSelected(ch.index)) {
+                    p?.let { it.trackSelectionParameters = it.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                        .setOverrideForType(TrackSelectionOverride(ch.group.mediaTrackGroup, ch.index)).build() }
+                    rememberTrack(C.TRACK_TYPE_TEXT, ch.group.getTrackFormat(ch.index).language?.takeIf { it != "und" }); fillInfo("subs")
+                }
+            }
+            "audio" -> {
+                val list = choices(C.TRACK_TYPE_AUDIO)
+                if (list.size <= 1) row.addView(GlassUi.text(c, (list.firstOrNull()?.label ?: "Original") + " - the only soundtrack", 13f, R.font.inter_medium, 0x99FFFFFF.toInt()))
+                else for (ch in list) pill(ch.label, ch.group.isTrackSelected(ch.index)) {
+                    p?.let { it.trackSelectionParameters = it.trackSelectionParameters.buildUpon().setOverrideForType(TrackSelectionOverride(ch.group.mediaTrackGroup, ch.index)).build() }
+                    rememberTrack(C.TRACK_TYPE_AUDIO, ch.group.getTrackFormat(ch.index).language?.takeIf { it != "und" }); fillInfo("audio")
+                }
+                pill("Speed · ${p?.playbackParameters?.speed ?: 1f}x") { hideInfoPanel(); pickSpeed() }
+                pill("Picture · ${resizeName(view.resizeMode)}") { hideInfoPanel(); pickPicture() }
+            }
+            "sound" -> {
+                val st = SoundProfile.get(this)
+                pill("Sound Check…") { hideInfoPanel(); SoundProfile.soundCheck(this, { applySound(it.copy(dialogue = st.dialogue)) }) { r ->
+                    val keep = r.copy(dialogue = st.dialogue); SoundProfile.save(this, keep); applySound(keep) } }
+                pill("Dialogue Boost", st.dialogue) { val n = SoundProfile.get(this).let { it.copy(dialogue = !it.dialogue) }; SoundProfile.save(this, n); applySound(n); fillInfo("sound") }
+                pill("Even Volume", st.level) { val n = SoundProfile.get(this).let { it.copy(level = !it.level) }; SoundProfile.save(this, n); applySound(n); fillInfo("sound") }
+                pill("Original Sound", st.flat) { val n = SoundProfile.Settings(0, 0, 0, false, false); SoundProfile.save(this, n); applySound(n); fillInfo("sound") }
+            }
+        }
+        body.addView(row, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(c, 14f) })
+    }
+
+    /** Apple-style controls: a thin white progress line on a light dim, no heavy boxes. */
+    private fun styleControls() {
+        view.findViewById<androidx.media3.ui.DefaultTimeBar>(androidx.media3.ui.R.id.exo_progress)?.apply {
+            setPlayedColor(0xFFFFFFFF.toInt()); setScrubberColor(0xFFFFFFFF.toInt())
+            setBufferedColor(0x66FFFFFF); setUnplayedColor(0x33FFFFFF)
+        }
+        view.findViewById<View>(androidx.media3.ui.R.id.exo_controls_background)?.background =
+            android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.BOTTOM_TOP,
+                intArrayOf(0xB3000000.toInt(), 0x33000000, 0x26000000))
+        view.findViewById<View>(androidx.media3.ui.R.id.exo_bottom_bar)?.setBackgroundColor(0)
+    }
 
     private var scrubBox: LinearLayout? = null
     private var scrubTime: android.widget.TextView? = null

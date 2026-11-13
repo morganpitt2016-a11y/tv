@@ -50,6 +50,47 @@ object Motion {
         val d = v.resources.displayMetrics.density
         spring(v, if (focused) scale else 1f, if (focused) liftDp * d else 0f)
         GlassUi.spotlight(v, focused)
+        tilt(v, focused)
+        if (focused) gleam(v)
+    }
+
+    // ---------- tvOS touches: a tilt that settles, and a sheen sweeping across ----------
+
+    /** The card leans in as focus arrives and settles flat - the "parallax" feel of tvOS on a D-pad. */
+    fun tilt(v: View, focused: Boolean) {
+        if (!focused) { v.rotationX = 0f; v.rotationY = 0f; return }
+        v.cameraDistance = 12_000f * v.resources.displayMetrics.density
+        v.rotationX = 6f; v.rotationY = -4f
+        SpringAnimation(v, DynamicAnimation.ROTATION_X).setSpring(SpringForce(0f).setStiffness(260f).setDampingRatio(0.55f)).start()
+        SpringAnimation(v, DynamicAnimation.ROTATION_Y).setSpring(SpringForce(0f).setStiffness(260f).setDampingRatio(0.55f)).start()
+    }
+
+    /** A soft diagonal light that sweeps across a focused card once. */
+    fun gleam(v: View) {
+        if (v.width <= 0 || v.height <= 0) return
+        val g = (v.foreground as? Gleam) ?: Gleam().also { v.foreground = it }
+        android.animation.ValueAnimator.ofFloat(-0.4f, 1.4f).apply {
+            duration = 750; interpolator = standard
+            addUpdateListener { g.t = it.animatedValue as Float; g.invalidateSelf() }
+            start()
+        }
+    }
+
+    class Gleam : android.graphics.drawable.Drawable() {
+        var t = -1f
+        private val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+        override fun draw(canvas: android.graphics.Canvas) {
+            if (t < -0.35f || t > 1.35f) return
+            val b = bounds
+            val w = b.width().toFloat(); val h = b.height().toFloat()
+            val x = b.left + t * (w + h) - h
+            paint.shader = android.graphics.LinearGradient(x, b.top.toFloat(), x + h * 0.9f, b.top + h, intArrayOf(0x00FFFFFF, 0x38FFFFFF, 0x00FFFFFF),
+                floatArrayOf(0f, 0.5f, 1f), android.graphics.Shader.TileMode.CLAMP)
+            canvas.drawRect(b, paint)
+        }
+        override fun setAlpha(alpha: Int) {}
+        override fun setColorFilter(cf: android.graphics.ColorFilter?) {}
+        @Deprecated("Deprecated in Java") override fun getOpacity() = android.graphics.PixelFormat.TRANSLUCENT
     }
 
     /** Standard focus behaviour plus an optional callback when focus arrives. */

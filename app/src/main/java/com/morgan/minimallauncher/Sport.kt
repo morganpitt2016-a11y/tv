@@ -167,6 +167,36 @@ object Sport {
         return if (f.isTeam) merged.filter { it.home == f.name || it.away == f.name || it.homeAbbr == f.abbr && it.homeAbbr.isNotEmpty() || it.awayAbbr == f.abbr && it.awayAbbr.isNotEmpty() } else merged
     }
 
+    // ---------- Catch Up: the key moments so far (like Apple's MLS Catch Up) ----------
+
+    /** "23'  ⚽  Goal - Saka (Arsenal)" lines for a live or finished match. Call off the main thread. */
+    fun keyMoments(m: Match): List<String> {
+        val id = m.id.substringBefore("_")
+        val o = try { JSONObject(Net.get("$ROOT/${m.follow.path}/summary?event=$id", timeoutMs = 12_000)) } catch (e: Exception) { return emptyList() }
+        fun arr(k: String) = o.optJSONArray(k)?.let { a -> (0 until a.length()).mapNotNull { a.optJSONObject(it) } }.orEmpty()
+        val skip = Regex("(?i)substitution|kickoff|kick off|start|end|half|full time|delay|var check")
+        val raw = arr("keyEvents").ifEmpty { arr("scoringPlays") }.ifEmpty { arr("plays").filter { it.optBoolean("scoringPlay") } }
+        return raw.mapNotNull { ev ->
+            val type = ev.optJSONObject("type")?.optString("text").orEmpty()
+            if (type.isNotBlank() && skip.containsMatchIn(type)) return@mapNotNull null
+            val clock = ev.optJSONObject("clock")?.optString("displayValue").orEmpty()
+            val team = ev.optJSONObject("team")?.optString("displayName").orEmpty()
+            val who = ev.optJSONArray("participants")?.optJSONObject(0)?.optJSONObject("athlete")?.optString("displayName").orEmpty()
+            val icon = when {
+                type.contains("goal", true) && !type.contains("kick", true) -> "⚽"
+                type.contains("try", true) -> "🏉"
+                type.contains("red", true) -> "🟥"
+                type.contains("yellow", true) -> "🟨"
+                type.contains("penalty", true) -> "🎯"
+                type.contains("conversion", true) || type.contains("drop", true) -> "🥅"
+                else -> "•"
+            }
+            val text = listOf(type.ifBlank { ev.optString("shortText").ifBlank { ev.optString("text") } }, who.takeIf { it.isNotBlank() }?.let { "- $it" }, team.takeIf { it.isNotBlank() }?.let { "($it)" })
+                .filterNotNull().joinToString(" ").trim()
+            if (text.isBlank()) null else "${clock.ifBlank { "" }.padEnd(5)} $icon  $text".trim()
+        }.take(12)
+    }
+
     // ---------- Which of your channels it's on ----------
 
     private val GENERIC = setOf("the", "and", "live", "grand", "prix", "round", "match", "game", "championship", "league", "cup", "open", "tour", "race", "united", "city", "town")

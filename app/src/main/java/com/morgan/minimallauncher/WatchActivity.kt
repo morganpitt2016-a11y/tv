@@ -1309,11 +1309,26 @@ class WatchActivity : AppCompatActivity() {
                 if (isDestroyed) return@runOnUiThread
                 if (live == null) { GlassUi.toast(this, "Couldn’t find ${ch.name} on Dodgy Box"); return@runOnUiThread }
                 val soon = m.start - System.currentTimeMillis() < 20 * 60_000L
-                if (m.live || soon) playLive(live)
+                if (m.live && !Sport.spoilersHidden(this)) catchUp(m) { playLive(live) }
+                else if (m.live || soon) playLive(live)
                 else {
                     Reminders.add(this, Reminders.Item(live.id, live.name, live.category, m.title, m.start - 5 * 60_000L))
                     GlassUi.toast(this, "We’ll remind you 5 minutes before it starts (on ${live.name})")
                 }
+            }
+        }
+    }
+
+    /** Joining a match that's under way: the key moments so far first, then live (like Apple's Catch Up). */
+    private fun catchUp(m: Sport.Match, watch: () -> Unit) {
+        Bg.run {
+            val moments = Sport.keyMoments(m)
+            runOnUiThread {
+                if (isDestroyed) return@runOnUiThread
+                if (moments.isEmpty()) { watch(); return@runOnUiThread }
+                GlassDialog(this).title("Catch Up · ${m.scoreLine()}").message("${m.detail}\n\n" + moments.joinToString("\n"))
+                    .button("Watch Live", GlassDialog.Style.BOLD) { watch() }
+                    .button("Cancel").show()
             }
         }
     }
