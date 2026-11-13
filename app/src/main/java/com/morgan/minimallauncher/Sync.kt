@@ -147,6 +147,34 @@ object Sync {
         return JSONObject(unlock(code, o.getString("blob")))
     }
 
+    // ---------- What the other TVs are watching ----------
+
+    /** Tell the other TVs (same sync code) what this one is watching; null when it stops. Call off the main thread. */
+    fun shareNow(c: Context, title: String?, sub: String?) {
+        val code = code(c) ?: return
+        try {
+            val id = sha("now:$code")
+            val all = try { fetch(code, id) } catch (e: Exception) { null } ?: JSONObject()
+            val me = Diag.deviceId(c)
+            if (title == null) all.remove(me)
+            else all.put(me, JSONObject().put("profile", ProfileManager.getActiveProfile(c)).put("title", title).put("sub", sub ?: "").put("at", System.currentTimeMillis()))
+            put(code, id, all)
+        } catch (e: Exception) {}
+    }
+
+    data class Watching(val profile: String, val title: String, val sub: String)
+
+    /** What the other TVs are watching right now (seen in the last 8 minutes). Call off the main thread. */
+    fun othersNow(c: Context): List<Watching> {
+        val code = code(c) ?: return emptyList()
+        val all = try { fetch(code, sha("now:$code")) } catch (e: Exception) { null } ?: return emptyList()
+        val me = Diag.deviceId(c)
+        val now = System.currentTimeMillis()
+        return all.keys().asSequence().filter { it != me }.mapNotNull { all.optJSONObject(it) }
+            .filter { now - it.optLong("at") < 8 * 60_000L && it.optString("title").isNotBlank() }
+            .map { Watching(it.optString("profile"), it.optString("title"), it.optString("sub")) }.toList()
+    }
+
     private fun put(code: String, id: String, data: JSONObject) {
         rpc("sync_put", JSONObject().put("p_id", id).put("p_blob", lock(code, data.toString())).put("p_ts", System.currentTimeMillis()))
     }

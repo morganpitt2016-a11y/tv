@@ -48,10 +48,15 @@ class HomeWidgets(
     private val calendarBox = column()
     private val musicBox = column(Gravity.END)
     private val homeBox = column(Gravity.END)
+    private val otherBox = column()
+    private val otherPoll = object : Runnable {
+        override fun run() { refreshOthers(); handler.postDelayed(this, 60_000L) }
+    }
 
     init {
         left.addView(weatherBox)
         left.addView(calendarBox, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(c, 18f) })
+        left.addView(otherBox, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(c, 18f) })
         right.addView(musicBox)
         right.addView(homeBox, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(c, 16f) })
     }
@@ -60,11 +65,33 @@ class HomeWidgets(
         refreshLights()
         handler.post(slowPoll)
         handler.post(musicPoll)
+        handler.post(otherPoll)
     }
 
     fun stop() {
         handler.removeCallbacks(slowPoll)
         handler.removeCallbacks(musicPoll)
+        handler.removeCallbacks(otherPoll)
+    }
+
+    // ---------- What the other TV is watching ----------
+
+    private fun refreshOthers() {
+        if (!Sync.isOn(c)) { otherBox.removeAllViews(); return }
+        Bg.run {
+            val list = Sync.othersNow(c)
+            handler.post {
+                if (activity.isDestroyed) return@post
+                otherBox.removeAllViews()
+                if (list.isEmpty()) return@post
+                otherBox.addView(label("ON THE OTHER TV"))
+                for (w in list.take(2)) {
+                    otherBox.addView(GlassUi.text(c, "${w.profile} is watching", 12f, R.font.inter_medium, 0xB3FFFFFF.toInt()).apply { oneLine(); shade() }, gap(5f))
+                    otherBox.addView(GlassUi.text(c, w.title, 14f, R.font.inter_semibold).apply { oneLine(); shade() }, gap(2f))
+                    if (w.sub.isNotBlank()) otherBox.addView(small(w.sub, 0x8CFFFFFF.toInt()).apply { oneLine() }, gap(2f))
+                }
+            }
+        }
     }
 
     // ---------- Weather ----------

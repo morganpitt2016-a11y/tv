@@ -169,6 +169,18 @@ class EpisodesActivity : Activity() {
             (v[4] as TextView).text = (if (e.minutes > 0) "${e.minutes} min" else "") + left
             h.itemView.contentDescription = "Episode ${e.number}: ${e.title}"
             h.itemView.setOnClickListener { play(e) }
+            h.itemView.setOnLongClickListener {
+                GlassDialog(this@EpisodesActivity).title("${e.number}.  ${e.title.ifBlank { "Episode ${e.number}" }}")
+                    .button("Play", GlassDialog.Style.BOLD) { play(e) }
+                    .button("Download for Later") { GlassUi.toast(this@EpisodesActivity, Downloads.start(applicationContext, url, e.title, name, e.season, e.number, e.image ?: image)) }
+                    .button("Download the Rest of Season ${e.season}") {
+                        val msgs = all.filter { it.season == e.season && it.number >= e.number }.map { x ->
+                            Downloads.start(applicationContext, Xtream.episodeUrl(applicationContext, x), x.title, name, x.season, x.number, x.image ?: image) }
+                        GlassUi.toast(this@EpisodesActivity, msgs.lastOrNull() ?: "Nothing to download")
+                    }
+                    .button("Cancel").show()
+                true
+            }
         }
     }
 

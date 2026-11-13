@@ -197,7 +197,15 @@ class WatchActivity : AppCompatActivity() {
                 if (!isDestroyed) {
                     heroWhere.text = ""
                     val q = intent.getStringExtra(EXTRA_QUERY)
+                    builtFor = ProfileManager.activeKey(this)
                     if (q != null) search(q) else showTab(intent.getStringExtra(EXTRA_TAB) ?: "home", focusContent = true)
+                    // Like Netflix: "Who's watching?" when Watch opens, if more than one person uses this TV (at most every 4 hours).
+                    val mins = (System.currentTimeMillis() / 60_000L).toInt()
+                    if (q == null && ProfileManager.getProfiles(this).size > 1 && Prefs.bool(this, "watch_who", true) &&
+                        mins - Prefs.int(this, "watch_who_at", 0) > 240) {
+                        Prefs.setInt(this, "watch_who_at", mins)
+                        startActivity(Intent(this, WhoActivity::class.java))
+                    }
                     handler.postDelayed({ if (!isDestroyed) prefetch() }, 2500)
                 }
             }
@@ -212,8 +220,12 @@ class WatchActivity : AppCompatActivity() {
         if (wanted != tab && providers.isNotEmpty()) showTab(wanted, focusContent = true)
     }
 
+    private var builtFor: String? = null
+
     override fun onResume() {
         super.onResume()
+        // Someone else picked their profile: rebuild everything for them.
+        ProfileManager.activeKey(this).let { k -> if (builtFor != null && k != builtFor && providers.isNotEmpty()) { builtFor = k; tabViews.clear(); showTab(tab, focusContent = true) } }
         Sync.tick(this)
         // Marked expired? Check with Dodgy Box straight away - if it's been renewed, redraw without "Expired".
         Xtream.recheckIfExpired(this) { still -> if (!still && !isDestroyed && providers.isNotEmpty()) { tabViews.clear(); showTab(tab, focusContent = false) } }
@@ -365,6 +377,15 @@ class WatchActivity : AppCompatActivity() {
                 WatchCatalog.detail(this, last) { d -> done(d?.similar) }
             }
             row.view.tag = "because"
+        }
+        // Rated two thumbs up: more like it.
+        Ratings.loved(this).firstOrNull()?.let { loved ->
+            titleRow(token, "loved", "Because You Loved $loved", quietFail = true) { done ->
+                WatchCatalog.titles(this, search = loved, first = 1) { l ->
+                    val t = l?.firstOrNull() ?: return@titles done(null)
+                    WatchCatalog.detail(this, t) { d -> done(d?.similar) }
+                }
+            }
         }
         for (p in providers) {
             val title = if (p.installed != null) "Popular on ${p.displayName}" else "${p.displayName} · Get the App"
@@ -561,7 +582,14 @@ class WatchActivity : AppCompatActivity() {
         h.root.contentDescription = name
         ImageLoader.load(h.image, v.icon)
         h.root.setOnClickListener { openLibraryFilm(v) }
-        focusEffect(h.root) { showPlainHero("DODGY BOX  ·  FILM", name, "Press OK to watch.") }
+        h.root.setOnLongClickListener {
+            GlassDialog(this).title(name)
+                .button("Watch", GlassDialog.Style.BOLD) { openLibraryFilm(v) }
+                .button("Download for Later") { GlassUi.toast(this, Downloads.start(this, Xtream.vodUrl(applicationContext, v), name, image = v.icon)) }
+                .button("Cancel").show()
+            true
+        }
+        focusEffect(h.root) { showPlainHero("DODGY BOX  ·  FILM", name, "OK to watch  ·  hold OK to download for later") }
     }
 
     private fun bindSeries(h: Holder, s: Xtream.Series) {
@@ -1189,6 +1217,12 @@ class WatchActivity : AppCompatActivity() {
             }
         }
         head("Choose Tables") { chooseTables() }
+        val hidden = Sport.spoilersHidden(this)
+        head(if (hidden) "Scores: Hidden" else "Scores: Shown") {
+            Sport.setSpoilersHidden(this, !hidden)
+            GlassUi.toast(this, if (!hidden) "Scores hidden - no spoilers until you’ve watched" else "Scores shown")
+            showTab("sport", focusContent = false)
+        }
         val overlayOn = Prefs.bool(this, "sport_overlay", true)
         head(if (overlayOn) "Live Scores in Corner: On" else "Live Scores in Corner: Off") {
             Prefs.setBool(this, "sport_overlay", !overlayOn); showTab("sport", focusContent = false)
@@ -1237,7 +1271,8 @@ class WatchActivity : AppCompatActivity() {
 
     private fun bindMatch(h: Holder, m: Sport.Match, ch: LiveGuide.Channel?) {
         val f = m.follow
-        h.label.text = (if ((m.finished || m.live) && m.teamGame) m.scoreLine() else m.title)
+        val hide = Sport.spoilersHidden(this)
+        h.label.text = (if ((m.finished || m.live) && m.teamGame && !hide) m.scoreLine() else m.title)
         val whenText = matchDay.format(java.util.Date(m.start)).replace("AM", "am").replace("PM", "pm")
         h.sub?.text = "${f.icon}  " + when {
             m.live -> "LIVE ${m.detail}" + (ch?.let { "  ·  ${it.name}" } ?: "")
@@ -1257,7 +1292,7 @@ class WatchActivity : AppCompatActivity() {
 
     private fun showMatchHero(m: Sport.Match, ch: LiveGuide.Channel?) = showPlainHero(
         (if (m.live) "LIVE  ·  ${m.detail}" else if (m.finished) "RESULT" else "COMING UP") + "  ·  " + m.follow.name.uppercase(),
-        if ((m.finished || m.live) && m.teamGame) m.scoreLine() else m.title,
+        if ((m.finished || m.live) && m.teamGame && !Sport.spoilersHidden(this)) m.scoreLine() else m.title,
         when {
             m.finished -> m.detail.ifBlank { m.competition }
             ch != null -> "On ${ch.name}" + if (m.live) " - press OK to watch" else " - press OK to be reminded"
@@ -1412,10 +1447,39 @@ class WatchActivity : AppCompatActivity() {
         d.button("Done").show()
     }
 
+    private fun downloadsRow(): View? {
+        val items = Downloads.all(this)
+        if (items.isEmpty()) return null
+        val r = row("downloads", "Downloads", height = 150f)
+        r.list.adapter = CardAdapter(items, { p -> wideCard(p) }) { h, d ->
+            val (st, ready) = Downloads.status(this, d)
+            h.label.text = d.label
+            h.sub?.text = st
+            h.progress?.visibility = View.GONE
+            ImageLoader.load(h.image, d.image, ImageLoader.CARD)
+            h.root.contentDescription = d.label
+            h.root.setOnClickListener {
+                if (!ready) { GlassUi.toast(this, st); return@setOnClickListener }
+                PlayerActivity.play(this, android.net.Uri.fromFile(java.io.File(d.file)).toString(), d.series ?: d.title, live = false,
+                    subtitle = if (d.series != null) "Season ${d.season}, Episode ${d.episode}" else null, eyebrow = "DOWNLOADED",
+                    series = d.series, season = d.season, episode = d.episode, image = d.image)
+            }
+            h.root.setOnLongClickListener {
+                GlassDialog(this).title(d.label).message(st)
+                    .button("Delete Download", GlassDialog.Style.DESTRUCTIVE) { Downloads.delete(this, d); showTab(tab, focusContent = true) }
+                    .button("Cancel").show()
+                true
+            }
+            focusEffect(h.root) { showPlainHero("DOWNLOADED", d.label, if (ready) "Plays from the TV itself - no buffering." else st) }
+        }
+        return r.view
+    }
+
     private fun buildList() {
+        downloadsRow()?.let { rows.addView(it) }
         recordingsRow("recordings")?.let { rows.addView(it) }
         val list = WatchCatalog.myList(this)
-        if (list.isEmpty() && Recordings.shown(this).isNotEmpty()) return
+        if (list.isEmpty() && (Recordings.shown(this).isNotEmpty() || Downloads.all(this).isNotEmpty())) return
         if (list.isEmpty()) {
             showPlainHero("MY LIST", "Nothing saved yet", "Open any film or show and choose “Add to My List”.")
             rows.addView(GlassUi.text(this, "Your saved films and shows appear here.", 13f, R.font.inter_medium, 0x99FFFFFF.toInt()),
@@ -2026,8 +2090,9 @@ class WatchActivity : AppCompatActivity() {
         r.list.adapter = SkeletonAdapter(104f, 156f)            // soft placeholders until the titles arrive
         val host = rows
         host.addView(r.view)
-        load { titles ->
+        load { raw ->
             if (containerToken[host] != token || isDestroyed) return@load
+            val titles = raw?.filterNot { Ratings.disliked(this, it.name) }   // "Not for me" titles stay hidden
             when {
                 titles.isNullOrEmpty() && (quietFail || titles != null) -> host.removeView(r.view)
                 titles == null -> { r.list.adapter = adapter; r.view.addView(GlassUi.text(this, "Couldn’t load - check the internet connection", 12f, R.font.inter_regular, 0x99FFFFFF.toInt()),

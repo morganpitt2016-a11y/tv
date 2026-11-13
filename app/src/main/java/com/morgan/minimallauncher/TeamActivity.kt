@@ -149,7 +149,8 @@ class TeamActivity : Activity() {
                 (v.background as? GradientDrawable)?.setStroke(dp(c, if (has) 2f else 1f), if (has) theme.accent else edge) }
             setOnClickListener { if (m.finished) search("${m.home} v ${m.away}") else watchOrRemind(m) }
         }
-        if (m.finished) {
+        val hide = Sport.spoilersHidden(this)
+        if (m.finished && !hide) {
             val us = (if (homeSide) m.homeScore else m.awayScore).toIntOrNull() ?: 0
             val them = (if (homeSide) m.awayScore else m.homeScore).toIntOrNull() ?: 0
             val (letter, colour) = when { us > them -> "W" to 0xFF2BB673.toInt(); us < them -> "L" to 0xFFE0453A.toInt(); else -> "D" to 0xFF8A8F98.toInt() }
@@ -159,7 +160,7 @@ class TeamActivity : Activity() {
         card.addView(ImageView(c).apply { scaleType = ImageView.ScaleType.FIT_CENTER; oppLogo?.let { ImageLoader.load(this, it, ImageLoader.ICON) } }, LinearLayout.LayoutParams(dp(c, 36f), dp(c, 36f)))
         val txt = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL }
         txt.addView(TextView(c).apply {
-            text = (if (homeSide) "v " else "@ ") + opp + if (m.finished || m.live) "   ${m.homeScore}–${m.awayScore}" else ""
+            text = (if (homeSide) "v " else "@ ") + opp + if ((m.finished || m.live) && !hide) "   ${m.homeScore}–${m.awayScore}" else ""
             setTextColor(0xFFFFFFFF.toInt()); textSize = 16f; maxLines = 1; typeface = bold() })
         txt.addView(TextView(c).apply {
             text = when { m.live -> "LIVE  ·  ${m.detail}  ·  OK to watch"; m.finished -> dayFmt.format(Date(m.start)).substringBefore("  ·") + "  ·  OK for replays & highlights"

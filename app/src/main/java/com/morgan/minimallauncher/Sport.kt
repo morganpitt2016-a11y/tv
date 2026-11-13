@@ -52,6 +52,10 @@ object Sport {
         fun scoreLine() = if (teamGame) "$homeAbbr $homeScore–$awayScore $awayAbbr" else title
     }
 
+    /** Spoiler-free: scores stay hidden until you've watched (Sport tab → Scores). */
+    fun spoilersHidden(c: Context) = Prefs.bool(c, ProfileManager.scope(c, "sport_no_spoilers"), false)
+    fun setSpoilersHidden(c: Context, on: Boolean) = Prefs.setBool(c, ProfileManager.scope(c, "sport_no_spoilers"), on)
+
     // ---------- What this person follows ----------
 
     private fun key(c: Context) = ProfileManager.scope(c, "sport_follows")
@@ -207,7 +211,7 @@ object Sport {
             }.distinctBy { it.id }.take(3)
             var goal = false
             val lines = live.map { m ->
-                val line = "${m.follow.icon} ${m.scoreLine()}  ·  ${m.detail}"
+                val line = if (spoilersHidden(c)) "${m.follow.icon} ${m.title}  ·  LIVE" else "${m.follow.icon} ${m.scoreLine()}  ·  ${m.detail}"
                 if (m.teamGame && lastLines[m.id]?.substringBefore("  ·") != null && lastLines[m.id]!!.substringBefore("  ·") != line.substringBefore("  ·")) goal = true
                 lastLines[m.id] = line
                 line

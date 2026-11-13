@@ -81,6 +81,23 @@ class PlayerActivity : Activity() {
     private var episodeList: List<Xtream.Episode>? = null
     private var episodeListLoading = false
     private val showPause = Runnable { showPauseInfo() }
+    private var soundFx: SoundProfile.Effect? = null
+    /** "Are you still watching?": episodes played on by themselves with no button pressed. */
+    private var autoInARow = 0
+    private var pressedThisEpisode = false
+    /** Next-episode card shown during the credits (the picture shrinks into the corner). */
+    private var creditsMode = false
+    private var creditsCard: LinearLayout? = null
+    private var creditsLine: android.widget.TextView? = null
+    /** Episodes strip (Down while watching). */
+    private var strip: android.widget.HorizontalScrollView? = null
+    /** Scrub previews. */
+    private var thumbView: android.widget.ImageView? = null
+    private val thumbExec = java.util.concurrent.Executors.newSingleThreadExecutor()
+    @Volatile private var thumbWant = -1L
+    private var thumbRetriever: android.media.MediaMetadataRetriever? = null
+    private var thumbFor: String? = null
+    private var subsUntil = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -179,6 +196,7 @@ class PlayerActivity : Activity() {
         pauseInfo.addView(pausePlot, LinearLayout.LayoutParams(dp(this@PlayerActivity, 520f), -2).apply { topMargin = dp(this@PlayerActivity, 10f) })
         root.addView(pauseInfo, 1, FrameLayout.LayoutParams(dp(this, 900f), -1, Gravity.START))
         setContentView(root)
+        if (!live) view.post { setUpScrubPreview() }
         handler.postDelayed({ banner.animate().alpha(0f).setDuration(600).start() }, 4500)
 
         seriesTitle = intent.getStringExtra(EXTRA_SERIES)
@@ -230,6 +248,13 @@ class PlayerActivity : Activity() {
         val extractors = androidx.media3.extractor.DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true)
         val sources = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(this, extractors)
         val p = ExoPlayer.Builder(this).setLoadControl(load).setMediaSourceFactory(sources).build()
+        // Our own sound session, so the sound profile (Sound Check, Dialogue Boost, Even Volume) can shape it.
+        try {
+            val sid = androidx.media3.common.util.Util.generateAudioSessionIdV21(this)
+            p.setAudioSessionId(sid)
+            soundFx?.release()
+            soundFx = SoundProfile.Effect(sid).also { it.apply(SoundProfile.get(this)) }
+        } catch (e: Throwable) {}
         p.addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
                 // Pause/rewind couldn't keep up with this channel: play it straight from the internet instead.
@@ -267,7 +292,7 @@ class PlayerActivity : Activity() {
                 if (state == Player.STATE_ENDED && !live) {
                     Prefs.setInt(this@PlayerActivity, posKey(), 0)
                     if (sleepAfterEpisode) goToSleep()
-                    else if (queue.isNotEmpty()) startCountdown() else finish()
+                    else if (queue.isNotEmpty()) startCountdown() else askRating { finish() }
                 }
             }
         })
@@ -323,14 +348,15 @@ class PlayerActivity : Activity() {
             val p = player
             if (p != null && !live && queue.isNotEmpty() && !counting && p.duration > 0) {
                 val left = p.duration - p.currentPosition
-                val next = queue.first()
-                if (left in 1..25_000 && !nextDismissed) {
-                    nextView.text = "Next episode · S${next.season} E${next.episode}\nPress OK to play it now"
-                    nextView.visibility = View.VISIBLE
-                } else if (left > 25_000) { nextDismissed = false; if (nextView.visibility == View.VISIBLE) nextView.visibility = View.GONE }
+                val window = creditsWindow()
+                if (left in 1..window && !nextDismissed && p.isPlaying) enterCredits(left)
+                else if (left > window) { nextDismissed = false; if (creditsMode) restoreFromCredits() }
+                if (creditsMode) creditsLine?.text = "Next episode in ${(left / 1000).coerceAtLeast(0)}s"
             }
+            if (subsUntil > 0 && System.currentTimeMillis() > subsUntil) endTempSubs()
             if (p != null && !live && seriesTitle != null) {
                 val pos = p.currentPosition
+                skipView.text = if (curEpisode > 1 && pos < 60_000L) "Skip Recap  ›" else "Skip Intro  ›"
                 val end = introEnd()
                 val inIntro = pos in 8_000 until minOf(end - 3_000, 240_000L)
                 if (inIntro && !skipDismissed && skipShownAt == 0L) skipShownAt = System.currentTimeMillis()
@@ -341,6 +367,13 @@ class PlayerActivity : Activity() {
                 else if (!show && skipView.visibility == View.VISIBLE) skipView.animate().alpha(0f).setDuration(400).withEndAction { skipView.visibility = View.GONE }.start()
             }
             if (++ticks % 15 == 0) saveProgress()
+            // Let the other TV know what's on here (for its "On the other TV" corner).
+            if ((ticks == 5 || ticks % 180 == 0) && player?.isPlaying == true) {
+                val app = applicationContext
+                val t = seriesTitle ?: titleText
+                val sub = if (curSeason > 0) "Season $curSeason, Episode $curEpisode" else if (live) bannerSub.text?.toString() else null
+                Bg.run { Sync.shareNow(app, t, sub) }
+            }
             handler.postDelayed(this, 1000)
         }
     }
@@ -358,6 +391,7 @@ class PlayerActivity : Activity() {
         ts?.stop(); ts = null; tsStart = 0L
         watching = false
         handler.removeCallbacks(progressTick)
+        applicationContext.let { app -> if (Sync.isOn(app)) Bg.run { Sync.shareNow(app, null, null) } }
         saveProgress()
         player?.let { p ->
             // Remember where a film or episode was, to carry on next time.
@@ -368,6 +402,8 @@ class PlayerActivity : Activity() {
             p.release()
         }
         player = null
+        soundFx?.release(); soundFx = null
+        restoreFromCredits()
     }
 
     private fun rememberLive() {
@@ -445,13 +481,20 @@ class PlayerActivity : Activity() {
             if (!counting) return
             nextView.text = "Next episode · S${next.season} E${next.episode}\nPlaying in ${left}s   ·   OK to play now   ·   Back to stop"
             nextView.visibility = View.VISIBLE
-            if (left-- <= 0) { playNext(); return }
+            if (left-- <= 0) { playNext(auto = true); return }
             handler.postDelayed({ tick() }, 1000)
         }
         tick()
     }
 
-    private fun playNext() {
+    private fun playNext(auto: Boolean = false) {
+        if (creditsMode) {
+            // Pressed during the credits: learn how long this series' credits are.
+            if (!auto) player?.let { p -> if (p.duration > 0) seriesTitle?.let { Prefs.setInt(this, creditsKey(), ((p.duration - p.currentPosition) / 1000).toInt().coerceIn(10, 240)) } }
+            restoreFromCredits()
+        }
+        autoInARow = if (auto && !pressedThisEpisode) autoInARow + 1 else 0
+        pressedThisEpisode = false
         counting = false
         nextView.visibility = View.GONE
         skipDismissed = false; skipShownAt = 0L; skipView.visibility = View.GONE
@@ -467,6 +510,7 @@ class PlayerActivity : Activity() {
         showBanner(4500)
         start(n.url, resume = false)
         handler.removeCallbacks(progressTick); handler.postDelayed(progressTick, 1000)
+        if (autoInARow >= 3) askStillWatching()
     }
 
     private var nextDismissed = false
@@ -475,6 +519,25 @@ class PlayerActivity : Activity() {
         // Paused with "You're watching" up: a press brings the controls back (and still does its job).
         if (event.action == KeyEvent.ACTION_DOWN && ::pauseInfo.isInitialized && pauseInfo.visibility == View.VISIBLE) {
             hidePauseInfo()
+        }
+        if (event.action == KeyEvent.ACTION_DOWN) pressedThisEpisode = true
+        // Episodes strip open: Back closes it; everything else moves around it.
+        strip?.let { st ->
+            if (event.keyCode == KeyEvent.KEYCODE_BACK) { if (event.action == KeyEvent.ACTION_DOWN) hideStrip(); return true }
+            if (event.keyCode == KeyEvent.KEYCODE_DPAD_UP && event.action == KeyEvent.ACTION_DOWN) { hideStrip(); return true }
+            return super.dispatchKeyEvent(event)
+        }
+        // During the credits: OK plays the next episode, Back carries on with the credits full screen.
+        if (creditsMode && !counting && event.action == KeyEvent.ACTION_DOWN) {
+            when (event.keyCode) {
+                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> { swallowOkUp = true; playNext(); return true }
+                KeyEvent.KEYCODE_BACK -> { nextDismissed = true; restoreFromCredits(); return true }
+            }
+        }
+        // Watching a film or episode with the controls hidden: Up = "What did they say?", Down = episodes.
+        if (!live && event.action == KeyEvent.ACTION_DOWN && !view.isControllerFullyVisible && !counting && !creditsMode) {
+            if (event.keyCode == KeyEvent.KEYCODE_DPAD_UP) { whatDidTheySay(); return true }
+            if (event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN && seriesTitle != null && curSeason > 0) { showStrip(); return true }
         }
         if (swallowOkUp && event.action == KeyEvent.ACTION_UP && (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER)) {
             swallowOkUp = false; return true
@@ -581,6 +644,7 @@ class PlayerActivity : Activity() {
             .button("Audio · ${selectedLabel(C.TRACK_TYPE_AUDIO, null)}") { pickTrack(C.TRACK_TYPE_AUDIO, "Audio") }
             .button("Picture · ${resizeName(view.resizeMode)}") { pickPicture() }
             .button("Speed · ${p.playbackParameters.speed}x") { pickSpeed() }
+            .button("Sound · ${soundLabel()}") { pickSound() }
             .button("Sleep Timer · ${sleepLabel()}") { pickSleep() }
             .button("Close").show()
     }
@@ -784,6 +848,257 @@ class PlayerActivity : Activity() {
         return if (Regex("(?i)^(s\\d+\\s*e\\d+|episode\\s*\\d+|e\\d+)$").matches(last)) "" else last
     }
 
+    // ---------- Sound ----------
+
+    private fun soundLabel(): String {
+        val s = SoundProfile.get(this)
+        return when { s.flat -> "Original"; else -> listOfNotNull(if (SoundProfile.calibrated(this)) "Tuned" else null,
+            if (s.dialogue) "Dialogue Boost" else null, if (s.level) "Even Volume" else null).joinToString(" · ").ifBlank { "Custom" } }
+    }
+
+    private fun applySound(s: SoundProfile.Settings) { soundFx?.apply(s) }
+
+    private fun pickSound() {
+        val s = SoundProfile.get(this)
+        val passthrough = player?.audioFormat?.sampleMimeType?.let { it.contains("ac3") || it.contains("dts") || it.contains("eac3") } == true
+        GlassDialog(this).title("Sound").message(SoundProfile.describe(s) +
+                (if (passthrough) "\n\nThis programme’s Dolby sound may go straight to your soundbar, which then does its own processing." else ""))
+            .button("Sound Check…", GlassDialog.Style.BOLD) {
+                SoundProfile.soundCheck(this, { applySound(it.copy(dialogue = s.dialogue)) }) { r ->
+                    val keep = r.copy(dialogue = s.dialogue); SoundProfile.save(this, keep); applySound(keep)
+                }
+            }
+            .toggle("Dialogue Boost - clearer voices", s.dialogue) {
+                val n = SoundProfile.get(this).let { it.copy(dialogue = !it.dialogue) }; SoundProfile.save(this, n); applySound(n)
+            }
+            .toggle("Even Volume - no sudden loud bits", s.level) {
+                val n = SoundProfile.get(this).let { it.copy(level = !it.level) }; SoundProfile.save(this, n); applySound(n)
+            }
+            .button("Back to the Original Sound") { val n = SoundProfile.Settings(0, 0, 0, false, false); SoundProfile.save(this, n); applySound(n) }
+            .button("Done").show()
+    }
+
+    // ---------- "What did they say?": back 10 seconds with subtitles on for a moment ----------
+
+    private var subsWereOff = false
+    private fun whatDidTheySay() {
+        val p = player ?: return
+        p.seekTo((p.currentPosition - 10_000L).coerceAtLeast(0))
+        val hasSubs = choices(C.TRACK_TYPE_TEXT).isNotEmpty()
+        if (hasSubs && subsUntil == 0L) {
+            subsWereOff = p.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT) || choices(C.TRACK_TYPE_TEXT).none { it.group.isTrackSelected(it.index) }
+            if (subsWereOff) p.trackSelectionParameters = p.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                .setPreferredTextLanguage(java.util.Locale.getDefault().language).build()
+        }
+        if (hasSubs) subsUntil = System.currentTimeMillis() + 15_000L
+        tsView.text = if (hasSubs) "⟲  Back 10 seconds, with subtitles" else "⟲  Back 10 seconds"
+        tsView.visibility = View.VISIBLE
+        handler.removeCallbacks(hideTs); handler.postDelayed({ tsView.visibility = View.GONE }, 2500)
+    }
+
+    private fun endTempSubs() {
+        subsUntil = 0L
+        val p = player ?: return
+        if (subsWereOff) p.trackSelectionParameters = p.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
+        subsWereOff = false
+    }
+
+    // ---------- Next episode during the credits ----------
+
+    private fun creditsKey() = ProfileManager.scope(this, "credits_" + TextMatch.vodKey(seriesTitle.orEmpty()))
+    private fun creditsWindow(): Long = (Prefs.int(this, creditsKey(), 0).takeIf { it > 0 } ?: 25) * 1000L
+
+    private fun enterCredits(left: Long) {
+        if (creditsMode) return
+        creditsMode = true
+        view.hideController()
+        nextView.visibility = View.GONE
+        val c = this
+        // The picture shrinks to the top-left, like Netflix; a big "Next Episode" card takes the rest.
+        view.pivotX = 0f; view.pivotY = 0f
+        view.animate().scaleX(0.46f).scaleY(0.46f).translationX(dp(c, 48f).toFloat()).translationY(dp(c, 40f).toFloat()).setDuration(450).start()
+        val n = queue.first()
+        val ep = episodeList?.firstOrNull { it.season == n.season && it.number == n.episode }
+        val card = LinearLayout(c).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(c, 8f), 0, 0, 0)
+            alpha = 0f
+        }
+        card.addView(GlassUi.text(c, "UP NEXT", 12f, R.font.inter_semibold, 0x99FFFFFF.toInt()).apply { letterSpacing = 0.2f })
+        card.addView(GlassUi.text(c, "Season ${n.season}: Episode ${n.episode}", 22f, R.font.inter_semibold), LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(c, 6f) })
+        ep?.title?.let { cleanEpTitle(it) }?.takeIf { it.isNotBlank() }?.let { card.addView(GlassUi.text(c, "“$it”", 16f, R.font.inter_medium, 0xE6FFFFFF.toInt())) }
+        ep?.plot?.takeIf { it.isNotBlank() }?.let { card.addView(GlassUi.text(c, it, 13f, R.font.inter_medium, 0xB3FFFFFF.toInt()).apply { maxLines = 4 },
+            LinearLayout.LayoutParams(dp(c, 380f), -2).apply { topMargin = dp(c, 8f) }) }
+        val btn = GlassUi.text(c, "▶  Next Episode", 16f, R.font.inter_semibold, 0xFF000000.toInt()).apply {
+            background = android.graphics.drawable.GradientDrawable().apply { cornerRadius = dp(c, 22f).toFloat(); setColor(0xFFFFFFFF.toInt()) }
+            setPadding(dp(c, 24f), dp(c, 11f), dp(c, 24f), dp(c, 11f))
+        }
+        card.addView(btn, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(c, 18f) })
+        val line = GlassUi.text(c, "", 12f, R.font.inter_medium, 0x99FFFFFF.toInt())
+        card.addView(line, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(c, 10f) })
+        card.addView(GlassUi.text(c, "OK to play now  ·  Back to watch the credits", 12f, R.font.inter_medium, 0x80FFFFFF.toInt()))
+        creditsLine = line
+        (view.parent as? FrameLayout)?.addView(card, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, dp(c, 64f), dp(c, 60f)) })
+        card.animate().alpha(1f).setDuration(400).start()
+        creditsCard = card
+        if (episodeList == null) showPauseInfoFetchOnly()
+    }
+
+    private fun restoreFromCredits() {
+        if (!creditsMode) return
+        creditsMode = false
+        view.animate().scaleX(1f).scaleY(1f).translationX(0f).translationY(0f).setDuration(300).start()
+        creditsCard?.let { (it.parent as? FrameLayout)?.removeView(it) }
+        creditsCard = null; creditsLine = null
+    }
+
+    /** Fetches the episode names and stories (for the credits card and the episodes strip). */
+    private fun showPauseInfoFetchOnly(then: (() -> Unit)? = null) {
+        if (episodeList != null) { then?.invoke(); return }
+        if (episodeListLoading || seriesTitle == null) return
+        episodeListLoading = true
+        val app = applicationContext; val name = seriesTitle!!
+        Bg.run {
+            val eps = try { Xtream.findSeries(app, name, 0)?.let { Xtream.episodes(app, it) } } catch (e: Exception) { null }
+            runOnUiThread { episodeListLoading = false; episodeList = eps.orEmpty(); if (!isDestroyed) then?.invoke() }
+        }
+    }
+
+    // ---------- "Are you still watching?" ----------
+
+    private fun askStillWatching() {
+        handler.postDelayed({
+            if (isFinishing) return@postDelayed
+            player?.playWhenReady = false
+            GlassDialog(this).title("Are You Still Watching?").message("${seriesTitle ?: titleText} has played ${autoInARow} episodes in a row without a button being pressed.")
+                .button("Continue Watching", GlassDialog.Style.BOLD) { autoInARow = 0; player?.playWhenReady = true }
+                .button("Back to Browse") { finish() }
+                .button("Turn Off the TV") { goToSleep() }
+                .show()
+        }, 1500)
+    }
+
+    // ---------- Rate it at the end ----------
+
+    private fun askRating(then: () -> Unit) {
+        val name = seriesTitle ?: titleText
+        if (live || name.isBlank() || Ratings.get(this, name) != null) return then()
+        val d = GlassDialog(this).title("How Was $name?").message("Your rating tunes what’s recommended to this profile.")
+        d.button("👍👍  Love This!", GlassDialog.Style.BOLD) { Ratings.set(this, name, 2); then() }
+        d.button("👍  I Like This") { Ratings.set(this, name, 1); then() }
+        d.button("👎  Not for Me") { Ratings.set(this, name, -1); then() }
+        d.button("Skip") { then() }
+        d.show().setOnCancelListener { then() }
+    }
+
+    // ---------- Episodes strip ----------
+
+    private fun showStrip() {
+        if (strip != null) return
+        showPauseInfoFetchOnly { buildStrip() }
+        if (episodeList != null) buildStrip() else GlassUi.toast(this, "Getting the episodes…")
+    }
+
+    private fun buildStrip() {
+        if (strip != null || isFinishing) return
+        val eps = episodeList.orEmpty().filter { it.season == curSeason }.ifEmpty { return }
+        val c = this
+        val row = LinearLayout(c).apply { setPadding(dp(c, 48f), dp(c, 12f), dp(c, 48f), dp(c, 8f)); clipChildren = false; clipToPadding = false }
+        var focusMe: View? = null
+        for (e in eps) {
+            val now = e.number == curEpisode
+            val card = LinearLayout(c).apply {
+                orientation = LinearLayout.VERTICAL
+                background = GlassUi.panel(c, 14f, if (now) 0x70 else 0x40)
+                setPadding(dp(c, 14f), dp(c, 10f), dp(c, 14f), dp(c, 10f))
+                isFocusable = true; isClickable = true
+                setOnFocusChangeListener { v, has -> Motion.spring(v, if (has) 1.08f else 1f); v.alpha = if (has) 1f else 0.8f }
+                alpha = 0.8f
+                setOnClickListener { hideStrip(); if (!now) playEpisode(e) }
+            }
+            card.addView(GlassUi.text(c, (if (now) "▶ NOW  ·  " else "") + "EPISODE ${e.number}", 11f, R.font.inter_semibold, 0x99FFFFFF.toInt()).apply { letterSpacing = 0.1f })
+            card.addView(GlassUi.text(c, cleanEpTitle(e.title).ifBlank { "Episode ${e.number}" }, 14f, R.font.inter_semibold).apply { maxLines = 2 })
+            if (e.minutes > 0) card.addView(GlassUi.text(c, "${e.minutes} min", 11f, R.font.inter_medium, 0x99FFFFFF.toInt()))
+            row.addView(card, LinearLayout.LayoutParams(dp(c, 210f), dp(c, 96f)).apply { marginEnd = dp(c, 14f) })
+            if (now) focusMe = card
+        }
+        val hs = android.widget.HorizontalScrollView(c).apply {
+            isHorizontalScrollBarEnabled = false; clipChildren = false; clipToPadding = false; addView(row)
+            background = android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.BOTTOM_TOP, intArrayOf(0xE6000000.toInt(), 0x00000000))
+            setPadding(0, dp(c, 40f), 0, dp(c, 24f))
+        }
+        (view.parent as? FrameLayout)?.addView(hs, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
+        strip = hs
+        view.hideController()
+        (focusMe ?: row.getChildAt(0))?.let { f -> f.post { f.requestFocus(); hs.smoothScrollTo((f.left - dp(c, 48f)).coerceAtLeast(0), 0) } }
+    }
+
+    private fun hideStrip() {
+        strip?.let { (it.parent as? FrameLayout)?.removeView(it) }
+        strip = null
+        view.requestFocus()
+    }
+
+    private fun playEpisode(e: Xtream.Episode) {
+        saveProgress()
+        val app = applicationContext
+        val eps = episodeList.orEmpty()
+        val i = eps.indexOfFirst { it.season == e.season && it.number == e.number }
+        queue.clear()
+        eps.drop(i).forEach { queue.addLast(Queued(Xtream.episodeUrl(app, it), it.season, it.number)) }
+        playNext()
+    }
+
+    // ---------- Previews while skipping through ----------
+
+    private fun setUpScrubPreview() {
+        val bar = view.findViewById<androidx.media3.ui.DefaultTimeBar>(androidx.media3.ui.R.id.exo_progress) ?: return
+        val c = this
+        val iv = android.widget.ImageView(c).apply {
+            scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+            background = android.graphics.drawable.GradientDrawable().apply { cornerRadius = dp(c, 8f).toFloat(); setColor(0xFF000000.toInt()); setStroke(dp(c, 2f), 0xFFFFFFFF.toInt()) }
+            clipToOutline = true; outlineProvider = android.view.ViewOutlineProvider.BACKGROUND
+            visibility = View.GONE
+        }
+        (view.parent as? FrameLayout)?.addView(iv, FrameLayout.LayoutParams(dp(c, 240f), dp(c, 135f), Gravity.BOTTOM or Gravity.START))
+        thumbView = iv
+        bar.addListener(object : androidx.media3.ui.TimeBar.OnScrubListener {
+            override fun onScrubStart(t: androidx.media3.ui.TimeBar, pos: Long) { onScrub(bar, pos) }
+            override fun onScrubMove(t: androidx.media3.ui.TimeBar, pos: Long) { onScrub(bar, pos) }
+            override fun onScrubStop(t: androidx.media3.ui.TimeBar, pos: Long, canceled: Boolean) { thumbWant = -1L; iv.visibility = View.GONE }
+        })
+    }
+
+    private fun onScrub(bar: View, pos: Long) {
+        val iv = thumbView ?: return
+        val p = player ?: return
+        if (live || p.duration <= 0 || !url.startsWith("http")) return
+        // Place it above the point on the bar.
+        val loc = IntArray(2); bar.getLocationInWindow(loc)
+        val x = loc[0] + bar.width * (pos.toFloat() / p.duration) - iv.layoutParams.width / 2f
+        (iv.layoutParams as FrameLayout.LayoutParams).apply {
+            leftMargin = x.toInt().coerceIn(dp(this@PlayerActivity, 24f), (view.width - iv.layoutParams.width - dp(this@PlayerActivity, 24f)).coerceAtLeast(0))
+            bottomMargin = (view.height - loc[1]) + dp(this@PlayerActivity, 14f)
+        }
+        iv.requestLayout()
+        val want = pos
+        thumbWant = want
+        val u = url
+        thumbExec.execute {
+            if (thumbWant != want) return@execute   // a newer position is waiting
+            val bmp = try {
+                if (thumbFor != u) {
+                    thumbRetriever?.release()
+                    thumbRetriever = android.media.MediaMetadataRetriever().apply { setDataSource(u, hashMapOf("User-Agent" to Xtream.PLAYER_AGENT)) }
+                    thumbFor = u
+                }
+                if (android.os.Build.VERSION.SDK_INT >= 27) thumbRetriever?.getScaledFrameAtTime(want * 1000L, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC, 320, 180)
+                else thumbRetriever?.getFrameAtTime(want * 1000L, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+            } catch (e: Throwable) { thumbFor = null; null }
+            runOnUiThread { if (bmp != null && thumbWant == want) { iv.setImageBitmap(bmp); iv.visibility = View.VISIBLE } }
+        }
+    }
+
     private fun hidePauseInfo() {
         handler.removeCallbacks(showPause)
         if (!::pauseInfo.isInitialized || pauseInfo.visibility != View.VISIBLE) return
@@ -791,6 +1106,8 @@ class PlayerActivity : Activity() {
     }
 
     override fun onDestroy() {
+        thumbExec.execute { try { thumbRetriever?.release() } catch (e: Throwable) {}; thumbRetriever = null }
+        thumbExec.shutdown()
         sleepHandler.removeCallbacksAndMessages(null)
         handler.removeCallbacksAndMessages(null)
         super.onDestroy()

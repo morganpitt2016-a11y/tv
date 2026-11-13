@@ -514,7 +514,7 @@ class SportTableActivity : Activity() {
         }
         card.addView(side(m.homeLogo, m.homeAbbr), LinearLayout.LayoutParams(dp(c, 56f), -2))
         card.addView(TextView(c).apply {
-            text = if (m.finished || m.live) "${m.homeScore}–${m.awayScore}" else "V"
+            text = if ((m.finished || m.live) && !Sport.spoilersHidden(this@SportTableActivity)) "${m.homeScore}–${m.awayScore}" else "V"
             setTextColor(ACCENT); gravity = Gravity.CENTER
             textSize = if (m.finished || m.live) 22f else 30f
             typeface = Typeface.create(GlassUi.font(c, R.font.inter_semibold), Typeface.BOLD_ITALIC)
@@ -537,7 +537,7 @@ class SportTableActivity : Activity() {
     private fun openMatch(m: SportTables.Fixture) {
         if (m.finished) {
             // A result: pick a side to see that team, or look for the replay.
-            GlassDialog(this).title("${m.home} ${m.homeScore}–${m.awayScore} ${m.away}")
+            GlassDialog(this).title(if (Sport.spoilersHidden(this)) "${m.home} v ${m.away}" else "${m.home} ${m.homeScore}–${m.awayScore} ${m.away}")
                 .button("Find Replays & Highlights", GlassDialog.Style.BOLD) {
                     startActivity(Intent(this, WatchActivity::class.java).putExtra(WatchActivity.EXTRA_TAB, "search").putExtra(WatchActivity.EXTRA_QUERY, "${m.home} v ${m.away}"))
                 }
