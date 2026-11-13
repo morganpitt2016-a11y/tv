@@ -241,6 +241,7 @@ class WatchActivity : AppCompatActivity() {
         Xtream.recheckIfExpired(this) { still -> if (!still && !isDestroyed && providers.isNotEmpty()) { tabViews.clear(); showTab(tab, focusContent = false) } }
         handler.postDelayed(rotateFeatured, FEATURE_MS)
         armSaver()
+        if (heroCollapsed || searchBar?.visibility == View.VISIBLE) info.alpha = 0f
         Coach.resume(this, "watch") { coachTarget(it) }
         if (tab == "home" && rows.childCount > 0 && detail == null) { refreshPersonalRows(); refreshResumeRow() }
         else if (rows.childCount > 0 && detail == null) refreshResumeRow()
@@ -415,7 +416,7 @@ class WatchActivity : AppCompatActivity() {
             start()
         }
         info.animate().alpha(if (collapse || searchBar?.visibility == View.VISIBLE) 0f else 1f).setDuration(260).start()
-        heroDim.animate().alpha(if (collapse) 0.72f else 0f).setDuration(380).start()
+        heroDim.animate().alpha(if (collapse) 0.9f else 0f).setDuration(380).start()
     }
 
     /** Live TV: just a doorway to the guide (OK or Down opens it), so moving past it loads nothing. */
@@ -812,7 +813,7 @@ class WatchActivity : AppCompatActivity() {
                 .button("Cancel").show()
             true
         }
-        focusEffect(h.root) { showPlainHero("DODGY BOX  ·  FILM", name, "OK to watch  ·  hold OK to download for later") }
+        focusEffect(h.root) { showPlainHero("DODGY BOX  ·  FILM", name, "OK to watch  ·  hold OK to download for later"); setHeroImage(v.icon) }
     }
 
     private fun bindSeries(h: Holder, s: Xtream.Series) {
@@ -821,7 +822,7 @@ class WatchActivity : AppCompatActivity() {
         h.root.contentDescription = name
         ImageLoader.load(h.image, s.cover)
         h.root.setOnClickListener { openLibrarySeries(s) }
-        focusEffect(h.root) { showPlainHero("DODGY BOX  ·  SERIES", name, "Press OK for the episodes.") }
+        focusEffect(h.root) { showPlainHero("DODGY BOX  ·  SERIES", name, "Press OK for the episodes."); setHeroImage(s.cover) }
     }
 
     /** On a Kids profile: only what's in children's categories (call off the main thread). */
@@ -2153,7 +2154,11 @@ class WatchActivity : AppCompatActivity() {
         detail = null
         detailScroll = null
         detailMore = null
-        for (v in listOf<View>(info, nav, scroll)) { v.visibility = View.VISIBLE; v.animate().alpha(1f).setDuration(240).start() }
+        // Back from a title's page: the hero text only comes back if the hero isn't tucked away (else it showed through the rows).
+        for (v in listOf<View>(info, nav, scroll)) {
+            v.visibility = View.VISIBLE
+            v.animate().alpha(if (v === info && (heroCollapsed || searchBar?.visibility == View.VISIBLE)) 0f else 1f).setDuration(240).start()
+        }
         page.animate().alpha(0f).setDuration(200).withEndAction { root.removeView(page) }.start()
         heroUrl = null
         // Something may have been watched from the page: bring Continue Watching and My List up to date.
