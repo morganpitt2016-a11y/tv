@@ -119,7 +119,7 @@ class PlayerActivity : Activity() {
         view.resizeMode = Prefs.int(this, "player_resize", AspectRatioFrameLayout.RESIZE_MODE_FIT)
 
         // "Subtitles · Audio · Picture": shown with the playback controls (and by the Menu key).
-        optionsPill = GlassUi.text(this, "Subtitles · Audio · Picture", 13f, R.font.inter_medium).apply {
+        optionsPill = GlassUi.text(this, "Subtitles · Audio · Sound", 13f, R.font.inter_medium).apply {
             background = GlassUi.panel(context, 18f, 0x40)
             setPadding(dp(context, 18f), dp(context, 10f), dp(context, 18f), dp(context, 10f))
             isFocusable = true
@@ -131,6 +131,7 @@ class PlayerActivity : Activity() {
         root.addView(optionsPill, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply { setMargins(0, dp(this@PlayerActivity, 36f), dp(this@PlayerActivity, 48f), 0) })
         view.setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { v ->
             optionsPill.visibility = if (v == View.VISIBLE) View.VISIBLE else View.GONE
+            hideGear()
             // Controls gone while still paused: bring back the "You're watching" card.
             if (v != View.VISIBLE && player?.playWhenReady == false && player?.playbackState == Player.STATE_READY) {
                 handler.removeCallbacks(showPause); handler.postDelayed(showPause, 300)
@@ -537,7 +538,17 @@ class PlayerActivity : Activity() {
         // Watching a film or episode with the controls hidden: Up = "What did they say?", Down = episodes.
         if (!live && event.action == KeyEvent.ACTION_DOWN && !view.isControllerFullyVisible && !counting && !creditsMode) {
             if (event.keyCode == KeyEvent.KEYCODE_DPAD_UP) { whatDidTheySay(); return true }
-            if (event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN && seriesTitle != null && curSeason > 0) { showStrip(); return true }
+            if (event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+                // Controls up, with the progress bar ready to skip along.
+                view.showController(); hideGear()
+                view.findViewById<View>(androidx.media3.ui.R.id.exo_progress)?.let { b -> b.post { b.requestFocus() } }
+                return true
+            }
+        }
+        // On the progress bar, Down again: this season's episodes.
+        if (!live && event.action == KeyEvent.ACTION_DOWN && event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN && view.isControllerFullyVisible &&
+            currentFocus?.id == androidx.media3.ui.R.id.exo_progress && seriesTitle != null && curSeason > 0) {
+            showStrip(); return true
         }
         if (swallowOkUp && event.action == KeyEvent.ACTION_UP && (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER)) {
             swallowOkUp = false; return true
@@ -637,14 +648,14 @@ class PlayerActivity : Activity() {
 
     private fun options() {
         val p = player ?: return
-        val d0 = GlassDialog(this).title("Playback")
+        val d0 = GlassDialog(this).title("Playback").scrolling()
         queue.firstOrNull()?.let { n -> if (!live) d0.button("Next episode · S${n.season} E${n.episode}", GlassDialog.Style.BOLD) { playNext() } }
         d0
             .button("Subtitles · ${selectedLabel(C.TRACK_TYPE_TEXT, "Off")}") { pickTrack(C.TRACK_TYPE_TEXT, "Subtitles") }
             .button("Audio · ${selectedLabel(C.TRACK_TYPE_AUDIO, null)}") { pickTrack(C.TRACK_TYPE_AUDIO, "Audio") }
+            .button("Sound · ${soundLabel()}  (Sound Check, Dialogue Boost)") { pickSound() }
             .button("Picture · ${resizeName(view.resizeMode)}") { pickPicture() }
             .button("Speed · ${p.playbackParameters.speed}x") { pickSpeed() }
-            .button("Sound · ${soundLabel()}") { pickSound() }
             .button("Sleep Timer · ${sleepLabel()}") { pickSleep() }
             .button("Close").show()
     }
@@ -804,6 +815,12 @@ class PlayerActivity : Activity() {
         player?.pause()
         HomeRedirectService.instance?.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN)
         finish()
+    }
+
+    /** The player's own gear button (bottom right) - everything it did is in our Options. */
+    private fun hideGear() {
+        for (id in listOf(androidx.media3.ui.R.id.exo_settings, androidx.media3.ui.R.id.exo_overflow_show, androidx.media3.ui.R.id.exo_subtitle))
+            view.findViewById<View>(id)?.let { it.visibility = View.GONE; it.isFocusable = false }
     }
 
     private fun showPauseInfo() {
@@ -1051,36 +1068,56 @@ class PlayerActivity : Activity() {
 
     // ---------- Previews while skipping through ----------
 
+    private var scrubBox: LinearLayout? = null
+    private var scrubTime: android.widget.TextView? = null
+
+    /**
+     * While skipping along the bar: the time you'd land on, in a bubble above the bar, plus a picture of
+     * that moment for downloaded films and recordings. (Streaming pictures would need a second connection
+     * to Dodgy Box, which it limits - and that could cut off the programme you're watching.)
+     */
     private fun setUpScrubPreview() {
         val bar = view.findViewById<androidx.media3.ui.DefaultTimeBar>(androidx.media3.ui.R.id.exo_progress) ?: return
         val c = this
+        val box = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; visibility = View.GONE }
         val iv = android.widget.ImageView(c).apply {
             scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
             background = android.graphics.drawable.GradientDrawable().apply { cornerRadius = dp(c, 8f).toFloat(); setColor(0xFF000000.toInt()); setStroke(dp(c, 2f), 0xFFFFFFFF.toInt()) }
             clipToOutline = true; outlineProvider = android.view.ViewOutlineProvider.BACKGROUND
             visibility = View.GONE
         }
-        (view.parent as? FrameLayout)?.addView(iv, FrameLayout.LayoutParams(dp(c, 240f), dp(c, 135f), Gravity.BOTTOM or Gravity.START))
-        thumbView = iv
+        box.addView(iv, LinearLayout.LayoutParams(dp(c, 240f), dp(c, 135f)).apply { bottomMargin = dp(c, 6f) })
+        val time = GlassUi.text(c, "", 18f, R.font.inter_semibold).apply {
+            background = GlassUi.panel(c, 12f, 0x60)
+            setPadding(dp(c, 14f), dp(c, 6f), dp(c, 14f), dp(c, 6f))
+        }
+        box.addView(time, LinearLayout.LayoutParams(-2, -2))
+        (view.parent as? FrameLayout)?.addView(box, FrameLayout.LayoutParams(dp(c, 240f), -2, Gravity.BOTTOM or Gravity.START))
+        thumbView = iv; scrubBox = box; scrubTime = time
         bar.addListener(object : androidx.media3.ui.TimeBar.OnScrubListener {
             override fun onScrubStart(t: androidx.media3.ui.TimeBar, pos: Long) { onScrub(bar, pos) }
             override fun onScrubMove(t: androidx.media3.ui.TimeBar, pos: Long) { onScrub(bar, pos) }
-            override fun onScrubStop(t: androidx.media3.ui.TimeBar, pos: Long, canceled: Boolean) { thumbWant = -1L; iv.visibility = View.GONE }
+            override fun onScrubStop(t: androidx.media3.ui.TimeBar, pos: Long, canceled: Boolean) { thumbWant = -1L; box.visibility = View.GONE; iv.visibility = View.GONE }
         })
     }
 
     private fun onScrub(bar: View, pos: Long) {
         val iv = thumbView ?: return
+        val box = scrubBox ?: return
         val p = player ?: return
-        if (live || p.duration <= 0 || !url.startsWith("http")) return
+        if (live || p.duration <= 0) return
+        scrubTime?.text = clock(pos / 1000) + "  /  " + clock(p.duration / 1000)
         // Place it above the point on the bar.
         val loc = IntArray(2); bar.getLocationInWindow(loc)
-        val x = loc[0] + bar.width * (pos.toFloat() / p.duration) - iv.layoutParams.width / 2f
-        (iv.layoutParams as FrameLayout.LayoutParams).apply {
-            leftMargin = x.toInt().coerceIn(dp(this@PlayerActivity, 24f), (view.width - iv.layoutParams.width - dp(this@PlayerActivity, 24f)).coerceAtLeast(0))
-            bottomMargin = (view.height - loc[1]) + dp(this@PlayerActivity, 14f)
+        val w = box.layoutParams.width
+        val x = loc[0] + bar.width * (pos.toFloat() / p.duration) - w / 2f
+        (box.layoutParams as FrameLayout.LayoutParams).apply {
+            leftMargin = x.toInt().coerceIn(dp(this@PlayerActivity, 24f), (view.width - w - dp(this@PlayerActivity, 24f)).coerceAtLeast(0))
+            bottomMargin = (view.height - loc[1]) + dp(this@PlayerActivity, 12f)
         }
-        iv.requestLayout()
+        box.visibility = View.VISIBLE
+        box.requestLayout()
+        if (!url.startsWith("file:")) return   // pictures only for files on the TV
         val want = pos
         thumbWant = want
         val u = url
@@ -1089,7 +1126,7 @@ class PlayerActivity : Activity() {
             val bmp = try {
                 if (thumbFor != u) {
                     thumbRetriever?.release()
-                    thumbRetriever = android.media.MediaMetadataRetriever().apply { setDataSource(u, hashMapOf("User-Agent" to Xtream.PLAYER_AGENT)) }
+                    thumbRetriever = android.media.MediaMetadataRetriever().apply { setDataSource(android.net.Uri.parse(u).path) }
                     thumbFor = u
                 }
                 if (android.os.Build.VERSION.SDK_INT >= 27) thumbRetriever?.getScaledFrameAtTime(want * 1000L, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC, 320, 180)
