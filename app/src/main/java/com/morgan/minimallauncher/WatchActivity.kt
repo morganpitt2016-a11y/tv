@@ -332,7 +332,7 @@ class WatchActivity : AppCompatActivity() {
     private var heroAnim: android.animation.ValueAnimator? = null
 
     private fun firstContentRow(): View? = (0 until rows.childCount).map { rows.getChildAt(it) }
-        .firstOrNull { it.visibility == View.VISIBLE && (it.isFocusable || (it as? ViewGroup)?.focusables(View.FOCUS_DOWN)?.isNotEmpty() == true) }
+        .firstOrNull { it.visibility == View.VISIBLE && (it.isFocusable || (it as? ViewGroup)?.getFocusables(View.FOCUS_DOWN)?.isNotEmpty() == true) }
     private lateinit var heroDim: View
 
     private fun setHeroCollapsed(collapse: Boolean) {
