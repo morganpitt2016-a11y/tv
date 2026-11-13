@@ -82,7 +82,7 @@ class WatchActivity : AppCompatActivity() {
     // Each tab keeps its own rows, so switching back is instant instead of rebuilding everything.
     private val tabViews = HashMap<String, Pair<LinearLayout, Long>>()
     private val containerToken = java.util.WeakHashMap<LinearLayout, Int>()
-    private fun cacheTtl(id: String) = when (id) { "home", "films", "shows" -> 10 * 60_000L; "live" -> 3 * 60_000L; else -> 0L }
+    private fun cacheTtl(id: String) = when (id) { "home", "films", "shows" -> 30 * 60_000L; "list" -> 0L; else -> 0L }
     private fun newBuild(): Int { val t = ++buildToken; containerToken[rows] = t; shownTitles.clear(); return t }
     /** Titles already in a row on this page, so the next rows don't repeat them. */
     private val shownTitles = HashSet<String>()
@@ -149,7 +149,7 @@ class WatchActivity : AppCompatActivity() {
 
         // Tabs.
         nav = LinearLayout(c).apply { gravity = Gravity.CENTER_VERTICAL }
-        for ((id, label) in listOf("home" to "Home", "tonight" to "Tonight", "films" to "Films", "shows" to "Shows", "live" to "Live TV", "sport" to "Sport", "list" to "My List", "search" to "Search")) {
+        for ((id, label) in listOf("home" to "Home", "tonight" to "Tonight", "films" to "Films", "shows" to "Shows", "live" to "Live TV", "sport" to "Sport", "list" to "My Stuff", "search" to "Search")) {
             nav.addView(tabButton(id, label), LinearLayout.LayoutParams(-2, dp(c, 30f)).apply { marginEnd = dp(c, 4f) })
         }
         root.addView(nav, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(c, 22f) })
@@ -240,6 +240,7 @@ class WatchActivity : AppCompatActivity() {
         // Marked expired? Check with Dodgy Box straight away - if it's been renewed, redraw without "Expired".
         Xtream.recheckIfExpired(this) { still -> if (!still && !isDestroyed && providers.isNotEmpty()) { tabViews.clear(); showTab(tab, focusContent = false) } }
         handler.postDelayed(rotateFeatured, FEATURE_MS)
+        armSaver()
         Coach.resume(this, "watch") { coachTarget(it) }
         if (tab == "home" && rows.childCount > 0 && detail == null) { refreshPersonalRows(); refreshResumeRow() }
         else if (rows.childCount > 0 && detail == null) refreshResumeRow()
@@ -255,8 +256,72 @@ class WatchActivity : AppCompatActivity() {
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // Screensaver up: any button puts it away (OK on a show you're watching carries on with it).
+        saver?.let { sv ->
+            if (event.action == KeyEvent.ACTION_DOWN) {
+                val item = sv.getTag(R.id.card_info) as? ResumeStore.Item
+                hideSaver()
+                if (item != null && (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER)) openResume(item)
+            }
+            return true
+        }
+        if (event.action == KeyEvent.ACTION_DOWN) armSaver()
         if (Coach.onKey(this, event) { coachTarget(it) }) return true
         return super.dispatchKeyEvent(event)
+    }
+
+    // ---------- Screensaver of your shows (Apple's Top Shelf idea) ----------
+
+    private var saver: FrameLayout? = null
+    private val SAVER_MS = 3 * 60_000L
+    private val showSaver = Runnable { startSaver() }
+    private fun armSaver() { handler.removeCallbacks(showSaver); handler.postDelayed(showSaver, SAVER_MS) }
+
+    private fun startSaver() {
+        if (saver != null || isFinishing || detail != null) return
+        // What you're watching first, then your list, then what's featured.
+        val slides = ResumeStore.forTab(this, "home").filter { it.image != null }.map { Triple(it.image!!, it.title, it as Any) } +
+            WatchCatalog.myList(this).mapNotNull { t -> (t.backdrop ?: t.poster)?.let { Triple(it, t.name, t as Any) } } +
+            featured.mapNotNull { t -> t.backdrop?.let { Triple(it, t.name, t as Any) } }
+        if (slides.isEmpty()) return
+        stopTrailer()
+        val c = this
+        val sv = FrameLayout(c).apply { setBackgroundColor(0xFF000000.toInt()); alpha = 0f }
+        val a = ImageView(c).apply { scaleType = ImageView.ScaleType.CENTER_CROP }
+        val b = ImageView(c).apply { scaleType = ImageView.ScaleType.CENTER_CROP; alpha = 0f }
+        sv.addView(a, FrameLayout.LayoutParams(-1, -1)); sv.addView(b, FrameLayout.LayoutParams(-1, -1))
+        sv.addView(View(c).apply { background = GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP, intArrayOf(0xCC000000.toInt(), 0x00000000)) },
+            FrameLayout.LayoutParams(-1, dp(c, 220f), Gravity.BOTTOM))
+        val title = GlassUi.text(c, "", 30f, R.font.inter_semibold)
+        val hint = GlassUi.text(c, "", 13f, R.font.inter_medium, 0xB3FFFFFF.toInt())
+        val col = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL; addView(title); addView(hint) }
+        sv.addView(col, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.START).apply { setMargins(dp(c, 56f), 0, 0, dp(c, 44f)) })
+        root.addView(sv, FrameLayout.LayoutParams(-1, -1))
+        saver = sv
+        sv.animate().alpha(1f).setDuration(900).start()
+        var i = 0; var useA = true
+        fun next() {
+            if (saver !== sv) return
+            val (img, name, what) = slides[i % slides.size]; i++
+            val into = if (useA) a else b; val out = if (useA) b else a; useA = !useA
+            ImageLoader.load(into, img, ImageLoader.HERO, fade = false) {
+                into.scaleX = 1f; into.scaleY = 1f
+                into.animate().alpha(1f).setDuration(1500).start(); out.animate().alpha(0f).setDuration(1500).start()
+                into.animate().scaleX(1.08f).scaleY(1.08f).setDuration(9000).start()          // slow drift, like Apple's screensavers
+            }
+            title.text = name
+            hint.text = if (what is ResumeStore.Item) "Press OK to carry on watching" else "Press any button to come back"
+            sv.setTag(R.id.card_info, what as? ResumeStore.Item)
+            handler.postDelayed({ next() }, 9000)
+        }
+        next()
+    }
+
+    private fun hideSaver() {
+        val sv = saver ?: return
+        saver = null
+        sv.animate().alpha(0f).setDuration(300).withEndAction { root.removeView(sv) }.start()
+        armSaver()
     }
 
     override fun onDestroy() {
@@ -267,6 +332,8 @@ class WatchActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
+        handler.removeCallbacks(showSaver)
+        saver?.let { root.removeView(it) }; saver = null
         stopTrailer()
         handler.removeCallbacks(rotateFeatured)
     }
@@ -347,12 +414,13 @@ class WatchActivity : AppCompatActivity() {
             addUpdateListener { lp.topMargin = it.animatedValue as Int; scroll.layoutParams = lp }
             start()
         }
-        info.animate().alpha(if (collapse) 0f else 1f).setDuration(260).start()
+        info.animate().alpha(if (collapse || searchBar?.visibility == View.VISIBLE) 0f else 1f).setDuration(260).start()
         heroDim.animate().alpha(if (collapse) 0.72f else 0f).setDuration(380).start()
     }
 
     /** Live TV: just a doorway to the guide (OK or Down opens it), so moving past it loads nothing. */
     private fun showLiveTab() {
+        hideSearchBar()
         tab = "live"
         for (i in 0 until nav.childCount) nav.getChildAt(i).isSelected = nav.getChildAt(i).tag == "live"
         ++buildToken
@@ -368,18 +436,99 @@ class WatchActivity : AppCompatActivity() {
     /** The Search tab: last results, or a hint to press OK. */
     private fun showSearchTab() {
         val q = lastSearch
+        showSearchBar(focus = false)
         if (q != null) { search(q, focusResults = false); return }
         tab = "search"
         for (i in 0 until nav.childCount) nav.getChildAt(i).isSelected = nav.getChildAt(i).tag == "search"
         freshRows()
         ++buildToken
-        showPlainHero("SEARCH", "Find anything", "Press OK to search films, shows and what’s on TV, by typing or by voice.")
+        showPlainHero("SEARCH", "Find anything", "")
+        showRecentSearches()
+    }
+
+    // ---------- Search as you type (Apple TV) ----------
+
+    private var searchBar: LinearLayout? = null
+    private var searchField: android.widget.EditText? = null
+    private val typedSearch = Runnable { searchField?.text?.toString()?.trim()?.takeIf { it.length >= 2 }?.let { search(it, focusResults = false) } }
+    private fun recentKey() = ProfileManager.scope(this, "recent_searches")
+    private fun recentSearches() = Prefs.string(this, recentKey())?.split("\n")?.filter { it.isNotBlank() }.orEmpty()
+    private fun rememberSearch(q: String) = Prefs.setString(this, recentKey(), (listOf(q) + recentSearches().filterNot { it.equals(q, true) }).take(8).joinToString("\n"))
+
+    private fun showSearchBar(focus: Boolean) {
+        val c = this
+        val bar = searchBar ?: LinearLayout(c).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            val field = android.widget.EditText(c).apply {
+                hint = "Films, shows, people, channels…"
+                setTextColor(0xFFFFFFFF.toInt()); setHintTextColor(0x80FFFFFF.toInt()); textSize = 20f
+                typeface = GlassUi.font(c, R.font.inter_semibold)
+                setSingleLine(true)
+                imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH
+                setPadding(dp(c, 20f), dp(c, 12f), dp(c, 20f), dp(c, 12f))
+                background = android.graphics.drawable.StateListDrawable().apply {
+                    addState(intArrayOf(android.R.attr.state_focused), GradientDrawable().apply { cornerRadius = dp(c, 14f).toFloat(); setColor(0x40FFFFFF); setStroke(dp(c, 2f), 0xFFFFFFFF.toInt()) })
+                    addState(intArrayOf(), GradientDrawable().apply { cornerRadius = dp(c, 14f).toFloat(); setColor(0x26FFFFFF) })
+                }
+                addTextChangedListener(object : android.text.TextWatcher {
+                    override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
+                    override fun onTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
+                    override fun afterTextChanged(e: android.text.Editable?) {
+                        handler.removeCallbacks(typedSearch)
+                        if (!hasFocus()) return
+                        if (e.isNullOrBlank()) { lastSearch = null; freshRows(); ++buildToken; showRecentSearches() }
+                        else handler.postDelayed(typedSearch, 650)          // results as you type
+                    }
+                })
+                setOnEditorActionListener { v, _, _ ->
+                    val q = v.text.toString().trim()
+                    if (q.isNotBlank()) { handler.removeCallbacks(typedSearch); rememberSearch(q); search(q) }
+                    (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).hideSoftInputFromWindow(v.windowToken, 0)
+                    true
+                }
+            }
+            searchField = field
+            addView(field, LinearLayout.LayoutParams(dp(c, 440f), -2))
+            addView(pillButton("🎤  Speak") {
+                try {
+                    voice.launch(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+                        .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                        .putExtra(RecognizerIntent.EXTRA_PROMPT, "Search films, shows and TV"))
+                } catch (e: ActivityNotFoundException) { GlassUi.toast(this@WatchActivity, "Voice search isn’t available") }
+            }, LinearLayout.LayoutParams(-2, dp(c, 44f)).apply { marginStart = dp(c, 12f) })
+            root.addView(this, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START).apply { setMargins(dp(c, 56f), dp(c, 84f), 0, 0) })
+            searchBar = this
+        }
+        bar.visibility = View.VISIBLE
+        info.alpha = 0f
+        if (focus) searchField?.let { f ->
+            f.requestFocus()
+            f.post { (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).showSoftInput(f, 0) }
+        }
+    }
+
+    private fun hideSearchBar() {
+        searchBar?.visibility = View.GONE
+        if (!heroCollapsed) info.alpha = 1f
+    }
+
+    private fun showRecentSearches() {
+        val recent = recentSearches()
+        if (recent.isEmpty()) return
+        val c = this
+        val box = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL; tag = "recent" }
+        box.addView(GlassUi.text(c, "Recent Searches", 15f, R.font.inter_semibold), LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(c, 56f); topMargin = dp(c, 10f) })
+        val pills = LinearLayout(c).apply { setPadding(dp(c, 56f), dp(c, 10f), dp(c, 56f), 0); clipChildren = false; clipToPadding = false }
+        for (q in recent) pills.addView(pillButton(q) { searchField?.setText(q); search(q) }, LinearLayout.LayoutParams(-2, dp(c, 38f)).apply { marginEnd = dp(c, 10f) })
+        box.addView(android.widget.HorizontalScrollView(c).apply { isHorizontalScrollBarEnabled = false; clipChildren = false; clipToPadding = false; addView(pills) })
+        rows.addView(box)
     }
 
     private fun tabIndex() = (0 until nav.childCount).firstOrNull { nav.getChildAt(it).tag == tab } ?: 0
 
     private fun showTab(id: String, focusContent: Boolean) {
         setHeroCollapsed(false)
+        if (id != "search") hideSearchBar()
         tab = id
         collectionFrom = null
         focusFirstLoaded = false
@@ -432,6 +581,20 @@ class WatchActivity : AppCompatActivity() {
         }
         appsRow()
         dodgyHomeRows(token)
+        for ((type, label) in listOf("MOVIE" to "Films", "SHOW" to "Shows")) {
+            titleRow(token, "top10_$type", "Top 10 $label Today", ranked = true, quietFail = true) { done ->
+                WatchCatalog.titles(this, sort = "TRENDING", packages = shorts(), types = listOf(type), first = 10, done = done)
+            }
+        }
+        // Collections, changing with the time of year.
+        val month = java.util.Calendar.getInstance().get(java.util.Calendar.MONTH)
+        val seasonal = when (month) { 9 -> "Halloween" to "halloween"; 10, 11 -> "Christmas Films" to "christmas"; 1 -> "Love Stories" to "love"; else -> null }
+        seasonal?.let { (label, q) ->
+            titleRow(token, "col_season", label, quietFail = true) { done -> WatchCatalog.titles(this, search = q, first = 30, types = listOf("MOVIE"), done = done) }
+        }
+        titleRow(token, "col_acclaimed", "Award-Worthy · IMDb 8+", quietFail = true) { done ->
+            WatchCatalog.titles(this, packages = shorts(), first = 60) { l -> done(l?.filter { (it.imdb ?: 0.0) >= 8.0 }?.sortedByDescending { it.imdb }) }
+        }
         WatchCatalog.history(this).firstOrNull()?.let { last ->
             val row = titleRow(token, "because", "Because You Watched ${last.name}") { done ->
                 WatchCatalog.detail(this, last) { d -> done(d?.similar) }
@@ -852,7 +1015,7 @@ class WatchActivity : AppCompatActivity() {
 
     private fun buildCategory(token: Int, type: String) {
         val what = if (type == "MOVIE") "Films" else "Series"
-        val all = categoryLoads(type)
+        val all = categoryLoads(type).take(8) + listOfNotNull(if (Xtream.isSetUp(this)) Triple("soon", "Not on Dodgy Box Yet · Remind Me", comingSoon(type)) else null)
         val host = rows
         fun add(from: Int, to: Int) {
             if (containerToken[host] != token || isDestroyed) return
@@ -870,6 +1033,19 @@ class WatchActivity : AppCompatActivity() {
             if (to < all.size) handler.postDelayed({ add(to, to + 4) }, 90)
         }
         add(0, 6)                                    // first screenful straight away, the rest fill in behind it
+    }
+
+    /** Popular new titles that aren't on Dodgy Box yet - OK on one, then Remind Me. */
+    private fun comingSoon(type: String): TitleLoader = { done ->
+        val app = applicationContext
+        val year = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
+        WatchCatalog.titles(this, packages = shorts(), types = listOf(type), first = 40) { l ->
+            val fresh = l?.filter { it.year >= year - 1 }.orEmpty()
+            Bg.run {
+                val missing = fresh.filterNot { DodgyAlerts.available(app, it.name, it.year, it.type) }.take(15)
+                runOnUiThread { if (!isDestroyed) done(missing) }
+            }
+        }
     }
 
     /** Quietly load the other tabs (and their first posters) so switching is instant. */
@@ -1576,12 +1752,22 @@ class WatchActivity : AppCompatActivity() {
     }
 
     private fun buildList() {
+        showPlainHero("MY STUFF", "Everything You’re Watching", "Continue Watching, your list, reminders, downloads and recordings - all in one place.")
+        ResumeStore.forTab(this, "home").takeIf { it.isNotEmpty() }?.let { items ->
+            val r = row("resume_ms", "Continue Watching", height = 150f)
+            r.list.adapter = CardAdapter(items, { p -> wideCard(p) }) { h, item -> bindResume(h, item) }
+            rows.addView(r.view)
+        }
+        DodgyAlerts.all(this).takeIf { it.isNotEmpty() }?.let { wants ->
+            rows.addView(staticTitleRow("wants", "Remind Me · Waiting for Dodgy Box", wants.map {
+                WatchCatalog.Title(it.id, it.type, it.name, it.year, it.poster, null, "", null, emptyList(), emptyList()) }).view)
+        }
         downloadsRow()?.let { rows.addView(it) }
         recordingsRow("recordings")?.let { rows.addView(it) }
         val list = WatchCatalog.myList(this)
-        if (list.isEmpty() && (Recordings.shown(this).isNotEmpty() || Downloads.all(this).isNotEmpty())) return
+        if (list.isEmpty() && rows.childCount > 0) return
         if (list.isEmpty()) {
-            showPlainHero("MY LIST", "Nothing saved yet", "Open any film or show and choose “Add to My List”.")
+            showPlainHero("MY STUFF", "Nothing here yet", "Open any film or show and choose “+ My List” or “Remind Me”. What you’re watching shows here too.")
             rows.addView(GlassUi.text(this, "Your saved films and shows appear here.", 13f, R.font.inter_medium, 0x99FFFFFF.toInt()),
                 LinearLayout.LayoutParams(-2, -2).apply { setMargins(dp(this@WatchActivity, 56f), dp(this@WatchActivity, 20f), 0, 0) })
             return
@@ -1592,6 +1778,8 @@ class WatchActivity : AppCompatActivity() {
     // ---------- Search ----------
 
     private fun askSearch() {
+        showSearchTab(); showSearchBar(focus = true); return
+        @Suppress("UNREACHABLE_CODE")
         val d = GlassDialog(this).title("Search").message("Films, shows and what’s on TV.").input("Title or person", lastSearch.orEmpty())
         d.button("Search", GlassDialog.Style.BOLD) { if (d.inputText.isNotBlank()) search(d.inputText) }
         d.button("Speak Instead") {
@@ -1607,6 +1795,9 @@ class WatchActivity : AppCompatActivity() {
 
     private fun search(query: String, focusResults: Boolean = true) {
         lastSearch = query
+        if (focusResults) rememberSearch(query)
+        showSearchBar(focus = false)
+        searchField?.let { f -> if (!f.hasFocus() && f.text.toString() != query) f.setText(query) }
         if (detail != null) closeDetail()
         tab = "search"
         for (i in 0 until nav.childCount) nav.getChildAt(i).isSelected = nav.getChildAt(i).tag == "search"
@@ -1720,6 +1911,22 @@ class WatchActivity : AppCompatActivity() {
             GlassUi.toast(this, if (added) "Added to My List" else "Removed from My List")
         }
         buttons.addView(listButton, LinearLayout.LayoutParams(-2, dp(c, 40f)))
+        if (Xtream.isSetUp(c)) {
+            val app = applicationContext
+            Bg.run {
+                val there = DodgyAlerts.available(app, t.name, t.year, t.type)
+                runOnUiThread {
+                    if (there || isDestroyed || detail == null) return@runOnUiThread
+                    val remind = pillButton(if (DodgyAlerts.has(c, t)) "🔔  Reminder Set" else "🔔  Remind Me") {}
+                    remind.setOnClickListener {
+                        val on = DodgyAlerts.toggle(c, t)
+                        (remind as TextView).text = if (on) "🔔  Reminder Set" else "🔔  Remind Me"
+                        GlassUi.toast(this, if (on) "We’ll tell you when ${t.name} is on Dodgy Box" else "Reminder removed")
+                    }
+                    buttons.addView(remind, LinearLayout.LayoutParams(-2, dp(c, 40f)).apply { marginStart = dp(c, 10f) })
+                }
+            }
+        }
         inset(buttons, 20f)
 
         // Where to watch: every service with this title.
@@ -2197,7 +2404,8 @@ class WatchActivity : AppCompatActivity() {
             if (containerToken[host] != token || isDestroyed) return@load
             val liked = raw?.filterNot { Ratings.disliked(this, it.name) }   // "Not for me" titles stay hidden
             // Each title once per page: a row only shows what earlier rows haven't (and goes if little is left).
-            val titles = if (liked == null || key == "results" || key == "loved" || key == "because") liked
+            if (ranked) liked?.forEach { top10Ids.add(it.id) }
+            val titles = if (liked == null || ranked || key == "results" || key == "loved" || key == "because" || key == "soon") liked
                 else liked.filter { it.id !in shownTitles }.let { fresh -> if (fresh.size >= 5 || liked.size < 5) fresh else emptyList() }
             titles?.forEach { shownTitles.add(it.id) }
             when {
@@ -2421,6 +2629,7 @@ class WatchActivity : AppCompatActivity() {
     /** Poster; Top 10 posters get a big rank number in the corner. */
     private fun posterCard(parent: ViewGroup, ranked: Boolean = false): Holder {
         val h = card(parent, 104f, 156f, gap = if (ranked) 22f else 14f)
+        h.root.setTag(R.id.card_poster, true)
         if (ranked) {
             val c = parent.context
             val n = GlassUi.text(c, "", 44f, R.font.inter_semibold).apply {
@@ -2452,12 +2661,85 @@ class WatchActivity : AppCompatActivity() {
         return Holder(base.root, base.image, title, sub, bar)
     }
 
+    /** Titles in a Top 10 row (for the "TOP 10" badge). */
+    private val top10Ids = HashSet<String>()
+
+    private fun badgeFor(t: WatchCatalog.Title): String? {
+        val year = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
+        return when {
+            t.id in top10Ids -> "TOP 10"
+            t.type == "SHOW" && ResumeStore.all(this).any { it.series == t.name && it.posSec == 0 && System.currentTimeMillis() - it.at < 7 * 86_400_000L } -> "NEW EPISODE"
+            t.year >= year -> if (t.type == "SHOW") "NEW SERIES" else "NEW"
+            (t.imdb ?: 0.0) >= 8.3 -> "ACCLAIMED"
+            else -> null
+        }
+    }
+
     private fun bindTitle(h: Holder, t: WatchCatalog.Title, inDetail: Boolean = false) {
         h.label.text = t.name
         h.root.contentDescription = t.name
         ImageLoader.load(h.image, t.poster)
         h.root.setOnClickListener { openDetail(t, h.root) }
-        focusEffect(h.root) { if (!inDetail) showTitleHero(t) }
+        // Badge in the corner (Netflix / Disney+ style).
+        val c = h.root.context
+        val badge = (h.root.getTag(R.id.blur_radius) as? TextView) ?: GlassUi.text(c, "", 8.5f, R.font.inter_semibold).apply {
+            letterSpacing = 0.06f; setPadding(dp(c, 6f), dp(c, 2f), dp(c, 6f), dp(c, 2f))
+            background = GradientDrawable().apply { cornerRadius = dp(c, 4f).toFloat(); setColor(0xE6E50914.toInt()) }
+            h.root.addView(this, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START).apply { setMargins(dp(c, 6f), dp(c, 6f), 0, 0) })
+            h.root.setTag(R.id.blur_radius, this)
+        }
+        val b = badgeFor(t)
+        badge.text = b.orEmpty(); badge.visibility = if (b == null) View.GONE else View.VISIBLE
+        (badge.background as? GradientDrawable)?.setColor(when (b) { "TOP 10" -> 0xE6E50914.toInt(); "ACCLAIMED" -> 0xE6B8860B.toInt(); else -> 0xE60A84FF.toInt() })
+        val poster = h.root.getTag(R.id.card_poster) == true && !inDetail
+        if (h.root.getTag(R.id.card_poster) == true) collapseCard(h, t, reload = false)
+        h.root.setOnFocusChangeListener { v, has ->
+            Motion.focus(v, has, 1.1f, 14f)
+            if (has && !inDetail) showTitleHero(t)
+            if (!poster) return@setOnFocusChangeListener
+            (v.getTag(R.id.card_expand) as? Runnable)?.let { handler.removeCallbacks(it) }
+            if (has) {
+                // Rest on it: it opens out into a wide preview with the backdrop and a little detail (Netflix).
+                val r = Runnable { if (v.isFocused) expandCard(h, t) }
+                v.setTag(R.id.card_expand, r); handler.postDelayed(r, 1200)
+            } else collapseCard(h, t)
+        }
+    }
+
+    private fun expandCard(h: Holder, t: WatchCatalog.Title) {
+        val c = this
+        val lp = h.root.layoutParams ?: return
+        if (lp.width != dp(c, 104f)) return
+        val to = dp(c, 262f)
+        android.animation.ValueAnimator.ofInt(lp.width, to).apply {
+            duration = 320; interpolator = Motion.focusEase
+            addUpdateListener { lp.width = it.animatedValue as Int; h.root.layoutParams = lp }
+            start()
+        }
+        Motion.spring(h.root, 1.04f)
+        (t.backdrop ?: t.poster)?.let { ImageLoader.load(h.image, it, ImageLoader.CARD) }
+        val info = LinearLayout(c).apply {
+            orientation = LinearLayout.VERTICAL; gravity = Gravity.BOTTOM
+            background = GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP, intArrayOf(0xF2000000.toInt(), 0x80000000.toInt(), 0x00000000))
+            setPadding(dp(c, 10f), 0, dp(c, 10f), dp(c, 9f)); alpha = 0f
+        }
+        info.addView(GlassUi.text(c, t.name, 13f, R.font.inter_semibold).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END })
+        info.addView(GlassUi.text(c, listOfNotNull(t.year.takeIf { it > 0 }?.toString(), t.imdb?.let { "IMDb %.1f".format(it) }, t.genres.firstOrNull()).joinToString("  ·  "),
+            10f, R.font.inter_medium, 0xCCFFFFFF.toInt()))
+        info.addView(GlassUi.text(c, "▶  OK to open", 10f, R.font.inter_semibold, 0xFFFFFFFF.toInt()), lp(4f))
+        h.root.addView(info, FrameLayout.LayoutParams(-1, -1))
+        h.root.setTag(R.id.card_info, info)
+        info.animate().alpha(1f).setStartDelay(150).setDuration(250).start()
+    }
+
+    private fun collapseCard(h: Holder, t: WatchCatalog.Title, reload: Boolean = true) {
+        val lp = h.root.layoutParams ?: return
+        (h.root.getTag(R.id.card_info) as? View)?.let { h.root.removeView(it) }
+        h.root.setTag(R.id.card_info, null)
+        if (lp.width != dp(this, 104f)) {
+            lp.width = dp(this, 104f); h.root.layoutParams = lp
+            if (reload) ImageLoader.load(h.image, t.poster)
+        }
     }
 
     private fun bindApp(h: Holder, app: AppEntry) {

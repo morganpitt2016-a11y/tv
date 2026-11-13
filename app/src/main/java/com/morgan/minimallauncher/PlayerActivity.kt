@@ -673,6 +673,10 @@ class PlayerActivity : Activity() {
         val p = player ?: return
         val d0 = GlassDialog(this).title("Playback").scrolling()
         queue.firstOrNull()?.let { n -> if (!live) d0.button("Next episode · S${n.season} E${n.episode}", GlassDialog.Style.BOLD) { playNext() } }
+        // Live: Start Over - back to the beginning of the programme that's on.
+        if (live) LiveGuide.guideFor(titleText)?.programmes?.firstOrNull { it.isOn() }?.let { prog ->
+            if (System.currentTimeMillis() - prog.start > 2 * 60_000L) d0.button("Start Over · ${prog.title}", GlassDialog.Style.BOLD) { startOver(prog) }
+        }
         d0
             .button("Subtitles · ${selectedLabel(C.TRACK_TYPE_TEXT, "Off")}") { pickTrack(C.TRACK_TYPE_TEXT, "Subtitles") }
             .button("Audio · ${selectedLabel(C.TRACK_TYPE_AUDIO, null)}") { pickTrack(C.TRACK_TYPE_AUDIO, "Audio") }
@@ -726,6 +730,22 @@ class PlayerActivity : Activity() {
         for (sp in listOf(0.75f, 1f, 1.25f, 1.5f, 2f)) d.button("${sp}x" + if (p.playbackParameters.speed == sp) "  ✓" else "") { p.setPlaybackSpeed(sp) }
         d.button("Back") { options() }
         d.show()
+    }
+
+    /** From the start of the programme: from the pause buffer if it goes back that far, else Dodgy Box's catch-up. */
+    private fun startOver(prog: LiveGuide.Programme) {
+        val t = ts
+        val backSecs = (System.currentTimeMillis() - prog.start) / 1000
+        if (t != null && t.written - backSecs * t.bytesPerSecond >= t.oldest()) {
+            tsRestartAt(t.written - backSecs * t.bytesPerSecond); tsShowStatus()
+            GlassUi.toast(this, "From the start of ${prog.title}")
+            return
+        }
+        if (liveId < 0) { GlassUi.toast(this, "This channel can’t start over"); return }
+        val mins = ((prog.stop - prog.start) / 60_000L).toInt().coerceAtLeast(10)
+        GlassUi.toast(this, "Starting ${prog.title} from the beginning (if Dodgy Box keeps catch-up for this channel)…")
+        play(this, Xtream.archiveUrl(applicationContext, liveId, prog.start, mins), prog.title, live = false,
+            subtitle = "$titleText · from the start", eyebrow = "START OVER")
     }
 
     // ---------- Live: pause and rewind ----------

@@ -228,6 +228,7 @@ class MainActivity : AppCompatActivity() {
         Health.mention(this)
         Fleet.checkin(this)
         NewEpisodes.mention(this)
+        DodgyAlerts.mention(this)
         offerUpdate()
         applyDimming(animate = false)
         handler.post(ambientTick)

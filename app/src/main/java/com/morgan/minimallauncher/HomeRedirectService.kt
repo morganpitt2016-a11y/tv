@@ -240,7 +240,7 @@ class HomeRedirectService : AccessibilityService() {
         if (now - lastFreshen < 60 * 60_000L || Updater.busy(this)) return
         lastFreshen = now
         WatchCatalog.refreshHome(this)
-        Thread { try { Xtream.vod(this); Xtream.series(this); NewEpisodes.check(this) } catch (_: Exception) {} }.start()
+        Thread { try { Xtream.vod(this); Xtream.series(this); NewEpisodes.check(this); DodgyAlerts.check(this) } catch (_: Exception) {} }.start()
     }
 
     // ---------- Live score in the corner ----------

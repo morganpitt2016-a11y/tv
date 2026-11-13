@@ -212,6 +212,12 @@ object Xtream {
 
     // ---------- Stream links ----------
 
+    /** Catch-up ("Start Over") for providers that keep an archive: [start] in ms, [minutes] long. */
+    fun archiveUrl(c: Context, id: Int, start: Long, minutes: Int): String {
+        val f = java.text.SimpleDateFormat("yyyy-MM-dd:HH-mm", java.util.Locale.US)
+        return "${server(c)}/timeshift/${enc(user(c))}/${enc(pass(c))}/$minutes/${f.format(java.util.Date(start))}/$id.ts"
+    }
+
     fun liveUrl(c: Context, id: Int, hls: Boolean = false) = "${server(c)}/live/${enc(user(c))}/${enc(pass(c))}/$id.${if (hls) "m3u8" else "ts"}"
     fun vodUrl(c: Context, v: Vod) = "${server(c)}/movie/${enc(user(c))}/${enc(pass(c))}/${v.id}.${v.ext}"
     fun episodeUrl(c: Context, e: Episode) = "${server(c)}/series/${enc(user(c))}/${enc(pass(c))}/${e.id}.${e.ext}"

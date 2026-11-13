@@ -47,5 +47,21 @@ object ResumeStore {
 
     fun forTab(c: Context, tab: String): List<Item> = all(c).filter {
         when (tab) { "films" -> it.kind == "film"; "shows" -> it.kind == "episode"; "live" -> it.kind == "live"; else -> it.kind != "live" }
-    }.take(15)
+    }.sortedByDescending { likely(it) }.take(15)
+
+    /**
+     * How likely you are to want this next (like Apple's Up Next): something half-watched in the last couple of
+     * days beats a new episode, which beats something you left weeks ago. Shows you watch most get a lift.
+     */
+    private fun likely(i: Item): Double {
+        val hours = (System.currentTimeMillis() - i.at) / 3_600_000.0
+        var score = 100.0 / (1.0 + hours / 24.0)                    // fades over days
+        if (i.durSec > 0 && i.posSec > 60) {
+            val done = i.posSec.toDouble() / i.durSec
+            score *= if (done in 0.05..0.92) 1.6 else 0.6           // part-way through: very likely; nearly done: less
+        } else if (i.kind == "episode") score *= 1.3                 // next episode ready to go
+        val evening = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY) >= 18
+        if (evening && i.kind == "film") score *= 1.15              // films more likely at night
+        return score
+    }
 }

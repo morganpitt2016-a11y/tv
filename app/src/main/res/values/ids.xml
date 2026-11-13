@@ -2,4 +2,7 @@
 <resources>
     <item name="blur_radius" type="id" />
     <item name="blur_anim" type="id" />
+    <item name="card_expand" type="id" />
+    <item name="card_info" type="id" />
+    <item name="card_poster" type="id" />
 </resources>
