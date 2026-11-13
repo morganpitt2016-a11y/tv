@@ -260,6 +260,15 @@ object SportTables {
         val kids = o.optJSONArray("children")
         val groups = if (kids != null && kids.length() > 0) (0 until kids.length()).map { kids.getJSONObject(it) }.map { Group(it.optString("name"), rows(it.optJSONObject("standings"))) }
                      else listOf(Group(o.optString("name"), rows(o.optJSONObject("standings"))))
+        // One combined table with both hemispheres in it: split it the way the tournament shows it.
+        val all = groups.flatMap { it.rows }.distinctBy { it.name }
+        val mixed = groups.any { g -> g.rows.any { it.name.lowercase() in SOUTH } && g.rows.any { it.name.lowercase() !in SOUTH } }
+        if (mixed && all.count { it.name.lowercase() in SOUTH } >= 3 && all.count { it.name.lowercase() !in SOUTH } >= 3) {
+            fun ranked(rs: List<Row>) = rs.sortedWith(compareByDescending<Row> { it.pts.toIntOrNull() ?: 0 }.thenByDescending { it.pd.replace("+", "").toIntOrNull() ?: 0 })
+                .mapIndexed { i, r -> r.copy(rank = i + 1) }
+            return listOf(Group("Northern Hemisphere", ranked(all.filter { it.name.lowercase() !in SOUTH })),
+                          Group("Southern Hemisphere", ranked(all.filter { it.name.lowercase() in SOUTH })))
+        }
         // Hemisphere groups: name each by who's actually in it (the feed's labels can be the wrong way round).
         return groups.filter { it.rows.isNotEmpty() }.map { g ->
             if (!g.name.contains("hemisphere", true)) g

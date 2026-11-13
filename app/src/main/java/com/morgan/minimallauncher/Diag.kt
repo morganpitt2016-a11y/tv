@@ -148,6 +148,16 @@ object Diag {
                 } catch (e: Exception) { clean(e) }
                 send(app, "xcheck", "Login: $login\nLive groups: $cats")
             }
+            cmd.startsWith("sport:") -> thread(isDaemon = true) {
+                // What the Tables & Fixtures page would show for a competition (counts only).
+                val path = cmd.removePrefix("sport:").trim()
+                val t0 = android.os.SystemClock.uptimeMillis()
+                val g = try { SportTables.standings(path).joinToString("\n") { gr -> "${gr.name}: " + gr.rows.joinToString(", ") { "${it.rank}.${it.abbr} ${it.pts}pts" } } } catch (e: Exception) { "standings ERROR ${e.message}" }
+                val t1 = android.os.SystemClock.uptimeMillis()
+                val f = try { SportTables.season(path).let { l -> "${l.size} matches: " + l.groupBy { it.round }.entries.joinToString("; ") { (r, ms) -> "$r=${ms.size} (" + ms.groupBy { it.state }.map { (k, v) -> "$k ${v.size}" }.joinToString(",") + ")" } } } catch (e: Exception) { "season ERROR ${e.message}" }
+                val t2 = android.os.SystemClock.uptimeMillis()
+                send(app, "sport", "$path\n$g\n(${t1 - t0} ms)\n$f\n(${t2 - t1} ms)")
+            }
             cmd.startsWith("espn:") -> thread(isDaemon = true) {
                 val path = cmd.removePrefix("espn:").trim()
                 val body = try { Net.get("https://site.api.espn.com/apis/$path", timeoutMs = 15_000) } catch (e: Exception) { "ERROR ${e.message}" }

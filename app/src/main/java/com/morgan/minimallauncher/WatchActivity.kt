@@ -250,6 +250,18 @@ class WatchActivity : AppCompatActivity() {
 
     // ---------- Tabs ----------
 
+    /**
+     * Rows that finish loading late only take the highlight if nothing else has it. Never while you're
+     * moving along the tabs at the top (that's what made the highlight jump into a row mid-glide).
+     */
+    private fun focusContentIfIdle() {
+        rows.post {
+            val f = currentFocus
+            val onTabs = f != null && (f === nav || f.parent === nav)
+            if (!onTabs && rows.findFocus() == null && (f == null || f === scroll || f === rows)) firstItem()?.requestFocus()
+        }
+    }
+
     private fun tabButton(id: String, label: String): View {
         val c = this
         return GlassUi.rowText(c, label, 13.5f, R.font.inter_semibold, android.content.res.ColorStateList(
@@ -273,7 +285,7 @@ class WatchActivity : AppCompatActivity() {
                         if (id == "search") showSearchTab() else showTab(id, focusContent = false)
                     }
                     pendingTab = r
-                    handler.postDelayed(r, 220)
+                    handler.postDelayed(r, 320)
                 }
             }
         }
@@ -677,7 +689,7 @@ class WatchActivity : AppCompatActivity() {
                 var at = 0
                 if (films.isNotEmpty()) host.addView(libRow("s_films", "Films on Dodgy Box", films) { h, v -> bindVod(h, v) }.view, at++)
                 if (shows.isNotEmpty()) host.addView(libRow("s_series", "Series on Dodgy Box", shows) { h, v -> bindSeries(h, v) }.view, at)
-                if ((films.isNotEmpty() || shows.isNotEmpty()) && rows.findFocus() == null) rows.post { firstItem()?.requestFocus() }
+                if (films.isNotEmpty() || shows.isNotEmpty()) focusContentIfIdle()
             }
         }.start()
     }
@@ -833,7 +845,7 @@ class WatchActivity : AppCompatActivity() {
                     host.addView(r.view)
                 }
                 Perf.note("Live TV: front page ready", t0)
-                if (host === rows && rows.findFocus() == null) rows.post { firstItem()?.requestFocus() }
+                if (host === rows) focusContentIfIdle()
             }
         }.start()
     }
@@ -915,7 +927,7 @@ class WatchActivity : AppCompatActivity() {
                 while (next < end) { try { host.addView(guideRow(list[next])) } catch (e: Exception) {}; next++ }
                 if (first) {
                     Perf.note("Live TV: first rows on screen", t0)
-                    if (host === rows && rows.findFocus() == null) rows.post { firstItem()?.requestFocus() }
+                    if (host === rows) focusContentIfIdle()
                 }
                 if (next < list.size) handler.postDelayed({ addBatch() }, 10) else Perf.note("Live TV: all ${list.size} rows built", t0)
             }
@@ -1110,7 +1122,7 @@ class WatchActivity : AppCompatActivity() {
                         host.addView(GlassUi.text(this, "The TV guide hasn’t loaded yet - try again in a moment.", 13f, R.font.inter_medium, 0x99FFFFFF.toInt()),
                             LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(this@WatchActivity, 56f); topMargin = dp(this@WatchActivity, 14f) })
                     refreshResumeRow()
-                    rows.post { firstItem()?.requestFocus() }
+                    focusContentIfIdle()
                 }
             }.start()
         }
