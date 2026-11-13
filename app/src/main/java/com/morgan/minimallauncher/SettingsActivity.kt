@@ -7,6 +7,8 @@ import android.provider.Settings
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
+import android.view.ViewGroup
+import android.widget.ScrollView
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -297,7 +299,7 @@ class SettingsActivity : AppCompatActivity() {
         }
         footnote("Minimal Launcher · personal build")
 
-        list.post { list.getChildAt(1)?.let { (it as? LinearLayout)?.getChildAt(0)?.requestFocus() } }
+        buildCategories()
         if (GoveeHelper.getApiKey(this) != null) refreshDevices()
     }
 
@@ -307,6 +309,7 @@ class SettingsActivity : AppCompatActivity() {
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (Coach.onKey(this, event) { coachTarget(it) }) return true
+        if (::pageScroll.isInitialized && pageKey(event)) return true
         return super.dispatchKeyEvent(event)
     }
 
@@ -709,12 +712,95 @@ class SettingsActivity : AppCompatActivity() {
         d.button("Cancel").show()
     }
 
+    // ---------- Categories down the left, one page at a time on the right (quicker than one long list) ----------
+
+    private val pages = mutableListOf<Pair<String, List<View>>>()
+    private var shownPage = -1
+    private lateinit var pageScroll: ScrollView
+
+    private fun buildCategories() {
+        // Split the long list into pages, one per section.
+        val all = (0 until list.childCount).map { list.getChildAt(it) }
+        list.removeAllViews()
+        var cur: MutableList<View>? = null
+        var name = ""
+        for (v in all) {
+            val t = (v.tag as? String)?.takeIf { it.startsWith("section:") }?.removePrefix("section:")
+            if (t != null) {
+                cur?.let { if (it.any { x -> x.visibility == View.VISIBLE }) pages += name to it }
+                name = t; cur = mutableListOf(); v.visibility = View.GONE   // the category name is on the left now
+                cur.add(v)
+            } else (cur ?: mutableListOf<View>().also { cur = it; name = "General" }).add(v)
+        }
+        cur?.let { if (it.any { x -> x.visibility == View.VISIBLE }) pages += name to it }
+        pageScroll = list.parent as ScrollView
+
+        // The left column becomes the category list.
+        val left = findViewById<View>(R.id.settingsIconTile).parent as LinearLayout
+        left.removeAllViews()
+        left.gravity = Gravity.CENTER_VERTICAL
+        left.addView(GlassUi.text(this, "Settings", 26f, R.font.inter_semibold), LinearLayout.LayoutParams(-2, -2).apply { bottomMargin = dp(this@SettingsActivity, 16f); marginStart = dp(this@SettingsActivity, 14f) })
+        val cats = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; clipChildren = false; clipToPadding = false; setPadding(0, dp(context, 4f), dp(context, 12f), dp(context, 4f)) }
+        val catScroll = ScrollView(this).apply { isVerticalScrollBarEnabled = false; overScrollMode = View.OVER_SCROLL_NEVER; clipChildren = false; clipToPadding = false; addView(cats) }
+        left.addView(catScroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        pages.forEachIndexed { i, (title, _) ->
+            val row = GlassUi.rowText(this, title, 15f, R.font.inter_medium, GlassUi.primaryText()).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(context, 14f), 0, dp(context, 14f), 0)
+                background = GlassUi.rowBackground(context, 12f)
+                isFocusable = true; isClickable = true
+                // Moving down the categories shows each page straight away; OK or Right goes into it.
+                setOnFocusChangeListener { _, has -> if (has) showPage(i) }
+                setOnClickListener { focusPage() }
+                setOnKeyListener { _, k, e -> if (e.action == KeyEvent.ACTION_DOWN && k == KeyEvent.KEYCODE_DPAD_RIGHT) { focusPage(); true } else false }
+            }
+            cats.addView(row, LinearLayout.LayoutParams(-1, dp(this, 40f)).apply { bottomMargin = dp(this@SettingsActivity, 3f) })
+        }
+        showPage(0)
+        cats.post { cats.getChildAt(0)?.requestFocus() }
+        catColumn = cats
+    }
+
+    private var catColumn: LinearLayout? = null
+
+    private fun showPage(i: Int) {
+        if (i == shownPage || i !in pages.indices) return
+        shownPage = i
+        list.removeAllViews()
+        for (v in pages[i].second) { (v.parent as? ViewGroup)?.removeView(v); list.addView(v) }
+        pageScroll.scrollTo(0, 0)
+        list.alpha = 0f; list.animate().alpha(1f).setDuration(140).start()
+    }
+
+    private fun focusPage() {
+        val first = list.getFocusables(View.FOCUS_DOWN).firstOrNull { it.isShown } ?: return
+        first.requestFocus()
+    }
+
+    /** Back from inside a page goes back to its category, not out of Settings. */
+    private fun pageKey(event: KeyEvent): Boolean {
+        val f = currentFocus
+        val inPage = f != null && f !== list && isInside(f, list)
+        if (inPage && event.action == KeyEvent.ACTION_DOWN && event.keyCode == KeyEvent.KEYCODE_BACK) {
+            catColumn?.getChildAt(shownPage)?.requestFocus(); return true
+        }
+        if (inPage && event.keyCode == KeyEvent.KEYCODE_BACK) return true
+        return false
+    }
+
+    private fun isInside(v: View, parent: ViewGroup): Boolean {
+        var p = v.parent
+        while (p != null) { if (p === parent) return true; p = p.parent }
+        return false
+    }
+
     // ---------- Building blocks ----------
 
     private fun section(title: String) {
         hideSection = base && title in ADVANCED
         list.addView(GlassUi.text(this, title.uppercase(), 12f, R.font.inter_semibold, 0x8CFFFFFF.toInt()).apply {
             letterSpacing = 0.08f
+            tag = "section:$title"
             if (hideSection) visibility = View.GONE
         }, LinearLayout.LayoutParams(-2, -2).apply {
             marginStart = dp(this@SettingsActivity, 16f)
