@@ -46,6 +46,7 @@ object UiSounds {
         val now = System.currentTimeMillis()
         if (now - lastMove < 70) return // holding a direction: don't machine-gun
         lastMove = now
+        if (!Prefs.bool(c, "nav_clicks", true)) return      // Settings → Video and Audio → Navigation Clicks
         play(c, { move }, 0.22f)
     }
 

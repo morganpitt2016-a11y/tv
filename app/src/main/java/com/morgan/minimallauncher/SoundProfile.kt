@@ -13,7 +13,7 @@ import android.media.audiofx.DynamicsProcessing
  * Works on sound the TV decodes itself; Dolby/DTS sent straight to a soundbar can't be changed.
  */
 object SoundProfile {
-    data class Settings(val bass: Int, val clarity: Int, val treble: Int, val dialogue: Boolean, val level: Boolean) {
+    data class Settings(val bass: Int, val clarity: Int, val treble: Int, val dialogue: Boolean, val level: Boolean, val more: Boolean = false) {
         val flat get() = bass == 0 && clarity == 0 && treble == 0 && !dialogue && !level
     }
 
@@ -21,11 +21,16 @@ object SoundProfile {
 
     fun get(c: Context) = Settings(
         Prefs.int(c, k(c, "bass"), 0), Prefs.int(c, k(c, "clarity"), 0), Prefs.int(c, k(c, "treble"), 0),
-        Prefs.bool(c, k(c, "dialogue"), false), Prefs.bool(c, k(c, "level"), false))
+        dialogueLevel(c) > 0, Prefs.bool(c, k(c, "level"), false), dialogueLevel(c) > 1)
+
+    /** Enhance Dialogue, as Apple has it: 0 Off, 1 Enhance, 2 Enhance More. */
+    fun dialogueLevel(c: Context) = Prefs.int(c, k(c, "dlg"), if (Prefs.bool(c, k(c, "dialogue"), false)) 1 else 0)
+    fun setDialogueLevel(c: Context, n: Int) { Prefs.setInt(c, k(c, "dlg"), n); Prefs.setBool(c, k(c, "dialogue"), n > 0) }
 
     fun save(c: Context, s: Settings) {
         Prefs.setInt(c, k(c, "bass"), s.bass); Prefs.setInt(c, k(c, "clarity"), s.clarity); Prefs.setInt(c, k(c, "treble"), s.treble)
         Prefs.setBool(c, k(c, "dialogue"), s.dialogue); Prefs.setBool(c, k(c, "level"), s.level)
+        Prefs.setInt(c, k(c, "dlg"), if (!s.dialogue) 0 else if (s.more) 2 else 1)
         Prefs.setBool(c, k(c, "calibrated"), true)
     }
 
@@ -41,7 +46,7 @@ object SoundProfile {
                 if (s.flat) { dp?.setEnabled(false); return }
                 val e = dp ?: create().also { dp = it }
                 // Five bands: bass / low-mid / voice / presence / air.
-                val dialogueDb = if (s.dialogue) 5f else 0f
+                val dialogueDb = if (!s.dialogue) 0f else if (s.more) 8f else 5f
                 val gains = floatArrayOf(
                     s.bass.toFloat() - (if (s.dialogue) 1.5f else 0f),
                     -(dialogueDb * 0.4f) - s.clarity * 0.3f,
@@ -135,8 +140,8 @@ object SoundProfile {
         if (s.bass != 0) parts += if (s.bass > 0) "a bit more bass" else "a bit less bass"
         if (s.clarity > 0) parts += "clearer voices"
         if (s.treble > 0) parts += "more detail"
-        if (s.dialogue) parts += "Dialogue Boost"
-        if (s.level) parts += "Even Volume"
+        if (s.dialogue) parts += if (s.more) "Enhance Dialogue (More)" else "Enhance Dialogue"
+        if (s.level) parts += "Reduce Loud Sounds"
         return "Your sound: " + parts.joinToString(", ") + "."
     }
 }

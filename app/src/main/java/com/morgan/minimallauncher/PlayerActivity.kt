@@ -249,7 +249,18 @@ class PlayerActivity : Activity() {
         // Files without a seek index (common with .ts/.mkv from providers) can still jump to a point.
         val extractors = androidx.media3.extractor.DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true)
         val sources = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(this, extractors)
-        val p = ExoPlayer.Builder(this).setLoadControl(load).setMediaSourceFactory(sources).build()
+        // Audio Format (Settings → Video and Audio): Auto lets Dolby go straight to the soundbar; the others
+        // decode on the TV (so Sound Check, Enhance Dialogue and Reduce Loud Sounds work on everything).
+        val format = Prefs.string(this, "audio_format") ?: "auto"
+        val builder = ExoPlayer.Builder(this).setLoadControl(load).setMediaSourceFactory(sources)
+        if (format != "auto") builder.setRenderersFactory(object : androidx.media3.exoplayer.DefaultRenderersFactory(this) {
+            override fun buildAudioSink(context: Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): androidx.media3.exoplayer.audio.AudioSink =
+                androidx.media3.exoplayer.audio.DefaultAudioSink.Builder(context)
+                    .setAudioCapabilities(androidx.media3.exoplayer.audio.AudioCapabilities.DEFAULT_AUDIO_CAPABILITIES)
+                    .build()
+        })
+        val p = builder.build()
+        if (format == "stereo") p.trackSelectionParameters = p.trackSelectionParameters.buildUpon().setMaxAudioChannelCount(2).build()
         // Our own sound session, so the sound profile (Sound Check, Dialogue Boost, Even Volume) can shape it.
         try {
             val sid = androidx.media3.common.util.Util.generateAudioSessionIdV21(this)
@@ -317,7 +328,9 @@ class PlayerActivity : Activity() {
         }
         // Pick up the subtitle and audio language you chose last time for this title.
         val key = trackKey()
-        val tl = Prefs.string(this, ProfileManager.scope(this, "trk_t_$key")); val al = Prefs.string(this, ProfileManager.scope(this, "trk_a_$key"))
+        val tl = Prefs.string(this, ProfileManager.scope(this, "trk_t_$key"))
+        // Audio Language: what you picked for this title, else your default (Settings → Video and Audio).
+        val al = Prefs.string(this, ProfileManager.scope(this, "trk_a_$key")) ?: Prefs.string(this, "audio_lang")?.takeIf { it != "auto" }
         if (tl != null || al != null) {
             val b = p.trackSelectionParameters.buildUpon()
             al?.let { b.setPreferredAudioLanguage(it) }
@@ -663,7 +676,7 @@ class PlayerActivity : Activity() {
         d0
             .button("Subtitles · ${selectedLabel(C.TRACK_TYPE_TEXT, "Off")}") { pickTrack(C.TRACK_TYPE_TEXT, "Subtitles") }
             .button("Audio · ${selectedLabel(C.TRACK_TYPE_AUDIO, null)}") { pickTrack(C.TRACK_TYPE_AUDIO, "Audio") }
-            .button("Sound · ${soundLabel()}  (Sound Check, Dialogue Boost)") { pickSound() }
+            .button("Sound · ${soundLabel()}  (Sound Check, Enhance Dialogue)") { pickSound() }
             .button("Picture · ${resizeName(view.resizeMode)}") { pickPicture() }
             .button("Speed · ${p.playbackParameters.speed}x") { pickSpeed() }
             .button("Sleep Timer · ${sleepLabel()}") { pickSleep() }
@@ -880,10 +893,19 @@ class PlayerActivity : Activity() {
     private fun soundLabel(): String {
         val s = SoundProfile.get(this)
         return when { s.flat -> "Original"; else -> listOfNotNull(if (SoundProfile.calibrated(this)) "Tuned" else null,
-            if (s.dialogue) "Dialogue Boost" else null, if (s.level) "Even Volume" else null).joinToString(" · ").ifBlank { "Custom" } }
+            if (s.dialogue) (if (s.more) "Enhance More" else "Enhance Dialogue") else null, if (s.level) "Reduce Loud Sounds" else null).joinToString(" · ").ifBlank { "Custom" } }
     }
 
     private fun applySound(s: SoundProfile.Settings) { soundFx?.apply(s) }
+
+    private fun dlgName(n: Int) = when (n) { 1 -> "Enhance"; 2 -> "Enhance More"; else -> "Off" }
+
+    /** Off → Enhance → Enhance More → Off, like Apple TV's Enhance Dialogue. */
+    private fun cycleDialogue() {
+        SoundProfile.setDialogueLevel(this, (SoundProfile.dialogueLevel(this) + 1) % 3)
+        applySound(SoundProfile.get(this))
+        GlassUi.toast(this, "Enhance Dialogue: ${dlgName(SoundProfile.dialogueLevel(this))}")
+    }
 
     private fun pickSound() {
         val s = SoundProfile.get(this)
@@ -891,14 +913,12 @@ class PlayerActivity : Activity() {
         GlassDialog(this).title("Sound").message(SoundProfile.describe(s) +
                 (if (passthrough) "\n\nThis programme’s Dolby sound may go straight to your soundbar, which then does its own processing." else ""))
             .button("Sound Check…", GlassDialog.Style.BOLD) {
-                SoundProfile.soundCheck(this, { applySound(it.copy(dialogue = s.dialogue)) }) { r ->
-                    val keep = r.copy(dialogue = s.dialogue); SoundProfile.save(this, keep); applySound(keep)
+                SoundProfile.soundCheck(this, { applySound(it.copy(dialogue = s.dialogue, more = s.more)) }) { r ->
+                    val keep = r.copy(dialogue = s.dialogue, more = s.more); SoundProfile.save(this, keep); applySound(keep)
                 }
             }
-            .toggle("Dialogue Boost - clearer voices", s.dialogue) {
-                val n = SoundProfile.get(this).let { it.copy(dialogue = !it.dialogue) }; SoundProfile.save(this, n); applySound(n)
-            }
-            .toggle("Even Volume - no sudden loud bits", s.level) {
+            .button("Enhance Dialogue · ${dlgName(SoundProfile.dialogueLevel(this))}") { cycleDialogue(); pickSound() }
+            .toggle("Reduce Loud Sounds", s.level) {
                 val n = SoundProfile.get(this).let { it.copy(level = !it.level) }; SoundProfile.save(this, n); applySound(n)
             }
             .button("Back to the Original Sound") { val n = SoundProfile.Settings(0, 0, 0, false, false); SoundProfile.save(this, n); applySound(n) }
@@ -1194,10 +1214,10 @@ class PlayerActivity : Activity() {
             }
             "sound" -> {
                 val st = SoundProfile.get(this)
-                pill("Sound Check…") { hideInfoPanel(); SoundProfile.soundCheck(this, { applySound(it.copy(dialogue = st.dialogue)) }) { r ->
-                    val keep = r.copy(dialogue = st.dialogue); SoundProfile.save(this, keep); applySound(keep) } }
-                pill("Dialogue Boost", st.dialogue) { val n = SoundProfile.get(this).let { it.copy(dialogue = !it.dialogue) }; SoundProfile.save(this, n); applySound(n); fillInfo("sound") }
-                pill("Even Volume", st.level) { val n = SoundProfile.get(this).let { it.copy(level = !it.level) }; SoundProfile.save(this, n); applySound(n); fillInfo("sound") }
+                pill("Sound Check…") { hideInfoPanel(); SoundProfile.soundCheck(this, { applySound(it.copy(dialogue = st.dialogue, more = st.more)) }) { r ->
+                    val keep = r.copy(dialogue = st.dialogue, more = st.more); SoundProfile.save(this, keep); applySound(keep) } }
+                pill("Enhance Dialogue · ${dlgName(SoundProfile.dialogueLevel(this))}", st.dialogue) { cycleDialogue(); fillInfo("sound") }
+                pill("Reduce Loud Sounds", st.level) { val n = SoundProfile.get(this).let { it.copy(level = !it.level) }; SoundProfile.save(this, n); applySound(n); fillInfo("sound") }
                 pill("Original Sound", st.flat) { val n = SoundProfile.Settings(0, 0, 0, false, false); SoundProfile.save(this, n); applySound(n); fillInfo("sound") }
             }
         }

@@ -205,9 +205,25 @@ class SettingsActivity : AppCompatActivity() {
         }
         footnote("Works over your home Wi-Fi: touchpad, buttons, volume, typing, apps, modes and uploading your own photos. For full control of other apps, also turn on the Accessibility Service above.")
 
+        section("Video and Audio")
+        group {
+            vrow("Audio Output", { audioOutput() }, chevron = true) { pickAudioOutput() }
+            vrow("Audio Format", { formatName(Prefs.string(this, "audio_format") ?: "auto") }, chevron = true) { pickAudioFormat() }
+            vrow("Enhance Dialogue", { dlgName(SoundProfile.dialogueLevel(this)) }, chevron = true) { pickDialogue() }
+            vrow("Reduce Loud Sounds", { onOff(SoundProfile.get(this).level) }) {
+                SoundProfile.save(this, SoundProfile.get(this).let { it.copy(level = !it.level) }); refreshValues()
+            }
+            vrow("Sound Check", { if (SoundProfile.calibrated(this)) "Tuned" else "Not set up" }, chevron = true) { soundCheckInfo() }
+            vrow("Audio Language", { langName(Prefs.string(this, "audio_lang") ?: "auto") }, chevron = true) { pickLanguage() }
+        }
+        footnote("Like Apple TV. Auto sends Dolby surround straight to a soundbar that supports it. Enhance Dialogue, Reduce Loud Sounds and Sound Check shape everything the TV decodes itself - choose “Decode on TV” to use them on Dolby programmes too. These apply to films, episodes and live TV in the built-in player, for this profile.")
+        group {
+            vrow("Navigation Clicks", { onOff(Prefs.bool(this, "nav_clicks", true)) }) { Prefs.setBool(this, "nav_clicks", !Prefs.bool(this, "nav_clicks", true)); refreshValues() }
+            vrow("Sound Effects", { onOff(Prefs.sounds(this)) }) { Prefs.setBool(this, "sounds", !Prefs.sounds(this)); refreshValues() }
+        }
+
         section("Feel")
         group {
-            vrow("Sounds", { onOff(Prefs.sounds(this)) }) { Prefs.setBool(this, "sounds", !Prefs.sounds(this)); refreshValues() }
             vrow("Ambient Lighting", { onOff(Prefs.ambientLight(this)) }) { Prefs.setBool(this, "ambient_light", !Prefs.ambientLight(this)); refreshValues() }
         }
         footnote("Ambient lighting makes the wallpaper a little darker in the evening and at night. Haptic feedback isn’t possible: the Chromecast remote has no vibration motor.")
@@ -607,6 +623,90 @@ class SettingsActivity : AppCompatActivity() {
             }
             d.button("Cancel").show()
         }
+    }
+
+    // ---------- Video and Audio ----------
+
+    private fun outputs(): List<Pair<String, Int>> {
+        val am = getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager
+        return am.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS).mapNotNull { d ->
+            val name = when (d.type) {
+                android.media.AudioDeviceInfo.TYPE_HDMI, android.media.AudioDeviceInfo.TYPE_HDMI_ARC -> "TV / Soundbar (HDMI)"
+                android.media.AudioDeviceInfo.TYPE_HDMI_EARC -> "Soundbar (HDMI eARC)"
+                android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> "${d.productName} (Bluetooth)"
+                android.media.AudioDeviceInfo.TYPE_BLE_HEADSET, android.media.AudioDeviceInfo.TYPE_BLE_SPEAKER -> "${d.productName} (Bluetooth)"
+                android.media.AudioDeviceInfo.TYPE_USB_HEADSET, android.media.AudioDeviceInfo.TYPE_USB_DEVICE -> "${d.productName} (USB)"
+                android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "TV Speakers"
+                else -> null
+            }
+            name?.let { it to d.type }
+        }.distinctBy { it.first }
+    }
+
+    /** Where the sound goes now: Bluetooth if connected, otherwise HDMI. */
+    private fun audioOutput(): String {
+        val list = outputs()
+        return (list.firstOrNull { it.first.contains("Bluetooth") } ?: list.firstOrNull())?.first ?: "TV"
+    }
+
+    private fun pickAudioOutput() {
+        val list = outputs()
+        val d = GlassDialog(this).title("Audio Output")
+            .message("Playing through: ${audioOutput()}\n\nAvailable: " + list.joinToString(", ") { it.first } +
+                "\n\nTo use headphones or a speaker, pair it in Bluetooth - the sound moves to it as soon as it connects.")
+        d.button("Pair Bluetooth Headphones or Speakers", GlassDialog.Style.BOLD) {
+            try { startActivity(android.content.Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS)) } catch (e: Exception) { GlassUi.toast(this, "Bluetooth settings aren’t available") }
+        }
+        d.button("TV Sound Settings") {
+            try { startActivity(android.content.Intent(android.provider.Settings.ACTION_SOUND_SETTINGS)) }
+            catch (e: Exception) { try { startActivity(android.content.Intent(android.provider.Settings.ACTION_SETTINGS)) } catch (e2: Exception) {} }
+        }
+        d.button("Done").show()
+    }
+
+    private fun formatName(f: String) = when (f) { "decode" -> "Decode on TV"; "stereo" -> "Stereo Only"; else -> "Auto" }
+
+    private fun pickAudioFormat() {
+        val cur = Prefs.string(this, "audio_format") ?: "auto"
+        val d = GlassDialog(this).title("Audio Format")
+            .message("Auto (recommended): Dolby and surround go straight to your soundbar when it supports them; everything else is decoded on the TV.\n\n" +
+                "Decode on TV: all sound is decoded here, so Enhance Dialogue, Reduce Loud Sounds and Sound Check work on every programme.\n\n" +
+                "Stereo Only: two-channel sound - for TV speakers, headphones or a stereo setup.")
+        for (f in listOf("auto", "decode", "stereo")) d.button(formatName(f) + if (f == cur) "  ✓" else "", if (f == "auto") GlassDialog.Style.BOLD else GlassDialog.Style.NORMAL) {
+            Prefs.setString(this, "audio_format", f); refreshValues()
+            GlassUi.toast(this, "Audio Format: ${formatName(f)} - takes effect from the next thing you play")
+        }
+        d.button("Cancel").show()
+    }
+
+    private fun dlgName(n: Int) = when (n) { 1 -> "Enhance"; 2 -> "Enhance More"; else -> "Off" }
+
+    private fun pickDialogue() {
+        val cur = SoundProfile.dialogueLevel(this)
+        val d = GlassDialog(this).title("Enhance Dialogue")
+            .message("Enhance makes voices more prominent with little change to the original mix. Enhance More makes them very prominent, but changes the mix more.")
+        for (n in listOf(0, 1, 2)) d.button(dlgName(n) + if (n == cur) "  ✓" else "") { SoundProfile.setDialogueLevel(this, n); refreshValues() }
+        d.button("Cancel").show()
+    }
+
+    private fun soundCheckInfo() {
+        val s = SoundProfile.get(this)
+        GlassDialog(this).title("Sound Check")
+            .message(SoundProfile.describe(s) + "\n\nSound Check tunes the sound to your room and your ears with a few “A or B?” listening tests on whatever’s playing. " +
+                "Start a film or episode, then press ↑ on the progress bar → Sound → Sound Check.")
+            .button("Reset to the Original Sound") { SoundProfile.save(this, SoundProfile.Settings(0, 0, 0, s.dialogue, s.level, s.more)); refreshValues() }
+            .button("Done", GlassDialog.Style.BOLD).show()
+    }
+
+    private val LANGS = listOf("auto" to "Auto (Original)", "en" to "English", "fr" to "French", "es" to "Spanish", "de" to "German", "it" to "Italian",
+        "pt" to "Portuguese", "pl" to "Polish", "nl" to "Dutch", "ar" to "Arabic", "hi" to "Hindi", "ja" to "Japanese", "ko" to "Korean", "zh" to "Chinese")
+    private fun langName(code: String) = LANGS.firstOrNull { it.first == code }?.second ?: code
+
+    private fun pickLanguage() {
+        val cur = Prefs.string(this, "audio_lang") ?: "auto"
+        val d = GlassDialog(this).title("Audio Language").message("Auto plays each programme in its original language. Choose a language to hear it dubbed when a film or episode has that soundtrack.").scrolling()
+        for ((code, name) in LANGS) d.button(name + if (code == cur) "  ✓" else "") { Prefs.setString(this, "audio_lang", code); refreshValues() }
+        d.button("Cancel").show()
     }
 
     // ---------- Building blocks ----------
