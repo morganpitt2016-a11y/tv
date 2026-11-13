@@ -229,10 +229,12 @@ object SportTables {
     fun abbr(name: String, given: String) = NATION[name.lowercase().trim()] ?: given
     private val SOUTH = setOf("south africa", "new zealand", "australia", "argentina", "fiji", "japan")
 
-    data class Row(val rank: Int, val name: String, val abbr: String, val logo: String?, val p: String, val w: String, val d: String, val l: String, val pd: String, val bp: String, val pts: String)
+    data class Row(val rank: Int, val name: String, val abbr: String, val logo: String?, val p: String, val w: String, val d: String, val l: String, val pd: String, val bp: String, val pts: String,
+                   val id: String = "")
     data class Group(val name: String, val rows: List<Row>)
     data class Fixture(val id: String, val start: Long, val round: String, val home: String, val away: String, val homeAbbr: String, val awayAbbr: String,
-                       val homeLogo: String?, val awayLogo: String?, val homeScore: String, val awayScore: String, val state: String, val detail: String, val venue: String) {
+                       val homeLogo: String?, val awayLogo: String?, val homeScore: String, val awayScore: String, val state: String, val detail: String, val venue: String,
+                       val homeId: String = "", val awayId: String = "") {
         val finished get() = state == "post"
         val live get() = state == "in"
     }
@@ -254,7 +256,7 @@ object SportTables {
                     t.optJSONArray("logos")?.optJSONObject(0)?.optString("href") ?: t.optString("logo").ifBlank { null },
                     stat("gamesPlayed", "GP", "P"), stat("wins", "gamesWon", "W"), stat("ties", "draws", "gamesDrawn", "D", "T"), stat("losses", "gamesLost", "L"),
                     stat("pointDifferential", "pointsDifference", "differential", "PD", "DIFF"), stat("bonusPoints", "totalBonusPoints", "BP", "B"),
-                    stat("points", "PTS", "Pts"))
+                    stat("points", "PTS", "Pts"), t.optString("id"))
             }.sortedBy { it.rank }
         }
         val kids = o.optJSONArray("children")
@@ -281,6 +283,22 @@ object SportTables {
     private val isos = listOf(fmt("yyyy-MM-dd'T'HH:mm'Z'"), fmt("yyyy-MM-dd'T'HH:mm:ss'Z'"), fmt("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"))
     private fun time(s: String) = isos.firstNotNullOfOrNull { f -> try { synchronized(f) { f.parse(s)?.time } } catch (e: Exception) { null } } ?: 0L
 
+    /** Competitions that have a table (for "Choose Tables" on the Sport tab). */
+    fun tableChoices(): List<Sport.Choice> = Sport.GROUPS.flatMap { it.second }
+        .filter { !it.path.startsWith("golf") && !it.path.startsWith("tennis") && !it.path.startsWith("mma") && it.path != "racing/irl" && it.path != "racing/nascar-premier" }
+        .distinctBy { it.path }
+
+    fun nameOf(path: String) = Sport.GROUPS.flatMap { it.second }.firstOrNull { it.path == path }?.name?.substringBefore(" (")?.substringBefore(" -") ?: path
+    fun iconOf(path: String) = Sport.GROUPS.flatMap { it.second }.firstOrNull { it.path == path }?.icon ?: "🏆"
+
+    /** The tables shown on the Sport tab: your choice, or (until you choose) the ones you follow. */
+    fun picked(c: android.content.Context): List<String> {
+        Prefs.string(c, ProfileManager.scope(c, "sport_tables"))?.let { s -> return s.split(",").filter { it.isNotBlank() } }
+        val have = tableChoices().map { it.path }.toSet()
+        return Sport.follows(c).map { it.path }.distinct().filter { it in have }
+    }
+    fun setPicked(c: android.content.Context, paths: List<String>) = Prefs.setString(c, ProfileManager.scope(c, "sport_tables"), paths.joinToString(","))
+
     /** Every match this season (and what's coming), with its round and venue. */
     fun season(path: String): List<Fixture> {
         val now = System.currentTimeMillis()
@@ -300,7 +318,8 @@ object SportTables {
             Fixture(e.optString("id"), time(e.optString("date")), roundName ?: week?.takeIf { it > 0 }?.let { "Round $it" } ?: "",
                 t(h).optString("displayName"), t(a).optString("displayName"), abbr(t(h).optString("displayName"), t(h).optString("abbreviation")), abbr(t(a).optString("displayName"), t(a).optString("abbreviation")),
                 logo(h), logo(a), score(h), score(a), st?.optString("state").orEmpty(), st?.optString("shortDetail").orEmpty(),
-                listOfNotNull(v?.optString("fullName")?.ifBlank { null }, v?.optJSONObject("address")?.optString("city")?.ifBlank { null }).joinToString(", "))
+                listOfNotNull(v?.optString("fullName")?.ifBlank { null }, v?.optJSONObject("address")?.optString("city")?.ifBlank { null }).joinToString(", "),
+                t(h).optString("id"), t(a).optString("id"))
         }.sortedBy { it.start }
         // No round numbers in the feed: group by match weekend (matches within 4 days of each other).
         if (list.all { it.round.isNotBlank() }) return list

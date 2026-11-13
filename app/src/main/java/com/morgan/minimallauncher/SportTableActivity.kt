@@ -396,6 +396,8 @@ class SportTableActivity : Activity() {
                 isFocusable = true
                 setOnFocusChangeListener { v, has -> Motion.spring(v, if (has) 1.03f else 1f)
                     (v.background as? GradientDrawable)?.setStroke(dp(c, if (has) 2f else 1f), if (has) ACCENT else BAR_EDGE) }
+                isClickable = true
+                setOnClickListener { TeamActivity.open(c, path, r.name, r.abbr, r.logo, r.id) }
             }
             bar.addView(cell(r.rank.toString(), 18f, ACCENT, bold = true), LinearLayout.LayoutParams(dp(c, 26f), -2))
             bar.addView(ImageView(c).apply { scaleType = ImageView.ScaleType.FIT_CENTER; r.logo?.let { ImageLoader.load(this, it, ImageLoader.ICON) } },
@@ -443,6 +445,8 @@ class SportTableActivity : Activity() {
             val row = LinearLayout(c).apply {
                 gravity = Gravity.CENTER_VERTICAL; isFocusable = true
                 setOnFocusChangeListener { v, has -> v.setBackgroundColor(if (has) 0xFFFFE9D6.toInt() else 0); Motion.spring(v, if (has) 1.02f else 1f) }
+                isClickable = true
+                setOnClickListener { TeamActivity.open(c, path, r.name, r.abbr, r.logo, r.id) }
             }
             row.addView(cell(r.rank.toString(), 16f, ink, bold = true), LinearLayout.LayoutParams(dp(c, 48f), -2))
             row.addView(ImageView(c).apply { scaleType = ImageView.ScaleType.FIT_CENTER; r.logo?.let { ImageLoader.load(this, it, ImageLoader.ICON) } },
@@ -531,7 +535,17 @@ class SportTableActivity : Activity() {
 
     /** On now: watch it. Coming up: a reminder on the channel it's on. */
     private fun openMatch(m: SportTables.Fixture) {
-        if (m.finished) return
+        if (m.finished) {
+            // A result: pick a side to see that team, or look for the replay.
+            GlassDialog(this).title("${m.home} ${m.homeScore}–${m.awayScore} ${m.away}")
+                .button("Find Replays & Highlights", GlassDialog.Style.BOLD) {
+                    startActivity(Intent(this, WatchActivity::class.java).putExtra(WatchActivity.EXTRA_TAB, "search").putExtra(WatchActivity.EXTRA_QUERY, "${m.home} v ${m.away}"))
+                }
+                .button(m.home) { TeamActivity.open(this, path, m.home, m.homeAbbr, m.homeLogo, m.homeId) }
+                .button(m.away) { TeamActivity.open(this, path, m.away, m.awayAbbr, m.awayLogo, m.awayId) }
+                .button("Cancel").show()
+            return
+        }
         val app = applicationContext
         LiveGuide.load(this) { guide ->
             Bg.run {

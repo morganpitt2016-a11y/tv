@@ -184,6 +184,12 @@
             android:theme="@style/Theme.MinimalLauncher" />
 
         <activity
+            android:name=".TeamActivity"
+            android:exported="false"
+            android:screenOrientation="landscape"
+            android:theme="@style/Theme.MinimalLauncher" />
+
+        <activity
             android:name=".BlockedActivity"
             android:exported="false"
             android:screenOrientation="landscape"

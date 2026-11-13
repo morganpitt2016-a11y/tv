@@ -1188,11 +1188,13 @@ class WatchActivity : AppCompatActivity() {
                 d.button("Cancel").show()
             }
         }
+        head("Choose Tables") { chooseTables() }
         val overlayOn = Prefs.bool(this, "sport_overlay", true)
         head(if (overlayOn) "Live Scores in Corner: On" else "Live Scores in Corner: Off") {
             Prefs.setBool(this, "sport_overlay", !overlayOn); showTab("sport", focusContent = false)
         }
         rows.addView(heads, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(this@WatchActivity, 56f); topMargin = dp(this@WatchActivity, 8f) })
+        sportTables(token)?.let { rows.addView(it) }
         val loading = GlassUi.text(this, "Loading…", 13f, R.font.inter_medium, 0x99FFFFFF.toInt())
         rows.addView(loading, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(this@WatchActivity, 56f); topMargin = dp(this@WatchActivity, 14f) })
         val host = rows
@@ -1309,6 +1311,93 @@ class WatchActivity : AppCompatActivity() {
             c.button("Cancel").show()
         }
         d.button("Cancel").show()
+    }
+
+    /** Pick which league tables appear on the Sport tab. */
+    private fun chooseTables() {
+        val picked = SportTables.picked(this).toMutableList()
+        val d = GlassDialog(this).title("Tables on the Sport Tab").message("Tick the tables you want to see. Pick a team in any table to see their page.").scrolling()
+        for (ch in SportTables.tableChoices()) d.toggle("${ch.icon}  ${SportTables.nameOf(ch.path)}", ch.path in picked) {
+            if (ch.path in picked) picked.remove(ch.path) else picked.add(ch.path)
+        }
+        d.button("Done", GlassDialog.Style.BOLD) { SportTables.setPicked(this, picked); showTab("sport", focusContent = false) }.show()
+    }
+
+    /** The chosen tables, side by side: each row opens that team; the heading opens the full table. */
+    private fun sportTables(token: Int): View? {
+        val paths = SportTables.picked(this)
+        if (paths.isEmpty()) return null
+        val c = this
+        val box = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL; clipChildren = false; clipToPadding = false; tag = "sp_tables" }
+        box.addView(GlassUi.text(c, "Tables", 15f, R.font.inter_semibold), LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(c, 56f); topMargin = dp(c, 16f) })
+        val strip = LinearLayout(c).apply { clipChildren = false; clipToPadding = false; setPadding(dp(c, 56f), dp(c, 12f), dp(c, 56f), dp(c, 8f)) }
+        val hs = android.widget.HorizontalScrollView(c).apply { isHorizontalScrollBarEnabled = false; clipChildren = false; clipToPadding = false; addView(strip) }
+        box.addView(hs, LinearLayout.LayoutParams(-1, -2))
+        val host = rows
+        Bg.run {
+            val pool = java.util.concurrent.Executors.newFixedThreadPool(4)
+            val parts = paths.map { p -> pool.submit<List<SportTables.Group>> {
+                try {
+                    if (p.startsWith("racing/f1")) F1.standings().first.take(10).let { d -> listOf(SportTables.Group("Drivers", d.map { r ->
+                        SportTables.Row(r.rank, r.name, r.code, null, "", "", "", "", "", "", r.pts) })) }
+                    else SportTables.standings(p)
+                } catch (e: Exception) { emptyList() }
+            } }
+            val tables = paths.zip(parts.map { it.get() })
+            pool.shutdown()
+            runOnUiThread {
+                if (containerToken[host] != token || isDestroyed) return@runOnUiThread
+                for ((p, groups) in tables) for (g in groups) strip.addView(miniTable(p, g), LinearLayout.LayoutParams(dp(c, 330f), -2).apply { marginEnd = dp(c, 18f) })
+                if (strip.childCount == 0) box.visibility = View.GONE
+            }
+        }
+        return box
+    }
+
+    private fun miniTable(path: String, g: SportTables.Group): View {
+        val c = this
+        val theme = SportTableActivity.themeFor(path)
+        val f1 = path.startsWith("racing/f1")
+        val card = LinearLayout(c).apply {
+            orientation = LinearLayout.VERTICAL; clipChildren = false
+            background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(theme.bg[0], theme.bg[1])).apply { cornerRadius = dp(c, 16f).toFloat() }
+            setPadding(dp(c, 12f), dp(c, 10f), dp(c, 12f), dp(c, 12f))
+        }
+        val title = SportTables.nameOf(path) + if (g.name.isNotBlank() && !g.name.equals(SportTables.nameOf(path), true)) " · ${g.name}" else ""
+        val head = GlassUi.text(c, "${SportTables.iconOf(path)}  $title  ›", 13f, R.font.inter_semibold, theme.accent).apply {
+            maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+            setPadding(dp(c, 8f), dp(c, 6f), dp(c, 8f), dp(c, 6f))
+            isFocusable = true; isClickable = true
+            setOnClickListener { SportTableActivity.open(c, path, SportTables.nameOf(path)) }
+            setOnFocusChangeListener { v, has -> v.background = if (has) GradientDrawable().apply { cornerRadius = dp(c, 8f).toFloat(); setColor(0x33FFFFFF) } else null }
+        }
+        card.addView(head, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(c, 4f) })
+        fun cellView(t: String, colour: Int, bold: Boolean = false) = GlassUi.text(c, t, 12f, if (bold) R.font.inter_semibold else R.font.inter_medium, colour).apply { gravity = Gravity.CENTER; maxLines = 1 }
+        val hdr = LinearLayout(c).apply { setPadding(dp(c, 8f), 0, 0, 0) }
+        hdr.addView(View(c), LinearLayout.LayoutParams(0, 1, 1f))
+        if (!f1) { hdr.addView(cellView("P", 0x99FFFFFF.toInt()), LinearLayout.LayoutParams(dp(c, 28f), -2)); hdr.addView(cellView("PD", 0x99FFFFFF.toInt()), LinearLayout.LayoutParams(dp(c, 38f), -2)) }
+        hdr.addView(cellView("PTS", 0x99FFFFFF.toInt()), LinearLayout.LayoutParams(dp(c, 44f), -2))
+        card.addView(hdr)
+        for (r in g.rows.take(12)) {
+            val row = LinearLayout(c).apply {
+                gravity = Gravity.CENTER_VERTICAL; setPadding(dp(c, 8f), 0, 0, 0)
+                isFocusable = true; isClickable = true
+                setOnFocusChangeListener { v, has -> v.background = if (has) GradientDrawable().apply { cornerRadius = dp(c, 8f).toFloat(); setColor(0x40FFFFFF) } else null }
+                setOnClickListener { if (f1) SportTableActivity.open(c, path, SportTables.nameOf(path)) else TeamActivity.open(c, path, r.name, r.abbr, r.logo, r.id) }
+            }
+            row.addView(cellView(r.rank.toString(), 0xFFFFFFFF.toInt(), true), LinearLayout.LayoutParams(dp(c, 22f), -2))
+            if (!f1) row.addView(ImageView(c).apply { scaleType = ImageView.ScaleType.FIT_CENTER; r.logo?.let { ImageLoader.load(this, it, ImageLoader.ICON) } },
+                LinearLayout.LayoutParams(dp(c, 20f), dp(c, 20f)).apply { marginStart = dp(c, 6f) })
+            row.addView(GlassUi.text(c, if (f1) r.name else r.name.ifBlank { r.abbr }, 13f, R.font.inter_semibold).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END },
+                LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(c, 8f) })
+            if (!f1) { row.addView(cellView(r.p, 0xCCFFFFFF.toInt()), LinearLayout.LayoutParams(dp(c, 28f), -2)); row.addView(cellView(r.pd, 0xCCFFFFFF.toInt()), LinearLayout.LayoutParams(dp(c, 38f), -2)) }
+            row.addView(cellView(r.pts, theme.onAccent, true).apply {
+                background = GradientDrawable().apply { cornerRadius = dp(c, 6f).toFloat(); setColor(theme.accent) } }, LinearLayout.LayoutParams(dp(c, 40f), dp(c, 22f)).apply { marginStart = dp(c, 4f) })
+            card.addView(row, LinearLayout.LayoutParams(-1, dp(c, 28f)))
+        }
+        if (g.rows.size > 12) card.addView(GlassUi.text(c, "+${g.rows.size - 12} more - open the full table", 11f, R.font.inter_medium, 0x99FFFFFF.toInt()),
+            LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(c, 4f); marginStart = dp(c, 8f) })
+        return card
     }
 
     private fun manageFollows() {
