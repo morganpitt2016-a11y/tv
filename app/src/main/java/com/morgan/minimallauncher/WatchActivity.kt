@@ -1351,7 +1351,7 @@ class WatchActivity : AppCompatActivity() {
     /** Pick which league tables appear on the Sport tab. */
     private fun chooseTables() {
         val picked = SportTables.picked(this).toMutableList()
-        val d = GlassDialog(this).title("Tables on the Sport Tab").message("Tick the tables you want to see. Pick a team in any table to see their page.").scrolling()
+        val d = GlassDialog(this).title("Tables on the Sport Tab").message("Tick the tables you want to see. Open a table to pick a team and see their page.").scrolling()
         for (ch in SportTables.tableChoices()) d.toggle("${ch.icon}  ${SportTables.nameOf(ch.path)}", ch.path in picked) {
             if (ch.path in picked) picked.remove(ch.path) else picked.add(ch.path)
         }
@@ -1397,14 +1397,18 @@ class WatchActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL; clipChildren = false
             background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(theme.bg[0], theme.bg[1])).apply { cornerRadius = dp(c, 16f).toFloat() }
             setPadding(dp(c, 12f), dp(c, 10f), dp(c, 12f), dp(c, 12f))
+            // One stop per table: OK opens it, and the teams can be picked in there.
+            isFocusable = true; isClickable = true
+            setOnClickListener { SportTableActivity.open(c, path, SportTables.nameOf(path)) }
+            setOnFocusChangeListener { v, has ->
+                Motion.spring(v, if (has) 1.04f else 1f)
+                (v.background as? GradientDrawable)?.setStroke(dp(c, if (has) 2f else 0f), theme.accent)
+            }
         }
         val title = SportTables.nameOf(path) + if (g.name.isNotBlank() && !g.name.equals(SportTables.nameOf(path), true)) " · ${g.name}" else ""
         val head = GlassUi.text(c, "${SportTables.iconOf(path)}  $title  ›", 13f, R.font.inter_semibold, theme.accent).apply {
             maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
             setPadding(dp(c, 8f), dp(c, 6f), dp(c, 8f), dp(c, 6f))
-            isFocusable = true; isClickable = true
-            setOnClickListener { SportTableActivity.open(c, path, SportTables.nameOf(path)) }
-            setOnFocusChangeListener { v, has -> v.background = if (has) GradientDrawable().apply { cornerRadius = dp(c, 8f).toFloat(); setColor(0x33FFFFFF) } else null }
         }
         card.addView(head, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(c, 4f) })
         fun cellView(t: String, colour: Int, bold: Boolean = false) = GlassUi.text(c, t, 12f, if (bold) R.font.inter_semibold else R.font.inter_medium, colour).apply { gravity = Gravity.CENTER; maxLines = 1 }
@@ -1416,9 +1420,6 @@ class WatchActivity : AppCompatActivity() {
         for (r in g.rows.take(12)) {
             val row = LinearLayout(c).apply {
                 gravity = Gravity.CENTER_VERTICAL; setPadding(dp(c, 8f), 0, 0, 0)
-                isFocusable = true; isClickable = true
-                setOnFocusChangeListener { v, has -> v.background = if (has) GradientDrawable().apply { cornerRadius = dp(c, 8f).toFloat(); setColor(0x40FFFFFF) } else null }
-                setOnClickListener { if (f1) SportTableActivity.open(c, path, SportTables.nameOf(path)) else TeamActivity.open(c, path, r.name, r.abbr, r.logo, r.id) }
             }
             row.addView(cellView(r.rank.toString(), 0xFFFFFFFF.toInt(), true), LinearLayout.LayoutParams(dp(c, 22f), -2))
             if (!f1) row.addView(ImageView(c).apply { scaleType = ImageView.ScaleType.FIT_CENTER; r.logo?.let { ImageLoader.load(this, it, ImageLoader.ICON) } },
@@ -1430,7 +1431,7 @@ class WatchActivity : AppCompatActivity() {
                 background = GradientDrawable().apply { cornerRadius = dp(c, 6f).toFloat(); setColor(theme.accent) } }, LinearLayout.LayoutParams(dp(c, 40f), dp(c, 22f)).apply { marginStart = dp(c, 4f) })
             card.addView(row, LinearLayout.LayoutParams(-1, dp(c, 28f)))
         }
-        if (g.rows.size > 12) card.addView(GlassUi.text(c, "+${g.rows.size - 12} more - open the full table", 11f, R.font.inter_medium, 0x99FFFFFF.toInt()),
+        if (g.rows.size > 12) card.addView(GlassUi.text(c, "+${g.rows.size - 12} more  ·  OK to open", 11f, R.font.inter_medium, 0x99FFFFFF.toInt()),
             LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(c, 4f); marginStart = dp(c, 8f) })
         return card
     }
