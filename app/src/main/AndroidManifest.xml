@@ -178,6 +178,12 @@
             android:theme="@style/Theme.MinimalLauncher.Overlay" />
 
         <activity
+            android:name=".SportTableActivity"
+            android:exported="false"
+            android:screenOrientation="landscape"
+            android:theme="@style/Theme.MinimalLauncher" />
+
+        <activity
             android:name=".BlockedActivity"
             android:exported="false"
             android:screenOrientation="landscape"

@@ -148,6 +148,11 @@ object Diag {
                 } catch (e: Exception) { clean(e) }
                 send(app, "xcheck", "Login: $login\nLive groups: $cats")
             }
+            cmd.startsWith("espn:") -> thread(isDaemon = true) {
+                val path = cmd.removePrefix("espn:").trim()
+                val body = try { Net.get("https://site.api.espn.com/apis/$path", timeoutMs = 15_000) } catch (e: Exception) { "ERROR ${e.message}" }
+                send(app, "espn", "$path\n" + body.take(60_000))
+            }
             cmd == "livecats" -> thread(isDaemon = true) {
                 val t0 = android.os.SystemClock.uptimeMillis()
                 val cats = try { Xtream.liveCategories(app) } catch (e: Exception) { emptyMap() }

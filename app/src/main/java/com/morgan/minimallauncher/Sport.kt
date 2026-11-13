@@ -196,3 +196,78 @@ object Sport {
         }.start()
     }
 }
+
+/** League tables and the whole season's fixtures, for the Table / Fixtures screen. */
+object SportTables {
+    private const val SITE = "https://site.api.espn.com/apis/site/v2/sports"
+    private const val V2 = "https://site.api.espn.com/apis/v2/sports"
+
+    data class Row(val rank: Int, val name: String, val abbr: String, val logo: String?, val p: String, val w: String, val d: String, val l: String, val pd: String, val bp: String, val pts: String)
+    data class Group(val name: String, val rows: List<Row>)
+    data class Fixture(val id: String, val start: Long, val round: String, val home: String, val away: String, val homeAbbr: String, val awayAbbr: String,
+                       val homeLogo: String?, val awayLogo: String?, val homeScore: String, val awayScore: String, val state: String, val detail: String, val venue: String) {
+        val finished get() = state == "post"
+        val live get() = state == "in"
+    }
+
+    /** The table(s): one group per conference/hemisphere/pool. Field names vary by sport, so several are tried. */
+    fun standings(path: String): List<Group> {
+        val o = org.json.JSONObject(Net.get("$V2/$path/standings", timeoutMs = 15_000))
+        fun rows(st: org.json.JSONObject?): List<Row> {
+            val entries = st?.optJSONArray("entries") ?: return emptyList()
+            return (0 until entries.length()).map { entries.getJSONObject(it) }.mapIndexed { i, e ->
+                val t = e.optJSONObject("team") ?: org.json.JSONObject()
+                val stats = e.optJSONArray("stats")?.let { a -> (0 until a.length()).map { a.getJSONObject(it) } }.orEmpty()
+                fun stat(vararg keys: String): String {
+                    for (k in keys) stats.firstOrNull { it.optString("name").equals(k, true) || it.optString("abbreviation").equals(k, true) || it.optString("type").equals(k, true) }
+                        ?.let { s -> return s.optString("displayValue").ifBlank { s.optString("value") }.removeSuffix(".0") }
+                    return "–"
+                }
+                Row(stat("rank").toIntOrNull() ?: (i + 1), t.optString("displayName"), t.optString("abbreviation").ifBlank { t.optString("shortDisplayName") },
+                    t.optJSONArray("logos")?.optJSONObject(0)?.optString("href") ?: t.optString("logo").ifBlank { null },
+                    stat("gamesPlayed", "GP", "P"), stat("wins", "gamesWon", "W"), stat("ties", "draws", "gamesDrawn", "D", "T"), stat("losses", "gamesLost", "L"),
+                    stat("pointDifferential", "pointsDifference", "differential", "PD", "DIFF"), stat("bonusPoints", "totalBonusPoints", "BP", "B"),
+                    stat("points", "PTS", "Pts"))
+            }.sortedBy { it.rank }
+        }
+        val kids = o.optJSONArray("children")
+        val groups = if (kids != null && kids.length() > 0) (0 until kids.length()).map { kids.getJSONObject(it) }.map { Group(it.optString("name"), rows(it.optJSONObject("standings"))) }
+                     else listOf(Group(o.optString("name"), rows(o.optJSONObject("standings"))))
+        return groups.filter { it.rows.isNotEmpty() }
+    }
+
+    private fun fmt(p: String) = java.text.SimpleDateFormat(p, java.util.Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
+    private val day = fmt("yyyyMMdd")
+    private val isos = listOf(fmt("yyyy-MM-dd'T'HH:mm'Z'"), fmt("yyyy-MM-dd'T'HH:mm:ss'Z'"), fmt("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"))
+    private fun time(s: String) = isos.firstNotNullOfOrNull { f -> try { synchronized(f) { f.parse(s)?.time } } catch (e: Exception) { null } } ?: 0L
+
+    /** Every match this season (and what's coming), with its round and venue. */
+    fun season(path: String): List<Fixture> {
+        val now = System.currentTimeMillis()
+        val range = day.format(java.util.Date(now - 200L * 86_400_000L)) + "-" + day.format(java.util.Date(now + 120L * 86_400_000L))
+        val o = org.json.JSONObject(Net.get("$SITE/$path/scoreboard?dates=$range&limit=500", timeoutMs = 20_000))
+        val ev = o.optJSONArray("events") ?: return emptyList()
+        val list = (0 until ev.length()).map { ev.getJSONObject(it) }.mapNotNull { e ->
+            val comp = e.optJSONArray("competitions")?.optJSONObject(0) ?: return@mapNotNull null
+            val cs = comp.optJSONArray("competitors") ?: return@mapNotNull null
+            val sides = (0 until cs.length()).map { cs.getJSONObject(it) }
+            val h = sides.firstOrNull { it.optString("homeAway") == "home" } ?: sides.getOrNull(0) ?: return@mapNotNull null
+            val a = sides.firstOrNull { it.optString("homeAway") == "away" } ?: sides.getOrNull(1) ?: return@mapNotNull null
+            fun t(x: org.json.JSONObject) = x.optJSONObject("team") ?: org.json.JSONObject()
+            fun logo(x: org.json.JSONObject) = t(x).optJSONArray("logos")?.optJSONObject(0)?.optString("href") ?: t(x).optString("logo").ifBlank { null }
+            fun score(x: org.json.JSONObject) = x.optJSONObject("score")?.optString("displayValue") ?: x.optString("score")
+            val st = (comp.optJSONObject("status") ?: e.optJSONObject("status"))?.optJSONObject("type")
+            val week = e.optJSONObject("week")?.optInt("number") ?: comp.optJSONObject("week")?.optInt("number")
+            val roundName = comp.optJSONObject("type")?.optString("text")?.takeIf { it.isNotBlank() && !it.equals("standard", true) }
+            val v = comp.optJSONObject("venue")
+            Fixture(e.optString("id"), time(e.optString("date")), roundName ?: week?.takeIf { it > 0 }?.let { "Round $it" } ?: "",
+                t(h).optString("displayName"), t(a).optString("displayName"), t(h).optString("abbreviation"), t(a).optString("abbreviation"),
+                logo(h), logo(a), score(h), score(a), st?.optString("state").orEmpty(), st?.optString("shortDetail").orEmpty(),
+                listOfNotNull(v?.optString("fullName")?.ifBlank { null }, v?.optJSONObject("address")?.optString("city")?.ifBlank { null }).joinToString(", "))
+        }.sortedBy { it.start }
+        // No round numbers in the feed: group by match weekend (matches within 4 days of each other).
+        if (list.all { it.round.isNotBlank() }) return list
+        var n = 0; var last = 0L
+        return list.map { f -> if (f.start - last > 4 * 86_400_000L) n++; last = f.start; if (f.round.isBlank()) f.copy(round = "Round $n") else f }
+    }
+}

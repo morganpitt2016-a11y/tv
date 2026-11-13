@@ -1155,6 +1155,16 @@ class WatchActivity : AppCompatActivity() {
         showPlainHero("SPORT", follows.joinToString(" · ") { it.short.ifBlank { it.name } }.take(80), "What’s on now, what’s coming up, and where to watch.")
         head("Add") { addFollow() }
         head("Following (${follows.size})") { manageFollows() }
+        head("Tables & Fixtures", primary = true) {
+            val comps = follows.distinctBy { it.path }
+            val names = Sport.GROUPS.flatMap { it.second }.associate { it.path to it.name.substringBefore(" (").substringBefore(" -") }
+            if (comps.size == 1) SportTableActivity.open(this, comps[0].path, names[comps[0].path] ?: comps[0].name)
+            else {
+                val d = GlassDialog(this).title("Which Competition?").scrolling()
+                for (f in comps) d.button("${f.icon}  ${names[f.path] ?: f.name}") { SportTableActivity.open(this, f.path, names[f.path] ?: f.name) }
+                d.button("Cancel").show()
+            }
+        }
         val overlayOn = Prefs.bool(this, "sport_overlay", true)
         head(if (overlayOn) "Live Scores in Corner: On" else "Live Scores in Corner: Off") {
             Prefs.setBool(this, "sport_overlay", !overlayOn); showTab("sport", focusContent = false)
@@ -1230,7 +1240,7 @@ class WatchActivity : AppCompatActivity() {
         })
 
     private fun openMatch(m: Sport.Match, ch: LiveGuide.Channel?) {
-        if (m.finished) return
+        if (m.finished) { SportTableActivity.open(this, m.follow.path, Sport.GROUPS.flatMap { it.second }.firstOrNull { it.path == m.follow.path }?.name?.substringBefore(" (")?.substringBefore(" -") ?: m.follow.name); return }
         if (ch == null) { GlassUi.toast(this, "Not on your channels (yet)"); return }
         val app = applicationContext
         Thread {
