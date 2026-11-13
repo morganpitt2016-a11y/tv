@@ -120,13 +120,13 @@ class PlayerActivity : Activity() {
         view.resizeMode = Prefs.int(this, "player_resize", AspectRatioFrameLayout.RESIZE_MODE_FIT)
 
         // "Subtitles · Audio · Picture": shown with the playback controls (and by the Menu key).
-        optionsPill = GlassUi.text(this, "Subtitles · Audio · Sound", 13f, R.font.inter_medium).apply {
+        optionsPill = GlassUi.text(this, if (live) "Subtitles · Audio · Sound" else "Info · Subtitles · Audio · Sound", 13f, R.font.inter_medium).apply {
             background = GlassUi.panel(context, 18f, 0x40)
             setPadding(dp(context, 18f), dp(context, 10f), dp(context, 18f), dp(context, 10f))
             isFocusable = true
             isClickable = true
             visibility = View.GONE
-            setOnClickListener { options() }
+            setOnClickListener { if (live) options() else showInfoPanel("subs") }
             setOnFocusChangeListener { v, has -> Motion.spring(v, if (has) 1.06f else 1f) }
         }
         root.addView(optionsPill, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply { setMargins(0, dp(this@PlayerActivity, 36f), dp(this@PlayerActivity, 48f), 0) })
@@ -619,7 +619,8 @@ class PlayerActivity : Activity() {
             }
         }
         if (event.action == KeyEvent.ACTION_DOWN && event.keyCode in listOf(KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_CAPTIONS, KeyEvent.KEYCODE_SETTINGS, KeyEvent.KEYCODE_INFO)) {
-            options(); return true
+            if (live) options() else if (infoPanel == null) showInfoPanel() else hideInfoPanel()
+            return true
         }
         // Live: OK pauses / plays (with pause and rewind on); hold OK for subtitles, audio and picture.
         if (live && !optionsPill.isFocused && event.keyCode in listOf(KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER)) {
@@ -924,7 +925,6 @@ class PlayerActivity : Activity() {
     private fun cycleDialogue() {
         SoundProfile.setDialogueLevel(this, (SoundProfile.dialogueLevel(this) + 1) % 3)
         applySound(SoundProfile.get(this))
-        GlassUi.toast(this, "Enhance Dialogue: ${dlgName(SoundProfile.dialogueLevel(this))}")
     }
 
     private fun pickSound() {

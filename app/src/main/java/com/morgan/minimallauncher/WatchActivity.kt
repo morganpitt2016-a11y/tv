@@ -149,7 +149,7 @@ class WatchActivity : AppCompatActivity() {
 
         // Tabs.
         nav = LinearLayout(c).apply { gravity = Gravity.CENTER_VERTICAL }
-        for ((id, label) in listOf("home" to "Home", "tonight" to "Tonight", "films" to "Films", "shows" to "Shows", "live" to "Live TV", "sport" to "Sport", "list" to "My Stuff", "search" to "Search")) {
+        for ((id, label) in listOf("home" to "Home", "films" to "Films", "shows" to "Shows", "live" to "Live TV", "sport" to "Sport", "list" to "My Stuff", "search" to "Search")) {
             nav.addView(tabButton(id, label), LinearLayout.LayoutParams(-2, dp(c, 30f)).apply { marginEnd = dp(c, 4f) })
         }
         root.addView(nav, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(c, 22f) })
@@ -653,6 +653,7 @@ class WatchActivity : AppCompatActivity() {
 
     private fun buildHome(token: Int) {
         refreshPersonalRows()
+        if (!Kids.isOn(this)) buildTonight(token, onHome = true)      // Tonight lives on Home now
         if (Kids.isOn(this)) {
             dodgyHomeRows(token)
             for (type in listOf("MOVIE", "SHOW")) categoryLoads(type).forEach { (key, title, load) -> titleRow(token, "h_${type}_$key", title, quietFail = true, load = load) }
@@ -1444,11 +1445,11 @@ class WatchActivity : AppCompatActivity() {
     private val NOT_FILM = Regex("(?i)\\b(news|weather|live|football|darts|snooker|racing|rugby|cricket|golf|boxing|f1|grand prix|teleshopping|programmes resume|close)\\b")
     private val SPORT = Regex("(?i)(\\bv\\b|\\bvs\\b|live:|premier league|champions league|football|darts|boxing|grand prix|rugby|snooker|cricket|golf)")
 
-    private fun buildTonight(token: Int) {
-        showPlainHero("TONIGHT", "What’s On Tonight", "The best of tonight’s TV, the newest films on Dodgy Box, and your new episodes - all in one place.")
+    private fun buildTonight(token: Int, onHome: Boolean = false) {
+        if (!onHome) showPlainHero("TONIGHT", "What’s On Tonight", "The best of tonight’s TV, the newest films on Dodgy Box, and your new episodes - all in one place.")
         val host = rows
         val loading = GlassUi.text(this, "Finding tonight’s best…", 13f, R.font.inter_medium, 0x99FFFFFF.toInt())
-        host.addView(loading, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(this@WatchActivity, 56f); topMargin = dp(this@WatchActivity, 14f) })
+        if (!onHome) host.addView(loading, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(this@WatchActivity, 56f); topMargin = dp(this@WatchActivity, 14f) })
         val app = applicationContext
         handler.postDelayed({
             if (containerToken[host] == token && loading.parent != null) loading.text = "Still loading the TV guide… (it can take a minute the first time)"
@@ -1474,21 +1475,24 @@ class WatchActivity : AppCompatActivity() {
                 runOnUiThread {
                     if (containerToken[host] != token || isDestroyed) return@runOnUiThread
                     host.removeView(loading)
+                    var homeAt = 3
                     fun progRow(key: String, title: String, list: List<Pair<LiveGuide.Channel, LiveGuide.Programme>>) {
                         if (list.isEmpty()) return
                         val r = row(key, title, height = 150f)
                         r.list.adapter = CardAdapter(list, { p -> wideCard(p) }) { h, (ch, p) -> bindProgramme(h, ch, p); h.root.setOnClickListener { tonightOpen(ch, p) } }
-                        host.addView(r.view)
+                        // On Home, tonight's TV sits just under the first few rows.
+                        if (onHome) host.addView(r.view, minOf(host.childCount, homeAt++)) else host.addView(r.view)
                     }
                     progRow("tn_films", "Films on TV Tonight", films)
                     progRow("tn_picks", "Tonight’s Best on the Main Channels", picks)
                     progRow("tn_sport", "Sport Tonight", sport)
-                    if (films.isEmpty() && picks.isEmpty() && sport.isEmpty() && guide == null)
+                    if (!onHome && films.isEmpty() && picks.isEmpty() && sport.isEmpty() && guide == null)
                         host.addView(GlassUi.text(this, "The TV guide hasn’t loaded yet - try again in a moment.", 13f, R.font.inter_medium, 0x99FFFFFF.toInt()),
                             LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(this@WatchActivity, 56f); topMargin = dp(this@WatchActivity, 14f) })
                     focusContentIfIdle()
                 }
-                // Then what's new on Dodgy Box (that list can be slow to fetch).
+                // Then what's new on Dodgy Box (that list can be slow to fetch). Home has its own Dodgy Box rows.
+                if (onHome) return@Thread
                 val newFilms = if (Xtream.isSetUp(app) && !Xtream.isExpired(app)) try { kidsFilms(Xtream.newestFilms(app, 30)) } catch (e: Exception) { emptyList() } else emptyList()
                 runOnUiThread {
                     if (containerToken[host] != token || isDestroyed || newFilms.isEmpty()) return@runOnUiThread
@@ -1997,7 +2001,6 @@ class WatchActivity : AppCompatActivity() {
         listButton.setOnClickListener {
             val added = WatchCatalog.toggleMyList(c, t)
             (listButton as TextView).text = if (added) "✓  In My List" else "+  My List"
-            GlassUi.toast(this, if (added) "Added to My List" else "Removed from My List")
         }
         buttons.addView(listButton, LinearLayout.LayoutParams(-2, dp(c, 40f)))
         if (Xtream.isSetUp(c)) {
@@ -2010,7 +2013,6 @@ class WatchActivity : AppCompatActivity() {
                     remind.setOnClickListener {
                         val on = DodgyAlerts.toggle(c, t)
                         (remind as TextView).text = if (on) "🔔  Reminder Set" else "🔔  Remind Me"
-                        GlassUi.toast(this, if (on) "We’ll tell you when ${t.name} is on Dodgy Box" else "Reminder removed")
                     }
                     buttons.addView(remind, LinearLayout.LayoutParams(-2, dp(c, 40f)).apply { marginStart = dp(c, 10f) })
                 }
