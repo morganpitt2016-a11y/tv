@@ -93,7 +93,7 @@ object Sport {
 
     private fun fmt(p: String) = SimpleDateFormat(p, Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
     private val isoA = fmt("yyyy-MM-dd'T'HH:mm'Z'"); private val isoB = fmt("yyyy-MM-dd'T'HH:mm:ss'Z'"); private val isoC = fmt("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")
-    private fun time(s: String): Long = listOf(isoA, isoB, isoC).firstNotNullOfOrNull { f -> try { synchronized(f) { f.parse(s)?.time } } catch (e: Exception) { null } } ?: 0L
+    fun time(s: String): Long = listOf(isoA, isoB, isoC).firstNotNullOfOrNull { f -> try { synchronized(f) { f.parse(s)?.time } } catch (e: Exception) { null } } ?: 0L
     private val day = fmt("yyyyMMdd")
 
     private fun parseEvent(e: JSONObject, f: Follow): Match? {
@@ -306,5 +306,108 @@ object SportTables {
         if (list.all { it.round.isNotBlank() }) return list
         var n = 0; var last = 0L
         return list.map { f -> if (f.start - last > 4 * 86_400_000L) n++; last = f.start; if (f.round.isBlank()) f.copy(round = "Round $n") else f }
+    }
+}
+
+/** Formula 1: driver and team standings, the race calendar and the live order, styled like F1's own graphics. */
+object F1 {
+    private const val API = "https://site.api.espn.com/apis"
+
+    data class Team(val name: String, val colour: Int, val dark: Boolean)    // dark = needs dark text on its colour
+    data class Row(val rank: Int, val name: String, val code: String, val pts: String, val team: Team?)
+    data class Race(val name: String, val start: Long, val end: Long)
+    data class Runner(val pos: Int, val code: String, val name: String, val team: Team?, val gap: String)
+
+    // The 2026 grid and the teams' colours.
+    private val MCL = Team("McLaren", 0xFFFF8000.toInt(), false)
+    private val FER = Team("Ferrari", 0xFFE8002D.toInt(), false)
+    private val MER = Team("Mercedes", 0xFF27F4D2.toInt(), true)
+    private val RBR = Team("Red Bull Racing", 0xFF1E2A6E.toInt(), false)
+    private val WIL = Team("Williams", 0xFF1868DB.toInt(), false)
+    private val RB = Team("Racing Bulls", 0xFF6692FF.toInt(), false)
+    private val AST = Team("Aston Martin", 0xFF229971.toInt(), false)
+    private val HAA = Team("Haas", 0xFFF2F2F2.toInt(), true)
+    private val ALP = Team("Alpine", 0xFF0093CC.toInt(), false)
+    private val AUD = Team("Audi", 0xFFB40020.toInt(), false)
+    private val CAD = Team("Cadillac", 0xFF2A2A2E.toInt(), false)
+    private val TEAMS = listOf(MCL, FER, MER, RBR, WIL, RB, AST, HAA, ALP, AUD, CAD)
+    private val DRIVERS = mapOf("NOR" to MCL, "PIA" to MCL, "LEC" to FER, "HAM" to FER, "RUS" to MER, "ANT" to MER, "VER" to RBR, "HAD" to RBR,
+        "ALB" to WIL, "SAI" to WIL, "LAW" to RB, "LIN" to RB, "ALO" to AST, "STR" to AST, "OCO" to HAA, "BEA" to HAA,
+        "GAS" to ALP, "COL" to ALP, "HUL" to AUD, "BOR" to AUD, "BOT" to CAD, "PER" to CAD)
+
+    fun teamFor(code: String) = DRIVERS[code.uppercase()]
+    fun teamNamed(name: String): Team? {
+        val n = name.lowercase()
+        return TEAMS.firstOrNull { n.contains(it.name.lowercase().substringBefore(' ')) } ?: when {
+            "bull" in n && ("visa" in n || "racing bulls" in n || "rb " in n) -> RB
+            "sauber" in n || "kick" in n -> AUD
+            "aston" in n -> AST
+            else -> null
+        }
+    }
+
+    /** Drivers and teams tables (call off the main thread). */
+    fun standings(): Pair<List<Row>, List<Row>> {
+        val o = org.json.JSONObject(Net.get("$API/v2/sports/racing/f1/standings", timeoutMs = 15_000))
+        val kids = o.optJSONArray("children") ?: return emptyList<Row>() to emptyList()
+        fun rows(child: org.json.JSONObject, drivers: Boolean): List<Row> {
+            val e = child.optJSONObject("standings")?.optJSONArray("entries") ?: return emptyList()
+            return (0 until e.length()).map { e.getJSONObject(it) }.mapIndexed { i, x ->
+                val who = x.optJSONObject("athlete") ?: x.optJSONObject("team") ?: org.json.JSONObject()
+                val stats = x.optJSONArray("stats")?.let { a -> (0 until a.length()).map { a.getJSONObject(it) } }.orEmpty()
+                fun stat(vararg k: String) = k.firstNotNullOfOrNull { key -> stats.firstOrNull { it.optString("name") == key || it.optString("type") == key }?.optString("displayValue") }
+                val name = who.optString("displayName").ifBlank { who.optString("name") }
+                val code = who.optString("abbreviation")
+                Row(stat("rank")?.toIntOrNull() ?: (i + 1), name, code, stat("championshipPts", "points") ?: "0",
+                    if (drivers) teamFor(code) else teamNamed(name))
+            }.sortedBy { it.rank }
+        }
+        val list = (0 until kids.length()).map { kids.getJSONObject(it) }
+        val d = list.firstOrNull { it.optString("name").contains("driver", true) }?.let { rows(it, true) }.orEmpty()
+        val t = list.firstOrNull { it.optString("name").contains("constructor", true) || it.optString("name").contains("team", true) }?.let { rows(it, false) }.orEmpty()
+        // No constructors table in the feed: add up each team's drivers.
+        val teams = t.ifEmpty {
+            d.filter { it.team != null }.groupBy { it.team!! }.map { (tm, rs) -> tm to rs.sumOf { it.pts.toDoubleOrNull() ?: 0.0 } }
+                .sortedByDescending { it.second }
+                .mapIndexed { i, (tm, p) -> Row(i + 1, tm.name, "", if (p % 1.0 == 0.0) p.toInt().toString() else p.toString(), tm) }
+        }
+        return d to teams
+    }
+
+    private fun scoreboard() = org.json.JSONObject(Net.get("$API/site/v2/sports/racing/f1/scoreboard", timeoutMs = 12_000))
+
+    /** The season's races, from the calendar. */
+    fun races(): List<Race> {
+        val cal = scoreboard().optJSONArray("leagues")?.optJSONObject(0)?.optJSONArray("calendar") ?: return emptyList()
+        return (0 until cal.length()).mapNotNull { cal.optJSONObject(it) }.map {
+            Race(it.optString("label").replace(Regex("(?i)^formula 1\\s+"), "").trim(),
+                Sport.time(it.optString("startDate")), Sport.time(it.optString("endDate")))
+        }
+    }
+
+    /** The order right now, if a session is on (position, driver, gap). */
+    fun live(): Pair<String, List<Runner>>? {
+        val ev = scoreboard().optJSONArray("events") ?: return null
+        for (i in 0 until ev.length()) {
+            val e = ev.getJSONObject(i)
+            val comps = e.optJSONArray("competitions") ?: continue
+            for (j in 0 until comps.length()) {
+                val c = comps.getJSONObject(j)
+                val st = c.optJSONObject("status")?.optJSONObject("type")
+                if (st?.optString("state") != "in") continue
+                val cs = c.optJSONArray("competitors") ?: continue
+                val runners = (0 until cs.length()).map { cs.getJSONObject(it) }.map { r ->
+                    val a = r.optJSONObject("athlete") ?: org.json.JSONObject()
+                    val stats = r.optJSONArray("statistics")?.let { s -> (0 until s.length()).map { s.getJSONObject(it) } }.orEmpty()
+                    val gap = stats.firstOrNull { it.optString("name").contains("behind", true) || it.optString("name").contains("gap", true) || it.optString("name").contains("interval", true) }
+                        ?.optString("displayValue").orEmpty()
+                    val code = a.optString("abbreviation").ifBlank { a.optString("shortName").takeLast(3).uppercase() }
+                    Runner(r.optInt("order", 0), code, a.optString("displayName"), teamFor(code), gap)
+                }.sortedBy { it.pos }
+                val title = (e.optString("name") + "  ·  " + (c.optJSONObject("type")?.optString("abbreviation") ?: "") + "  ·  " + st.optString("shortDetail")).trim(' ', '·')
+                return title to runners
+            }
+        }
+        return null
     }
 }
