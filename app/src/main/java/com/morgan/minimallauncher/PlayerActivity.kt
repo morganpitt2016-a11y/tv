@@ -72,6 +72,15 @@ class PlayerActivity : Activity() {
     private var altUrl: String? = null
     private var live = false
     private var triedAlt = false
+    /** Netflix-style "You're watching" card shown while paused. */
+    private lateinit var pauseInfo: LinearLayout
+    private lateinit var pauseEyebrow: android.widget.TextView
+    private lateinit var pauseTitle: android.widget.TextView
+    private lateinit var pauseEp: android.widget.TextView
+    private lateinit var pausePlot: android.widget.TextView
+    private var episodeList: List<Xtream.Episode>? = null
+    private var episodeListLoading = false
+    private val showPause = Runnable { showPauseInfo() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -105,6 +114,10 @@ class PlayerActivity : Activity() {
         root.addView(optionsPill, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply { setMargins(0, dp(this@PlayerActivity, 36f), dp(this@PlayerActivity, 48f), 0) })
         view.setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { v ->
             optionsPill.visibility = if (v == View.VISIBLE) View.VISIBLE else View.GONE
+            // Controls gone while still paused: bring back the "You're watching" card.
+            if (v != View.VISIBLE && player?.playWhenReady == false && player?.playbackState == Player.STATE_READY) {
+                handler.removeCallbacks(showPause); handler.postDelayed(showPause, 300)
+            }
         })
 
         // Title card, like tvOS: fades away after a few seconds.
@@ -148,6 +161,23 @@ class PlayerActivity : Activity() {
             visibility = View.GONE
         }
         root.addView(skipView, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.START).apply { setMargins(dp(this@PlayerActivity, 48f), 0, 0, dp(this@PlayerActivity, 56f)) })
+        // "You're watching": dark fade from the left with the title, episode and its story (only while paused).
+        pauseInfo = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_VERTICAL
+            background = android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT,
+                intArrayOf(0xE6000000.toInt(), 0x99000000.toInt(), 0x00000000))
+            setPadding(dp(context, 72f), 0, dp(context, 220f), 0)
+            alpha = 0f; visibility = View.GONE
+        }
+        pauseEyebrow = GlassUi.text(this, "You’re watching", 15f, R.font.inter_medium, 0xB3FFFFFF.toInt())
+        pauseTitle = GlassUi.text(this, "", 40f, R.font.inter_semibold).apply { maxLines = 2 }
+        pauseEp = GlassUi.text(this, "", 19f, R.font.inter_semibold, 0xF2FFFFFF.toInt())
+        pausePlot = GlassUi.text(this, "", 15f, R.font.inter_medium, 0xCCFFFFFF.toInt()).apply { maxLines = 4; setLineSpacing(0f, 1.15f) }
+        pauseInfo.addView(pauseEyebrow)
+        pauseInfo.addView(pauseTitle, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(this@PlayerActivity, 6f) })
+        pauseInfo.addView(pauseEp, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(this@PlayerActivity, 12f) })
+        pauseInfo.addView(pausePlot, LinearLayout.LayoutParams(dp(this@PlayerActivity, 520f), -2).apply { topMargin = dp(this@PlayerActivity, 10f) })
+        root.addView(pauseInfo, 1, FrameLayout.LayoutParams(dp(this, 900f), -1, Gravity.START))
         setContentView(root)
         handler.postDelayed({ banner.animate().alpha(0f).setDuration(600).start() }, 4500)
 
@@ -225,6 +255,9 @@ class PlayerActivity : Activity() {
                 skippingIntro = false
             }
             override fun onIsPlayingChanged(isPlaying: Boolean) {
+                handler.removeCallbacks(showPause)
+                val pausedByYou = !isPlaying && player?.playWhenReady == false && player?.playbackState == Player.STATE_READY
+                if (pausedByYou) handler.postDelayed(showPause, 1200) else hidePauseInfo()
                 // A new episode (or film) has started: clear any controls left over from the last one.
                 if (isPlaying && hideControlsOnStart) { hideControlsOnStart = false; view.hideController() }
             }
@@ -439,6 +472,10 @@ class PlayerActivity : Activity() {
     private var nextDismissed = false
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // Paused with "You're watching" up: a press brings the controls back (and still does its job).
+        if (event.action == KeyEvent.ACTION_DOWN && ::pauseInfo.isInitialized && pauseInfo.visibility == View.VISIBLE) {
+            hidePauseInfo()
+        }
         if (swallowOkUp && event.action == KeyEvent.ACTION_UP && (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER)) {
             swallowOkUp = false; return true
         }
@@ -703,6 +740,54 @@ class PlayerActivity : Activity() {
         player?.pause()
         HomeRedirectService.instance?.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN)
         finish()
+    }
+
+    private fun showPauseInfo() {
+        val p = player ?: return
+        if (p.playWhenReady) return
+        val ep = if (curSeason > 0) episodeList?.firstOrNull { it.season == curSeason && it.number == curEpisode } else null
+        pauseTitle.text = seriesTitle ?: titleText
+        pauseEp.text = when {
+            curSeason > 0 -> "Season $curSeason: Episode $curEpisode" + (ep?.title?.let { cleanEpTitle(it) }?.takeIf { it.isNotBlank() }?.let { "  “$it”" } ?: "")
+            live -> bannerSub.text?.toString().orEmpty()
+            else -> bannerSub.text?.toString().orEmpty()
+        }
+        pauseEp.visibility = if (pauseEp.text.isNullOrBlank()) View.GONE else View.VISIBLE
+        pausePlot.text = ep?.plot.orEmpty()
+        pausePlot.visibility = if (pausePlot.text.isNullOrBlank()) View.GONE else View.VISIBLE
+        pauseEyebrow.text = if (live) "You’re watching live" else "You’re watching"
+        if (pauseInfo.visibility != View.VISIBLE) {
+            // Like Netflix: the picture with the title card, without the buttons on top; any press brings them back.
+            view.hideController()
+            pauseInfo.visibility = View.VISIBLE
+            pauseInfo.translationX = -dp(this, 24f).toFloat()
+            pauseInfo.animate().alpha(1f).translationX(0f).setDuration(350).start()
+        }
+        // First pause in a series: fetch the episode names and stories once, then fill them in.
+        if (curSeason > 0 && episodeList == null && !episodeListLoading && seriesTitle != null) {
+            episodeListLoading = true
+            val app = applicationContext; val name = seriesTitle!!
+            Bg.run {
+                val eps = try { Xtream.findSeries(app, name, 0)?.let { Xtream.episodes(app, it) } } catch (e: Exception) { null }
+                runOnUiThread {
+                    episodeListLoading = false
+                    episodeList = eps.orEmpty()
+                    if (!isDestroyed && pauseInfo.visibility == View.VISIBLE) showPauseInfo()
+                }
+            }
+        }
+    }
+
+    /** "Ghosts - S01E04 - The Thomas Thorne Affair" -> "The Thomas Thorne Affair"; plain "Episode 4" -> "". */
+    private fun cleanEpTitle(t: String): String {
+        val last = t.split(" - ").last().trim()
+        return if (Regex("(?i)^(s\\d+\\s*e\\d+|episode\\s*\\d+|e\\d+)$").matches(last)) "" else last
+    }
+
+    private fun hidePauseInfo() {
+        handler.removeCallbacks(showPause)
+        if (!::pauseInfo.isInitialized || pauseInfo.visibility != View.VISIBLE) return
+        pauseInfo.animate().alpha(0f).setDuration(200).withEndAction { pauseInfo.visibility = View.GONE }.start()
     }
 
     override fun onDestroy() {
