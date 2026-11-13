@@ -64,10 +64,10 @@ class EpisodesActivity : Activity() {
         setContentView(root)
 
         val app = applicationContext
-        Thread {
+        Bg.run {
             val eps = try { Xtream.findSeries(app, name, 0)?.let { Xtream.episodes(app, it) } } catch (e: Exception) { null }.orEmpty()
             runOnUiThread { if (!isDestroyed) show(eps) }
-        }.start()
+        }
     }
 
     private fun show(eps: List<Xtream.Episode>) {

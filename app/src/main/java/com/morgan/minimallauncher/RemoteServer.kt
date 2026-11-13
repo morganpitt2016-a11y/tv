@@ -372,7 +372,18 @@ class LauncherApp : Application() {
             override fun onReceive(c: Context, i: Intent) = AppListHelper.invalidate()
         }, filter, androidx.core.content.ContextCompat.RECEIVER_EXPORTED)
         // Warm the list off the main thread so the home screen opens fast.
-        Thread { try { AppListHelper.loadLaunchableTvApps(this) } catch (e: Exception) {} }.start()
+        Thread {
+            try {
+                val apps = AppListHelper.loadLaunchableTvApps(this)
+                // Draw the home screen's app tiles now, so they're ready before the home screen asks for them.
+                val d = resources.displayMetrics.density
+                fun px(v: Int) = (v * d + 0.5f).toInt()
+                RecentAppsTracker.getRecent(this, apps, limit = 3).forEach { AppTiles.forApp(this, it.app, px(100), px(60)) }
+                val byPkg = apps.associateBy { it.packageName }
+                ProfileManager.getDockOrder(this).mapNotNull { byPkg[it] }.ifEmpty { apps.take(6) }.take(9)
+                    .forEach { AppTiles.forApp(this, it, px(92), px((92 / AppTiles.RATIO).toInt())) }
+            } catch (e: Exception) {}
+        }.start()
         // Waking the TV from standby asks "Who's watching?" again.
         androidx.core.content.ContextCompat.registerReceiver(this, object : android.content.BroadcastReceiver() {
             override fun onReceive(c: Context, i: Intent) { Accounts.askWho = true }

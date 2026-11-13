@@ -55,7 +55,7 @@ class VoiceActivity : AppCompatActivity() {
         }
         if (!Xtream.isSetUp(app)) { search(raw); return }
         GlassUi.toast(this, "Looking for “$what”…")
-        Thread {
+        Bg.run {
             val channel = if (cw != null || pw != null || what.split(' ').size <= 3) findChannel(app, what) else null
             val lib = if (channel == null) try { Xtream.searchLibrary(app, what, 3) } catch (e: Exception) { null } else null
             runOnUiThread {
@@ -81,7 +81,7 @@ class VoiceActivity : AppCompatActivity() {
                     else -> search(raw)
                 }
             }
-        }.start()
+        }
     }
 
     /** A channel whose name matches what was said ("bbc one", "sky sports main event"). */

@@ -77,7 +77,7 @@ class SportTableActivity : Activity() {
         tabs["table"]?.requestFocus()
 
         val app = applicationContext
-        Thread {
+        Bg.run {
             val g = try { SportTables.standings(path) } catch (e: Exception) { null }
             val f = try { SportTables.season(path) } catch (e: Exception) { null }
             runOnUiThread {
@@ -86,7 +86,7 @@ class SportTableActivity : Activity() {
                 // Opens on the table if there is one, otherwise on the fixtures.
                 show(if (g.isNullOrEmpty()) "fixtures" else "table")
             }
-        }.start()
+        }
     }
 
     // ---------- Pieces ----------
@@ -271,7 +271,7 @@ class SportTableActivity : Activity() {
         if (m.finished) return
         val app = applicationContext
         LiveGuide.load(this) { guide ->
-            Thread {
+            Bg.run {
                 val follow = Sport.Follow(path, null, compName, compName, "", null, "")
                 val asMatch = Sport.Match(m.id, m.start, "${m.home} v ${m.away}", m.home, m.away, m.homeAbbr, m.awayAbbr, m.homeScore, m.awayScore,
                     m.state, m.detail, compName, m.homeLogo, m.awayLogo, true, follow)
@@ -290,7 +290,7 @@ class SportTableActivity : Activity() {
                         }
                     }
                 }
-            }.start()
+            }
         }
     }
 }

@@ -615,7 +615,7 @@ class PlayerActivity : Activity() {
 
     private fun tsRestartAt(byte: Long) {
         val t = ts ?: return
-        tsStart = t.align(byte.coerceIn(0, t.liveEdge()))
+        tsStart = t.align(byte.coerceIn(t.oldest(), maxOf(t.oldest(), t.liveEdge())))
         val playing = player?.playWhenReady ?: true
         start(url, resume = false)
         player?.playWhenReady = playing
@@ -626,7 +626,7 @@ class PlayerActivity : Activity() {
         val target = tsPlayingByte() + secs * t.bytesPerSecond
         when {
             target >= t.liveEdge() -> { tsRestartAt(t.liveEdge()); player?.playWhenReady = true }
-            target <= 0 -> { tsRestartAt(0); GlassUi.toast(this, "That’s as far back as this channel goes") }
+            target <= t.oldest() -> { tsRestartAt(t.oldest()); GlassUi.toast(this, "That’s as far back as it goes") }
             else -> tsRestartAt(target)
         }
         tsShowStatus()

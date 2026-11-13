@@ -472,6 +472,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private val startDimming = Runnable {
+        PetClock.resting = true
         idleDim.visibility = View.VISIBLE
         idleDim.animate().alpha(0.6f).setDuration(25_000).setInterpolator(LinearInterpolator()).start()
     }
@@ -482,6 +483,7 @@ class MainActivity : AppCompatActivity() {
 
     /** Any remote press: undim and restart the idle timers. */
     private fun wake() {
+        PetClock.resting = false
         handler.removeCallbacks(startDimming)
         handler.removeCallbacks(startIdleScreen)
         if (idleDim.visibility == View.VISIBLE) {

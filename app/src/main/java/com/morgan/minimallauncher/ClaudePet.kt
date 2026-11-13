@@ -110,7 +110,9 @@ class ClaudePet(context: Context) : View(context) {
     private val frame = object : Choreographer.FrameCallback {
         private var last = 0L
         override fun doFrame(now: Long) {
-            if (last != 0L) { step(((now - last) / 1e9f).coerceAtMost(0.05f)); invalidate() }
+            // 30 frames a second is plenty for a pixel pet, and halves the work; resting while the screen is dimmed.
+            if (PetClock.resting || (last != 0L && now - last < 31_000_000L)) { if (running) Choreographer.getInstance().postFrameCallback(this); if (PetClock.resting) last = 0L; return }
+            if (last != 0L) { step(((now - last) / 1e9f).coerceAtMost(0.07f)); invalidate() }
             last = now
             if (running) Choreographer.getInstance().postFrameCallback(this)
         }

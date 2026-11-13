@@ -173,6 +173,7 @@ class WatchActivity : AppCompatActivity() {
             if (detail != null) { detailFocusMoved(new); return@addOnGlobalFocusChangeListener }
             val row = rowOf(new) ?: return@addOnGlobalFocusChangeListener
             val guideRow = row.getTag(R.id.blur_radius) == "guide"
+            if (guideRow) (row.getTag(R.id.blur_anim) as? Runnable)?.run()
             scroll.smoothScrollTo(0, (row.top - if (guideRow) dp(this, 64f) else 0).coerceAtLeast(0))
         }
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -189,7 +190,7 @@ class WatchActivity : AppCompatActivity() {
         eyebrow.text = "WATCH"
         heroMeta.text = "Everything on all your apps"
         heroWhere.text = "Loading…"
-        Thread {
+        Bg.run {
             providers = try { WatchCatalog.featuredProviders(this) } catch (e: Exception) { emptyList() }
             installed = providers.filter { it.installed != null }
             handler.post {
@@ -200,7 +201,7 @@ class WatchActivity : AppCompatActivity() {
                     handler.postDelayed({ if (!isDestroyed) prefetch() }, 2500)
                 }
             }
-        }.start()
+        }
     }
 
     /** Back from TiviMate brings this screen back: keep where you were, or open the asked-for tab. */
@@ -544,14 +545,14 @@ class WatchActivity : AppCompatActivity() {
         val t = libTitle(s.name, "SHOW", s.cover)
         val dismiss = showFinding(t)
         val app = applicationContext
-        Thread {
+        Bg.run {
             val eps = try { Xtream.episodes(app, s) } catch (e: Exception) { emptyList() }
             runOnUiThread {
                 dismiss()
                 if (isDestroyed) return@runOnUiThread
                 if (eps.isEmpty()) GlassUi.toast(this, "${t.name} has no episodes on Dodgy Box right now") else chooseEpisode(t, eps)
             }
-        }.start()
+        }
     }
 
     private fun bindVod(h: Holder, v: Xtream.Vod) {
@@ -597,7 +598,7 @@ class WatchActivity : AppCompatActivity() {
         if (!Xtream.isSetUp(this) || Xtream.isExpired(this)) return
         val host = rows
         val app = applicationContext
-        Thread {
+        Bg.run {
             val films = kidsFilms(try { Xtream.newestFilms(app, if (Kids.isOn(app)) 600 else 30) } catch (e: Exception) { emptyList() }).take(30)
             val shows = kidsSeries(try { Xtream.newestSeries(app, if (Kids.isOn(app)) 600 else 30) } catch (e: Exception) { emptyList() }).take(30)
             runOnUiThread {
@@ -607,7 +608,7 @@ class WatchActivity : AppCompatActivity() {
                 if (films.isNotEmpty()) host.addView(libRow("dodgy_films", "New Films on Dodgy Box", films) { h, v -> bindVod(h, v) }.view, at++)
                 if (shows.isNotEmpty()) host.addView(libRow("dodgy_series", "New Series on Dodgy Box", shows) { h, v -> bindSeries(h, v) }.view, at)
             }
-        }.start()
+        }
     }
 
     /** Dodgy Box's own page, like a streaming app: Films / Series, new first, then every category. */
@@ -642,7 +643,7 @@ class WatchActivity : AppCompatActivity() {
         rows.addView(loading, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(this@WatchActivity, 56f); topMargin = dp(this@WatchActivity, 14f) })
         val host = rows
         val app = applicationContext
-        Thread {
+        Bg.run {
             val newest: List<Any>; val groups: List<Pair<String, List<Any>>>
             try {
                 val kids = Kids.isOn(app)
@@ -650,7 +651,7 @@ class WatchActivity : AppCompatActivity() {
                 else { newest = kidsSeries(Xtream.newestSeries(app, if (kids) 600 else 40)).take(40); groups = Xtream.seriesByCategory(app).filter { !kids || Kids.isKidsCategory(it.first) } }
             } catch (e: Exception) {
                 runOnUiThread { if (containerToken[host] == token) loading.text = "Couldn’t reach Dodgy Box - check the internet and VPN" }
-                return@Thread
+                return@run
             }
             runOnUiThread {
                 if (containerToken[host] != token || isDestroyed) return@runOnUiThread
@@ -673,7 +674,7 @@ class WatchActivity : AppCompatActivity() {
                 if (newest.isEmpty() && groups.isEmpty()) host.addView(GlassUi.text(this, "Nothing here yet.", 13f, R.font.inter_medium, 0x99FFFFFF.toInt()),
                     LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(this@WatchActivity, 56f) })
             }
-        }.start()
+        }
     }
 
     /** Search results from the Dodgy Box library (shown first, because they play straight away). */
@@ -681,7 +682,7 @@ class WatchActivity : AppCompatActivity() {
         if (!Xtream.isSetUp(this)) return
         val host = rows
         val app = applicationContext
-        Thread {
+        Bg.run {
             val found = try { Xtream.searchLibrary(app, query) } catch (e: Exception) { emptyList<Xtream.Vod>() to emptyList() }
             val films = kidsFilms(found.first); val shows = kidsSeries(found.second)
             runOnUiThread {
@@ -691,7 +692,7 @@ class WatchActivity : AppCompatActivity() {
                 if (shows.isNotEmpty()) host.addView(libRow("s_series", "Series on Dodgy Box", shows) { h, v -> bindSeries(h, v) }.view, at)
                 if (films.isNotEmpty() || shows.isNotEmpty()) focusContentIfIdle()
             }
-        }.start()
+        }
     }
 
 
@@ -786,7 +787,9 @@ class WatchActivity : AppCompatActivity() {
     /** Quietly load the other tabs (and their first posters) so switching is instant. */
     private fun prefetch() {
         val warm: (List<WatchCatalog.Title>?) -> Unit = { list -> list?.take(8)?.forEach { t -> t.poster?.let { ImageLoader.prefetch(this, it) } } }
-        for (type in listOf("MOVIE", "SHOW")) categoryLoads(type).forEach { (_, _, load) -> load(warm) }
+        // Just the first few rows of Films and Shows (the rest load as you scroll there) - fetching
+        // every row at once fought with scrolling for the first few seconds.
+        for (type in listOf("MOVIE", "SHOW")) categoryLoads(type).take(4).forEach { (_, _, load) -> load(warm) }
         LiveGuide.load(this) {}
     }
 
@@ -824,7 +827,7 @@ class WatchActivity : AppCompatActivity() {
         host.addView(guideBtn, LinearLayout.LayoutParams(-2, dp(this, 46f)).apply { setMargins(dp(this@WatchActivity, 56f), dp(this@WatchActivity, 6f), 0, dp(this@WatchActivity, 10f)) })
         val loading = GlassUi.text(this, "Loading channels…", 13f, R.font.inter_medium, 0x99FFFFFF.toInt())
         host.addView(loading, LinearLayout.LayoutParams(-2, -2).apply { setMargins(dp(this@WatchActivity, 56f), dp(this@WatchActivity, 8f), 0, 0) })
-        Thread {
+        Bg.run {
             val ready = java.util.concurrent.CountDownLatch(1)
             runOnUiThread { LiveGuide.load(this) { ready.countDown() } }
             try { ready.await(3, java.util.concurrent.TimeUnit.SECONDS) } catch (e: Exception) {}
@@ -847,7 +850,7 @@ class WatchActivity : AppCompatActivity() {
                 Perf.note("Live TV: front page ready", t0)
                 if (host === rows) focusContentIfIdle()
             }
-        }.start()
+        }
     }
 
     private fun bindLiveCard(h: Holder, ch: Xtream.Live) {
@@ -916,22 +919,30 @@ class WatchActivity : AppCompatActivity() {
             }
             host.addView(GlassUi.text(this, "Guide", 15f, R.font.inter_semibold),
                 LinearLayout.LayoutParams(-2, -2).apply { setMargins(dp(this@WatchActivity, 56f), dp(this@WatchActivity, 16f), 0, dp(this@WatchActivity, 4f)) })
-            // Channel rows are added in small batches: the first screenful is up immediately and
-            // the rest fill in behind it, instead of building 150 rows before anything draws.
+            // Channel rows are built as you reach them: a first screenful now, then more each time the
+            // highlight gets near the bottom (building all 150 up front made the tab stutter).
             val list = channels.take(150)
             var next = 0
-            fun addBatch() {
+            fun addBatch(count: Int) {
                 if (containerToken[host] != token || isDestroyed) return
                 val first = next == 0
-                val end = minOf(next + (if (first) 10 else 8), list.size)
-                while (next < end) { try { host.addView(guideRow(list[next])) } catch (e: Exception) {}; next++ }
+                val end = minOf(next + count, list.size)
+                while (next < end) {
+                    val i = next
+                    try {
+                        host.addView(guideRow(list[i]).also { r ->
+                            // Reaching one of the last few built rows builds the next batch.
+                            r.setTag(R.id.blur_anim, Runnable { if (i >= next - 6 && next < list.size) addBatch(12) })
+                        })
+                    } catch (e: Exception) {}
+                    next++
+                }
                 if (first) {
                     Perf.note("Live TV: first rows on screen", t0)
                     if (host === rows) focusContentIfIdle()
                 }
-                if (next < list.size) handler.postDelayed({ addBatch() }, 10) else Perf.note("Live TV: all ${list.size} rows built", t0)
             }
-            addBatch()
+            addBatch(16)
         }
     }
 
@@ -1087,7 +1098,7 @@ class WatchActivity : AppCompatActivity() {
         host.addView(loading, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(this@WatchActivity, 56f); topMargin = dp(this@WatchActivity, 14f) })
         val app = applicationContext
         LiveGuide.load(this) { guide ->
-            Thread {
+            Bg.run {
                 val now = System.currentTimeMillis()
                 val cal = java.util.Calendar.getInstance()
                 cal.set(java.util.Calendar.HOUR_OF_DAY, 18); cal.set(java.util.Calendar.MINUTE, 0)
@@ -1124,7 +1135,7 @@ class WatchActivity : AppCompatActivity() {
                     refreshResumeRow()
                     focusContentIfIdle()
                 }
-            }.start()
+            }
         }
     }
 
@@ -1132,7 +1143,7 @@ class WatchActivity : AppCompatActivity() {
     private fun tonightOpen(ch: LiveGuide.Channel, p: LiveGuide.Programme) {
         if (!Xtream.isSetUp(this)) { playOrAsk(ch, p); return }
         val app = applicationContext
-        Thread {
+        Bg.run {
             val live = Sport.liveFor(app, ch)
             runOnUiThread {
                 if (isDestroyed) return@runOnUiThread
@@ -1148,7 +1159,7 @@ class WatchActivity : AppCompatActivity() {
                         .button("Cancel").show()
                 }
             }
-        }.start()
+        }
     }
 
     // ---------- Sport ----------
@@ -1186,7 +1197,7 @@ class WatchActivity : AppCompatActivity() {
         rows.addView(loading, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(this@WatchActivity, 56f); topMargin = dp(this@WatchActivity, 14f) })
         val host = rows
         LiveGuide.load(this) { guide ->
-            Thread {
+            Bg.run {
                 val pool = java.util.concurrent.Executors.newFixedThreadPool(4)
                 val parts = follows.map { f -> pool.submit<List<Sport.Match>> { try { Sport.matches(f) } catch (e: Exception) { emptyList() } } }
                 val all = parts.flatMap { it.get() }.distinctBy { it.id }
@@ -1216,7 +1227,7 @@ class WatchActivity : AppCompatActivity() {
                     matchRow("sp_res", "Results", done)
                     live.firstOrNull()?.let { showMatchHero(it, channels[it.id]) }
                 }
-            }.start()
+            }
         }
     }
 
@@ -1255,7 +1266,7 @@ class WatchActivity : AppCompatActivity() {
         if (m.finished) { SportTableActivity.open(this, m.follow.path, Sport.GROUPS.flatMap { it.second }.firstOrNull { it.path == m.follow.path }?.name?.substringBefore(" (")?.substringBefore(" -") ?: m.follow.name); return }
         if (ch == null) { GlassUi.toast(this, "Not on your channels (yet)"); return }
         val app = applicationContext
-        Thread {
+        Bg.run {
             val live = Sport.liveFor(app, ch)
             runOnUiThread {
                 if (isDestroyed) return@runOnUiThread
@@ -1267,7 +1278,7 @@ class WatchActivity : AppCompatActivity() {
                     GlassUi.toast(this, "We’ll remind you 5 minutes before it starts (on ${live.name})")
                 }
             }
-        }.start()
+        }
     }
 
     /** Add a team, or a whole sport (F1, golf, tennis...). */
@@ -1282,7 +1293,7 @@ class WatchActivity : AppCompatActivity() {
                     return@button
                 }
                 GlassUi.toast(this, "Loading teams…")
-                Thread {
+                Bg.run {
                     val teams = try { Sport.teams(ch) } catch (e: Exception) { null }
                     runOnUiThread {
                         if (isDestroyed) return@runOnUiThread
@@ -1293,7 +1304,7 @@ class WatchActivity : AppCompatActivity() {
                         }
                         t.button("Cancel").show()
                     }
-                }.start()
+                }
             }
             c.button("Cancel").show()
         }
@@ -1574,7 +1585,7 @@ class WatchActivity : AppCompatActivity() {
         }
         val dismiss = showFinding(t)
         val app = applicationContext
-        Thread {
+        Bg.run {
             var film: Xtream.Vod? = null
             var series: Xtream.Series? = null
             var episodes: List<Xtream.Episode> = emptyList()
@@ -1595,7 +1606,7 @@ class WatchActivity : AppCompatActivity() {
                     }
                 }
             }
-        }.start()
+        }
     }
 
     private var lastEpisodes: List<Xtream.Episode> = emptyList()
@@ -1906,6 +1917,9 @@ class WatchActivity : AppCompatActivity() {
             clipChildren = false; clipToPadding = false
             setPadding(dp(c, 56f), dp(c, 12f), dp(c, 56f), dp(c, 8f))
             itemAnimator = null
+            setHasFixedSize(true)
+            setItemViewCacheSize(6)
+            (layoutManager as? LinearLayoutManager)?.initialPrefetchItemCount = 6
         }
         box.addView(list, LinearLayout.LayoutParams(-1, dp(c, height)))
         return Row(box, list)
@@ -1991,7 +2005,7 @@ class WatchActivity : AppCompatActivity() {
             else -> {
                 val name = it.series ?: it.title
                 // Rebuild the episode list so the next episode can follow on.
-                Thread {
+                Bg.run {
                     val eps = try { Xtream.findSeries(app, name, 0)?.let { s -> Xtream.episodes(app, s) } } catch (e: Exception) { null }.orEmpty()
                     val ep = eps.firstOrNull { e -> e.season == it.season && e.number == it.episode }
                     runOnUiThread {
@@ -2000,7 +2014,7 @@ class WatchActivity : AppCompatActivity() {
                         else PlayerActivity.play(this, it.url, name, live = false, subtitle = "Season ${it.season}, Episode ${it.episode}", eyebrow = "SERIES",
                             series = name, image = it.image, season = it.season, episode = it.episode)
                     }
-                }.start()
+                }
             }
         }
     }

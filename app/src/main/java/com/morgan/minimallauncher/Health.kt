@@ -58,7 +58,7 @@ object Health {
     /** The full check, shown in a box. */
     fun show(activity: Activity) {
         GlassUi.toast(activity, "Checking everything…")
-        Thread {
+        Bg.run {
             val list = run(activity)
             activity.runOnUiThread {
                 if (activity.isDestroyed) return@runOnUiThread
@@ -68,7 +68,7 @@ object Health {
                 GlassDialog(activity).title(if (bad.isEmpty()) "All Good" else "Health Check").message(text)
                     .button("Done", GlassDialog.Style.BOLD).show()
             }
-        }.start()
+        }
     }
 
     /** Once a night at 4am (or the first chance after), quietly. */
@@ -77,7 +77,7 @@ object Health {
         val today = cal.get(Calendar.YEAR) * 1000 + cal.get(Calendar.DAY_OF_YEAR)
         if (cal.get(Calendar.HOUR_OF_DAY) < 4 || Prefs.int(c, "health_day", 0) == today) return
         Prefs.setInt(c, "health_day", today)
-        Thread { try { run(c) ; Prefs.setBool(c, "health_told", false) } catch (e: Exception) {} }.start()
+        Bg.run { try { run(c) ; Prefs.setBool(c, "health_told", false) } catch (e: Exception) {} }
     }
 
     /** On the home screen: mention a problem the nightly check found (once). */

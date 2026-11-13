@@ -81,7 +81,12 @@ object ImageLoader {
         var sample = 1
         while (bounds.outWidth / (sample * 2) >= maxWidth) sample *= 2
         val decoded = try {
-            BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample })
+            BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply {
+                inSampleSize = sample
+                // Posters, stills and backdrops have no see-through parts: half the memory per picture.
+                // Logos and icons (small sizes) keep full colour with transparency.
+                if (maxWidth >= POSTER) inPreferredConfig = Bitmap.Config.RGB_565
+            })
         } catch (e: OutOfMemoryError) { null } ?: return null
         // Finish the job exactly so the memory cache stays small.
         val bmp = if (decoded.width > maxWidth * 1.3f) {

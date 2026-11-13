@@ -131,7 +131,7 @@ class LiveGuideActivity : Activity() {
 
         // Categories, then the channels of the first one.
         val app = applicationContext
-        Thread {
+        Bg.run {
             if (LiveGuide.cached() == null) {
                 val ready = java.util.concurrent.CountDownLatch(1)
                 runOnUiThread { LiveGuide.load(app) { ready.countDown() } }
@@ -165,7 +165,7 @@ class LiveGuideActivity : Activity() {
                 showCategories(sub = false)
                 selectCategory(if (Kids.isOn(this) && mainMap.containsKey("Kids")) "m:Kids" else "_all", focusGrid = true)
             }
-        }.start()
+        }
     }
 
     private fun addCategory(id: String, name: String) {
@@ -224,7 +224,7 @@ class LiveGuideActivity : Activity() {
         if (id == "_rec") { showRecordings(focusGrid); return }
         recScroll.visibility = View.GONE; epg.visibility = View.VISIBLE
         val app = applicationContext
-        Thread {
+        Bg.run {
             val list: List<Xtream.Live> = try {
                 when (id) {
                     "_fav" -> Xtream.best(Xtream.liveById(app, Xtream.favourites(app)))
@@ -259,7 +259,7 @@ class LiveGuideActivity : Activity() {
                 }
                 if (focusGrid) epg.requestFocus()
             }
-        }.start()
+        }
     }
 
     // ---- picture-in-picture ----
@@ -324,7 +324,7 @@ class LiveGuideActivity : Activity() {
         val app = applicationContext
         val title = prog?.let { LibraryRecordings.cleanTitle(it.title) } ?: row.ch.name
         GlassUi.toast(this, "Looking for $title on Dodgy Box…")
-        Thread {
+        Bg.run {
             val show = try { if (prog != null) Xtream.findSeries(app, title, 0) else null } catch (e: Exception) { null }
             val eps = try { show?.let { Xtream.episodes(app, it) } } catch (e: Exception) { null }.orEmpty()
             val film = if (show == null && prog != null) try { Xtream.findVod(app, title, 0) } catch (e: Exception) { null } else null
@@ -348,7 +348,7 @@ class LiveGuideActivity : Activity() {
                     else -> recordBroadcast(row, prog, series)       // not in the library: record it off air
                 }
             }
-        }.start()
+        }
     }
 
     /** Records the programme as it's broadcast (or links the series in the guide) when Dodgy Box doesn't have it. */
@@ -433,11 +433,11 @@ class LiveGuideActivity : Activity() {
             startActivity(android.content.Intent(this, EpisodesActivity::class.java).putExtra(EpisodesActivity.EXTRA_NAME, item.name).putExtra(EpisodesActivity.EXTRA_IMAGE, item.image))
             return
         }
-        Thread {
+        Bg.run {
             if (item.kind == "film") {
                 val v = try { Xtream.findVod(app, item.name, 0) } catch (e: Exception) { null }
                 runOnUiThread { if (v != null) PlayerActivity.play(this, Xtream.vodUrl(app, v), item.name, live = false, eyebrow = "RECORDING", image = item.image) else GlassUi.toast(this, "${item.name} is no longer on Dodgy Box") }
-                return@Thread
+                return@run
             }
             val eps = try { Xtream.findSeries(app, item.name, 0)?.let { Xtream.episodes(app, it) } } catch (e: Exception) { null }.orEmpty().sortedWith(compareBy({ it.season }, { it.number }))
             val e = eps.firstOrNull { it.season == item.season && it.number == item.episode }
@@ -448,7 +448,7 @@ class LiveGuideActivity : Activity() {
                 PlayerActivity.play(this, Xtream.episodeUrl(app, e), item.name, live = false, subtitle = "Season ${e.season}, Episode ${e.number}", eyebrow = "RECORDING",
                     series = item.name, queue = rest, image = item.image, season = e.season, episode = e.number)
             }
-        }.start()
+        }
     }
 
     private fun storageNote() = "Recordings are kept on this TV: ${Recordings.storageSummary(this)}. Plug in a USB drive for more room."

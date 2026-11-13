@@ -786,7 +786,7 @@ class SettingsActivity : AppCompatActivity() {
     /** The owner's code that any new install must enter. Set once, from here. */
     private fun activationCode() {
         GlassUi.toast(this, "Checking…")
-        Thread {
+        Bg.run {
             val set = try { Activation.salt() != null } catch (e: Exception) { null }
             runOnUiThread {
                 if (isDestroyed) return@runOnUiThread
@@ -815,7 +815,7 @@ class SettingsActivity : AppCompatActivity() {
                     }
                 }
             }
-        }.start()
+        }
     }
 
     /** Profiles that follow you between TVs (My List, Continue Watching, favourites...). */
@@ -848,7 +848,7 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun sendSetup() {
         GlassUi.toast(this, "Getting this TV’s setup ready…")
-        Thread {
+        Bg.run {
             val r = try { Result.success(Transfer.send(this)) } catch (e: Exception) { Result.failure(e) }
             runOnUiThread {
                 if (isDestroyed) return@runOnUiThread
@@ -861,7 +861,7 @@ class SettingsActivity : AppCompatActivity() {
                         .button("OK", GlassDialog.Style.BOLD).show()
                 }
             }
-        }.start()
+        }
     }
 
     private fun receiveSetup() {
@@ -871,7 +871,7 @@ class SettingsActivity : AppCompatActivity() {
         d.button("Copy", GlassDialog.Style.BOLD) {
             val code = d.inputText
             GlassUi.toast(this, "Copying…")
-            Thread {
+            Bg.run {
                 val r = try { Result.success(Transfer.receive(code)) } catch (e: Exception) { Result.failure(e) }
                 runOnUiThread {
                     if (isDestroyed) return@runOnUiThread
@@ -884,7 +884,7 @@ class SettingsActivity : AppCompatActivity() {
                             .button("OK", GlassDialog.Style.BOLD).show()
                     }
                 }
-            }.start()
+            }
         }
         d.button("Cancel")
         d.show()
@@ -935,13 +935,13 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun checkProviderLogin() {
         GlassUi.toast(this, "Checking…")
-        Thread {
+        Bg.run {
             val result = try { Result.success(Xtream.check(this)) } catch (e: Exception) { Result.failure(e) }
             runOnUiThread {
                 result.onSuccess { GlassDialog(this).title("Signed In").message("Account: $it").button("Done", GlassDialog.Style.BOLD).show() }
                 result.onFailure { GlassDialog(this).title("Couldn’t Sign In").message(it.message ?: "Check the server address, username and password.").button("OK").show() }
             }
-        }.start()
+        }
     }
 
     private fun editGuide() {

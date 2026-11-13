@@ -19,7 +19,8 @@ import java.net.URL
  */
 class Timeshift(context: Context, val url: String) {
     private val file = File(context.cacheDir, "timeshift.ts")
-    private val cap: Long = minOf(1_200L * 1024 * 1024, (context.cacheDir.usableSpace / 2).coerceAtLeast(64L * 1024 * 1024))
+    /** The most it keeps on the TV (about half an hour of HD): once full, the oldest part is reused, like a tape loop. */
+    private val cap: Long = (minOf(600L * 1024 * 1024, context.cacheDir.usableSpace / 3).coerceAtLeast(64L * 1024 * 1024) / 188L) * 188L
 
     @Volatile var written = 0L; private set
     @Volatile var failed: String? = null; private set
@@ -66,9 +67,14 @@ class Timeshift(context: Context, val url: String) {
                 while (!stopped) {
                     val n = input.read(buf)
                     if (n < 0) break
-                    out.write(buf, 0, n)
+                    // Write round the loop: position = total so far, wrapped at the cap.
+                    var off = 0
+                    while (off < n) {
+                        val phys = (written + off) % cap
+                        val len = minOf((n - off).toLong(), cap - phys).toInt()
+                        out.seek(phys); out.write(buf, off, len); off += len
+                    }
                     synchronized(lock) { written += n; lock.notifyAll() }
-                    if (written >= cap) { full = true; break }
                 }
             }
         } catch (e: Exception) {
@@ -92,12 +98,8 @@ class Timeshift(context: Context, val url: String) {
         return written > pos
     }
 
-    fun read(pos: Long, buf: ByteArray, off: Int, len: Int): Int {
-        RandomAccessFile(file, "r").use { f ->
-            f.seek(pos)
-            return f.read(buf, off, minOf(len.toLong(), written - pos).toInt())
-        }
-    }
+    /** The oldest point still kept (the loop has written over anything earlier). */
+    fun oldest(): Long = align((written - cap + 4 * bytesPerSecond).coerceAtLeast(0))
 
     /** The newest point to play from (a couple of seconds back, so it doesn't stall on the very edge). */
     fun liveEdge(): Long = align((written - 2 * bytesPerSecond).coerceAtLeast(0))
@@ -113,7 +115,7 @@ class Timeshift(context: Context, val url: String) {
 
         override fun open(dataSpec: DataSpec): Long {
             uri = dataSpec.uri
-            pos = startAt + dataSpec.position
+            pos = maxOf(startAt + dataSpec.position, oldest())
             transferInitializing(dataSpec)
             if (!waitFor(pos)) throw java.io.IOException(failed ?: "No picture yet")
             raf = RandomAccessFile(file, "r")
@@ -125,8 +127,10 @@ class Timeshift(context: Context, val url: String) {
             if (length == 0) return 0
             if (!waitFor(pos)) return if (full || failed != null || stopped) C.RESULT_END_OF_INPUT else throw java.io.IOException("Stream stalled")
             val f = raf ?: return C.RESULT_END_OF_INPUT
-            f.seek(pos)
-            val n = f.read(buffer, offset, minOf(length.toLong(), written - pos).toInt())
+            if (pos < written - cap) pos = oldest()             // paused so long the loop caught up: carry on from the oldest kept
+            val phys = pos % cap
+            f.seek(phys)
+            val n = f.read(buffer, offset, minOf(minOf(length.toLong(), written - pos), cap - phys).toInt())
             if (n <= 0) return C.RESULT_END_OF_INPUT
             pos += n
             bytesTransferred(n)

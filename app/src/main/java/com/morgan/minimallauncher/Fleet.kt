@@ -32,7 +32,7 @@ object Fleet {
         if (!force && now - lastCheck < 10 * 60_000L) return
         lastCheck = now
         val app = c.applicationContext
-        Thread {
+        Bg.run {
             try {
                 val blocked = Activation.rpc("device_checkin", JSONObject().put("p_id", Diag.deviceId(app)).put("p_name", nameFor(app))
                     .put("p_model", android.os.Build.MODEL).put("p_build", Updater.installedBuild(app))).trim() == "true"
@@ -43,7 +43,7 @@ object Fleet {
                     try { app.startActivity(Intent(app, BlockedActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)) } catch (e: Exception) {}
                 }
             } catch (e: Exception) {}
-        }.start()
+        }
     }
 
     /** The owner's proof: the activation code, hashed the same way it was stored. */
@@ -73,7 +73,7 @@ object Fleet {
         d.button("Continue", GlassDialog.Style.BOLD) {
             val code = d.inputText
             GlassUi.toast(a, "Checking…")
-            Thread {
+            Bg.run {
                 val p = try { proof(code) } catch (e: Exception) { null }
                 val devices = try { p?.let { list(it) } } catch (e: Exception) { null }
                 a.runOnUiThread {
@@ -84,7 +84,7 @@ object Fleet {
                         else -> showList(a, p, devices)
                     }
                 }
-            }.start()
+            }
         }
         d.button("Cancel").show()
     }
@@ -100,7 +100,7 @@ object Fleet {
                 GlassDialog(a).title(dev.name.ifBlank { dev.model })
                     .message(if (dev.blocked) "Let this TV use the launcher again?" else "Cut this TV off? It will show a locked screen until you let it back in.")
                     .button(if (dev.blocked) "Let It Back In" else "Cut It Off", if (dev.blocked) GlassDialog.Style.BOLD else GlassDialog.Style.DESTRUCTIVE) {
-                        Thread {
+                        Bg.run {
                             val ok = try { block(proof, dev.id, !dev.blocked) } catch (e: Exception) { false }
                             val fresh = try { list(proof) } catch (e: Exception) { devices }
                             a.runOnUiThread {
@@ -108,7 +108,7 @@ object Fleet {
                                 GlassUi.toast(a, if (!ok) "Couldn’t change it - try again" else if (dev.blocked) "${dev.name.ifBlank { dev.model }} can use the launcher again" else "${dev.name.ifBlank { dev.model }} is cut off (takes effect within 10 minutes)")
                                 showList(a, proof, fresh)
                             }
-                        }.start()
+                        }
                     }
                     .button("Cancel") { showList(a, proof, devices) }.show()
             }
