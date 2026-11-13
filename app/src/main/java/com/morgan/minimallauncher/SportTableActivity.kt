@@ -27,13 +27,18 @@ class SportTableActivity : Activity() {
     companion object {
         const val EXTRA_PATH = "path"; const val EXTRA_NAME = "name"
         /** Each competition's own colours - the neon green is the Nations Championship's alone. */
-        class Theme(val accent: Int, val bar: Int, val bg: IntArray, val onAccent: Int, val swoosh: Boolean)
+        class Theme(val accent: Int, val bar: Int, val bg: IntArray, val onAccent: Int, val swoosh: Boolean,
+                    val card: Boolean = false, val swooshColours: IntArray? = null)
         val NATIONS = Theme(0xFFE3F43A.toInt(), 0xFF1C302B.toInt(), intArrayOf(0xFF13241F.toInt(), 0xFF0A1311.toInt(), 0xFF030504.toInt()), 0xFF0A1311.toInt(), true)
+        /** Six Nations: charcoal, red arrows, white table card with an orange points column. */
+        val SIX = Theme(0xFFE07B24.toInt(), 0xFF2E3336.toInt(), intArrayOf(0xFF2A2E31.toInt(), 0xFF222628.toInt(), 0xFF1A1D1F.toInt()), 0xFFFFFFFF.toInt(), true,
+            card = true, swooshColours = intArrayOf(0xFFF0442C.toInt(), 0xFFB81E1E.toInt()))
         val PREMIER = Theme(0xFF00FF85.toInt(), 0xFF2E0A38.toInt(), intArrayOf(0xFF3D0042.toInt(), 0xFF22002A.toInt(), 0xFF0C0010.toInt()), 0xFF37003C.toInt(), false)
         val F1_THEME = Theme(0xFFE10600.toInt(), 0xFF16161D.toInt(), intArrayOf(0xFF17171F.toInt(), 0xFF0C0C11.toInt(), 0xFF000000.toInt()), 0xFFFFFFFF.toInt(), false)
         val PLAIN = Theme(0xFF4DA3FF.toInt(), 0xFF1A2333.toInt(), intArrayOf(0xFF111A28.toInt(), 0xFF0A0F18.toInt(), 0xFF04060A.toInt()), 0xFF04060A.toInt(), false)
         fun themeFor(path: String) = when {
             path == "rugby/17567" -> NATIONS
+            path == "rugby/180659" -> SIX
             path == "soccer/eng.1" -> PREMIER
             path.startsWith("racing/f1") -> F1_THEME
             else -> PLAIN
@@ -67,8 +72,16 @@ class SportTableActivity : Activity() {
         }
         // The tournament's swooshes, top-left and bottom-right.
         if (theme.swoosh) {
+            if (theme.card) {
+                // Six Nations' big red arrow strokes behind the table.
+                root.addView(swoosh(c), FrameLayout.LayoutParams(dp(c, 420f), dp(c, 64f), Gravity.TOP or Gravity.START).apply { topMargin = dp(c, 90f); marginStart = -dp(c, 120f) })
+                root.addView(swoosh(c).apply { rotation = -50f }, FrameLayout.LayoutParams(dp(c, 260f), dp(c, 64f), Gravity.TOP or Gravity.START).apply { topMargin = dp(c, 10f); marginStart = -dp(c, 40f) })
+                root.addView(swoosh(c).apply { rotation = -35f }, FrameLayout.LayoutParams(dp(c, 340f), dp(c, 64f), Gravity.BOTTOM or Gravity.END).apply { bottomMargin = dp(c, 60f); marginEnd = -dp(c, 110f) })
+                root.addView(swoosh(c).apply { rotation = 25f }, FrameLayout.LayoutParams(dp(c, 260f), dp(c, 56f), Gravity.BOTTOM or Gravity.START).apply { bottomMargin = -dp(c, 10f); marginStart = dp(c, 120f) })
+            } else {
             root.addView(swoosh(c), FrameLayout.LayoutParams(dp(c, 220f), dp(c, 60f), Gravity.TOP or Gravity.START).apply { topMargin = -dp(c, 14f); marginStart = -dp(c, 40f) })
             root.addView(swoosh(c), FrameLayout.LayoutParams(dp(c, 260f), dp(c, 70f), Gravity.BOTTOM or Gravity.END).apply { bottomMargin = -dp(c, 18f); marginEnd = -dp(c, 50f) })
+            }
         }
         if (f1) {
             // F1's red racing stripes along the top.
@@ -117,8 +130,9 @@ class SportTableActivity : Activity() {
     // ---------- Pieces ----------
 
     private fun swoosh(c: Context) = View(c).apply {
-        background = GradientDrawable().apply { cornerRadius = dp(c, 40f).toFloat(); setColor(ACCENT) }
-        rotation = -18f; alpha = 0.9f
+        background = theme.swooshColours?.let { GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, it).apply { cornerRadius = dp(c, 40f).toFloat() } }
+            ?: GradientDrawable().apply { cornerRadius = dp(c, 40f).toFloat(); setColor(ACCENT) }
+        rotation = if (theme.card) 40f else -18f; alpha = 0.9f
     }
 
     private fun pill(label: String, click: () -> Unit) = TextView(this).apply {
@@ -344,6 +358,13 @@ class SportTableActivity : Activity() {
         if (g.isNullOrEmpty()) { message(if (g == null) "Couldn’t load the table - check the internet connection." else "No table for this competition yet."); return }
         content.removeAllViews()
         val c = this
+        if (theme.card && g.size == 1) {
+            // One table, centred like the graphic.
+            val wrap = LinearLayout(c).apply { gravity = Gravity.CENTER_HORIZONTAL; clipChildren = false }
+            wrap.addView(table(g[0]), LinearLayout.LayoutParams(dp(c, 640f), -2))
+            content.addView(wrap, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(c, 6f) })
+            return
+        }
         // Two groups side by side (like Northern and Southern Hemisphere); more stack in pairs.
         for (pair in g.chunked(2)) {
             val row = LinearLayout(c).apply { gravity = Gravity.TOP; clipChildren = false }
@@ -356,6 +377,7 @@ class SportTableActivity : Activity() {
     }
 
     private fun table(g: SportTables.Group): View {
+        if (theme.card) return cardTable(g)
         val c = this
         val col = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL; clipChildren = false }
         col.addView(bigTitle(g.name.ifBlank { "Table" }), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(c, 12f) })
@@ -389,6 +411,52 @@ class SportTableActivity : Activity() {
             }, LinearLayout.LayoutParams(dp(c, 52f), -1))
             col.addView(bar, LinearLayout.LayoutParams(-1, dp(c, 44f)).apply { bottomMargin = dp(c, 7f) })
         }
+        return col
+    }
+
+    /** Six Nations style: "Round N Standings", a dark header strip, then white rows with an orange PTS column. */
+    private fun cardTable(g: SportTables.Group): View {
+        val c = this
+        val ink = 0xFF1A1D1F.toInt()
+        val round = g.rows.maxOfOrNull { it.p.toIntOrNull() ?: 0 } ?: 0
+        val col = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL; clipChildren = false }
+        col.addView(TextView(c).apply {
+            text = if (round > 0) "Round $round Standings" else g.name.ifBlank { "Standings" }
+            setTextColor(0xFFFFFFFF.toInt()); textSize = 34f; gravity = Gravity.CENTER
+            typeface = Typeface.create(GlassUi.font(c, R.font.inter_semibold), Typeface.BOLD)
+        }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(c, 16f) })
+        val panel = LinearLayout(c).apply {
+            orientation = LinearLayout.VERTICAL; clipChildren = false
+            background = GradientDrawable().apply { cornerRadius = dp(c, 10f).toFloat(); setColor(0xF01C2022.toInt()) }
+            setPadding(dp(c, 14f), dp(c, 6f), dp(c, 14f), dp(c, 14f))
+        }
+        val cols = listOf("P", "W", "D", "L", "PD", "BP")
+        val head = LinearLayout(c).apply { gravity = Gravity.CENTER_VERTICAL }
+        head.addView(cell("POS", 12f, 0xFFFFFFFF.toInt(), bold = true), LinearLayout.LayoutParams(dp(c, 48f), -2))
+        head.addView(TextView(c).apply { text = "TEAM"; setTextColor(0xFFFFFFFF.toInt()); textSize = 12f
+            typeface = Typeface.create(GlassUi.font(c, R.font.inter_semibold), Typeface.BOLD) }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(c, 44f) })
+        for (h in cols) head.addView(cell(h, 12f, 0xFFFFFFFF.toInt(), bold = true), LinearLayout.LayoutParams(dp(c, 40f), -2))
+        head.addView(cell("PTS", 12f, 0xFFFFFFFF.toInt(), bold = true), LinearLayout.LayoutParams(dp(c, 56f), -2))
+        panel.addView(head, LinearLayout.LayoutParams(-1, dp(c, 36f)))
+        val body = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(0xFFFFFFFF.toInt()); clipChildren = false }
+        g.rows.forEachIndexed { i, r ->
+            val row = LinearLayout(c).apply {
+                gravity = Gravity.CENTER_VERTICAL; isFocusable = true
+                setOnFocusChangeListener { v, has -> v.setBackgroundColor(if (has) 0xFFFFE9D6.toInt() else 0); Motion.spring(v, if (has) 1.02f else 1f) }
+            }
+            row.addView(cell(r.rank.toString(), 16f, ink, bold = true), LinearLayout.LayoutParams(dp(c, 48f), -2))
+            row.addView(ImageView(c).apply { scaleType = ImageView.ScaleType.FIT_CENTER; r.logo?.let { ImageLoader.load(this, it, ImageLoader.ICON) } },
+                LinearLayout.LayoutParams(dp(c, 30f), dp(c, 30f)))
+            row.addView(TextView(c).apply { text = r.name.ifBlank { r.abbr }.uppercase(); setTextColor(ink); textSize = 15f; maxLines = 1
+                typeface = Typeface.create(GlassUi.font(c, R.font.inter_semibold), Typeface.BOLD) },
+                LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(c, 14f) })
+            for (v in listOf(r.p, r.w, r.d, r.l, r.pd, r.bp)) row.addView(cell(v, 15f, ink), LinearLayout.LayoutParams(dp(c, 40f), -2))
+            row.addView(cell(r.pts, 16f, 0xFFFFFFFF.toInt(), bold = true).apply { setBackgroundColor(ACCENT) }, LinearLayout.LayoutParams(dp(c, 56f), -1))
+            body.addView(row, LinearLayout.LayoutParams(-1, dp(c, 46f)))
+            if (i < g.rows.size - 1) body.addView(View(c).apply { setBackgroundColor(0x1A000000) }, LinearLayout.LayoutParams(-1, 1))
+        }
+        panel.addView(body, LinearLayout.LayoutParams(-1, -2))
+        col.addView(panel, LinearLayout.LayoutParams(-1, -2))
         return col
     }
 
