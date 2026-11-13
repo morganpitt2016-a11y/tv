@@ -115,7 +115,7 @@ object Sport {
         return Match(
             e.optString("id") + "_" + comp.optString("id"), start, if (teamGame) "${team(home).optString("displayName")} v ${team(away).optString("displayName")}" else name,
             team(home).optString("displayName"), team(away).optString("displayName"),
-            team(home).optString("abbreviation"), team(away).optString("abbreviation"),
+            SportTables.abbr(team(home).optString("displayName"), team(home).optString("abbreviation")), SportTables.abbr(team(away).optString("displayName"), team(away).optString("abbreviation")),
             score(home).ifBlank { "0" }, score(away).ifBlank { "0" },
             st?.optString("state").orEmpty(), st?.optString("shortDetail").orEmpty(),
             e.optJSONObject("season")?.optString("slug")?.replace('-', ' ')?.replaceFirstChar { it.uppercase() } ?: f.name,
@@ -125,16 +125,37 @@ object Sport {
 
     private fun events(o: JSONObject) = o.optJSONArray("events")?.let { a -> (0 until a.length()).map { a.getJSONObject(it) } }.orEmpty()
 
+    /**
+     * Every event between [from] and [to]. Football takes a date range in one go; rugby (and some others)
+     * refuse ranges, so their league calendar is read and each match day fetched (a few at a time).
+     */
+    fun window(path: String, from: Long, to: Long): List<JSONObject> {
+        val range = day.format(java.util.Date(from)) + "-" + day.format(java.util.Date(to))
+        try { return events(JSONObject(Net.get("$ROOT/$path/scoreboard?dates=$range&limit=300", timeoutMs = 15_000))) } catch (e: Exception) {}
+        val base = JSONObject(Net.get("$ROOT/$path/scoreboard", timeoutMs = 12_000))
+        val cal = base.optJSONArray("leagues")?.optJSONObject(0)?.optJSONArray("calendar")
+        val days = (0 until (cal?.length() ?: 0)).mapNotNull { i ->
+            val v = cal!!.opt(i)
+            // Calendar entries are dates ("2026-11-14T08:00Z") or, for some sports, objects with a startDate.
+            val str = (v as? String) ?: (v as? JSONObject)?.optString("startDate") ?: return@mapNotNull null
+            time(str).takeIf { it in (from - 86_400_000L)..(to + 86_400_000L) }?.let { day.format(java.util.Date(it)) }
+        }.distinct()
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(4)
+        val parts = days.map { d -> pool.submit<List<JSONObject>> { try { events(JSONObject(Net.get("$ROOT/$path/scoreboard?dates=$d", timeoutMs = 12_000))) } catch (e: Exception) { emptyList() } } }
+        val all = parts.flatMap { it.get() } + events(base)
+        pool.shutdown()
+        return all.distinctBy { it.optString("id") }
+    }
+
     /** Everything for one follow: upcoming, finished and live (team schedule, or the competition's calendar). */
     fun matches(f: Follow): List<Match> {
         val now = System.currentTimeMillis()
-        val list = if (f.isTeam) {
-            (events(JSONObject(Net.get("$ROOT/${f.path}/teams/${f.teamId}/schedule?fixture=true", timeoutMs = 12_000))) +
-                events(JSONObject(Net.get("$ROOT/${f.path}/teams/${f.teamId}/schedule", timeoutMs = 12_000))))
+        val list = if (f.isTeam && !f.path.startsWith("rugby/")) {
+            (try { events(JSONObject(Net.get("$ROOT/${f.path}/teams/${f.teamId}/schedule?fixture=true", timeoutMs = 12_000))) } catch (e: Exception) { emptyList() } +
+                try { events(JSONObject(Net.get("$ROOT/${f.path}/teams/${f.teamId}/schedule", timeoutMs = 12_000))) } catch (e: Exception) { emptyList() })
                 .mapNotNull { parseEvent(it, f) }
         } else {
-            val range = day.format(java.util.Date(now - 14 * 86_400_000L)) + "-" + day.format(java.util.Date(now + 60 * 86_400_000L))
-            events(JSONObject(Net.get("$ROOT/${f.path}/scoreboard?dates=$range&limit=200", timeoutMs = 15_000))).mapNotNull { parseEvent(it, f) }
+            window(f.path, now - 30 * 86_400_000L, now + 75 * 86_400_000L).mapNotNull { parseEvent(it, f) }
         }
         // Today's scoreboard has the live state; merge it in.
         val today = try { events(JSONObject(Net.get("$ROOT/${f.path}/scoreboard", timeoutMs = 10_000))).mapNotNull { parseEvent(it, f) } } catch (e: Exception) { emptyList() }
@@ -202,6 +223,12 @@ object SportTables {
     private const val SITE = "https://site.api.espn.com/apis/site/v2/sports"
     private const val V2 = "https://site.api.espn.com/apis/v2/sports"
 
+    /** How rugby graphics abbreviate the national teams (ESPN says "SOU" for South Africa, for one). */
+    private val NATION = mapOf("south africa" to "RSA", "new zealand" to "NZL", "australia" to "AUS", "argentina" to "ARG", "fiji" to "FIJ", "japan" to "JPN",
+        "ireland" to "IRE", "england" to "ENG", "scotland" to "SCO", "wales" to "WAL", "france" to "FRA", "italy" to "ITA", "georgia" to "GEO", "samoa" to "SAM", "tonga" to "TGA")
+    fun abbr(name: String, given: String) = NATION[name.lowercase().trim()] ?: given
+    private val SOUTH = setOf("south africa", "new zealand", "australia", "argentina", "fiji", "japan")
+
     data class Row(val rank: Int, val name: String, val abbr: String, val logo: String?, val p: String, val w: String, val d: String, val l: String, val pd: String, val bp: String, val pts: String)
     data class Group(val name: String, val rows: List<Row>)
     data class Fixture(val id: String, val start: Long, val round: String, val home: String, val away: String, val homeAbbr: String, val awayAbbr: String,
@@ -223,7 +250,7 @@ object SportTables {
                         ?.let { s -> return s.optString("displayValue").ifBlank { s.optString("value") }.removeSuffix(".0") }
                     return "–"
                 }
-                Row(stat("rank").toIntOrNull() ?: (i + 1), t.optString("displayName"), t.optString("abbreviation").ifBlank { t.optString("shortDisplayName") },
+                Row(stat("rank").toIntOrNull() ?: (i + 1), t.optString("displayName"), abbr(t.optString("displayName"), t.optString("abbreviation").ifBlank { t.optString("shortDisplayName") }),
                     t.optJSONArray("logos")?.optJSONObject(0)?.optString("href") ?: t.optString("logo").ifBlank { null },
                     stat("gamesPlayed", "GP", "P"), stat("wins", "gamesWon", "W"), stat("ties", "draws", "gamesDrawn", "D", "T"), stat("losses", "gamesLost", "L"),
                     stat("pointDifferential", "pointsDifference", "differential", "PD", "DIFF"), stat("bonusPoints", "totalBonusPoints", "BP", "B"),
@@ -233,7 +260,11 @@ object SportTables {
         val kids = o.optJSONArray("children")
         val groups = if (kids != null && kids.length() > 0) (0 until kids.length()).map { kids.getJSONObject(it) }.map { Group(it.optString("name"), rows(it.optJSONObject("standings"))) }
                      else listOf(Group(o.optString("name"), rows(o.optJSONObject("standings"))))
-        return groups.filter { it.rows.isNotEmpty() }
+        // Hemisphere groups: name each by who's actually in it (the feed's labels can be the wrong way round).
+        return groups.filter { it.rows.isNotEmpty() }.map { g ->
+            if (!g.name.contains("hemisphere", true)) g
+            else g.copy(name = if (g.rows.count { it.name.lowercase() in SOUTH } * 2 > g.rows.size) "Southern Hemisphere" else "Northern Hemisphere")
+        }.sortedBy { if (it.name.startsWith("Northern")) 0 else 1 }
     }
 
     private fun fmt(p: String) = java.text.SimpleDateFormat(p, java.util.Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
@@ -244,10 +275,7 @@ object SportTables {
     /** Every match this season (and what's coming), with its round and venue. */
     fun season(path: String): List<Fixture> {
         val now = System.currentTimeMillis()
-        val range = day.format(java.util.Date(now - 200L * 86_400_000L)) + "-" + day.format(java.util.Date(now + 120L * 86_400_000L))
-        val o = org.json.JSONObject(Net.get("$SITE/$path/scoreboard?dates=$range&limit=500", timeoutMs = 20_000))
-        val ev = o.optJSONArray("events") ?: return emptyList()
-        val list = (0 until ev.length()).map { ev.getJSONObject(it) }.mapNotNull { e ->
+        val list = Sport.window(path, now - 200L * 86_400_000L, now + 120L * 86_400_000L).mapNotNull { e ->
             val comp = e.optJSONArray("competitions")?.optJSONObject(0) ?: return@mapNotNull null
             val cs = comp.optJSONArray("competitors") ?: return@mapNotNull null
             val sides = (0 until cs.length()).map { cs.getJSONObject(it) }
@@ -261,7 +289,7 @@ object SportTables {
             val roundName = comp.optJSONObject("type")?.optString("text")?.takeIf { it.isNotBlank() && !it.equals("standard", true) }
             val v = comp.optJSONObject("venue")
             Fixture(e.optString("id"), time(e.optString("date")), roundName ?: week?.takeIf { it > 0 }?.let { "Round $it" } ?: "",
-                t(h).optString("displayName"), t(a).optString("displayName"), t(h).optString("abbreviation"), t(a).optString("abbreviation"),
+                t(h).optString("displayName"), t(a).optString("displayName"), abbr(t(h).optString("displayName"), t(h).optString("abbreviation")), abbr(t(a).optString("displayName"), t(a).optString("abbreviation")),
                 logo(h), logo(a), score(h), score(a), st?.optString("state").orEmpty(), st?.optString("shortDetail").orEmpty(),
                 listOfNotNull(v?.optString("fullName")?.ifBlank { null }, v?.optJSONObject("address")?.optString("city")?.ifBlank { null }).joinToString(", "))
         }.sortedBy { it.start }
