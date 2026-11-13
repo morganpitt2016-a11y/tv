@@ -167,6 +167,11 @@ class WatchActivity : AppCompatActivity() {
             addView(rows)
         }
         root.addView(scroll, FrameLayout.LayoutParams(-1, -1).apply { topMargin = dp(c, 262f) })
+        // Rows never draw above their own area (scrolled-away rows were showing over the tabs at the top).
+        scroll.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
+            val pad = dp(c, 400f)
+            v.clipBounds = android.graphics.Rect(-pad, -dp(c, 14f), v.width + pad, v.height + pad)
+        }
 
         setContentView(root)
         UiSounds.attach(this)
@@ -2721,7 +2726,10 @@ class WatchActivity : AppCompatActivity() {
             addUpdateListener { lp.width = it.animatedValue as Int; h.root.layoutParams = lp }
             start()
         }
-        Motion.spring(h.root, 1.04f)
+        // Opens out to the right from where it sits (no extra zoom), and the row lines it up at the left edge.
+        h.root.pivotX = 0f
+        Motion.spring(h.root, 1.0f)
+        (h.root.parent as? RecyclerView)?.let { rv -> h.root.post { rv.smoothScrollBy(h.root.left - dp(c, 56f), 0) } }
         (t.backdrop ?: t.poster)?.let { ImageLoader.load(h.image, it, ImageLoader.CARD) }
         val info = LinearLayout(c).apply {
             orientation = LinearLayout.VERTICAL; gravity = Gravity.BOTTOM
@@ -2741,7 +2749,9 @@ class WatchActivity : AppCompatActivity() {
         val lp = h.root.layoutParams ?: return
         (h.root.getTag(R.id.card_info) as? View)?.let { h.root.removeView(it) }
         h.root.setTag(R.id.card_info, null)
+        h.root.pivotX = h.root.width / 2f
         if (lp.width != dp(this, 104f)) {
+            h.root.pivotX = dp(this, 52f).toFloat()
             lp.width = dp(this, 104f); h.root.layoutParams = lp
             if (reload) ImageLoader.load(h.image, t.poster)
         }
