@@ -83,7 +83,9 @@ class WatchActivity : AppCompatActivity() {
     private val tabViews = HashMap<String, Pair<LinearLayout, Long>>()
     private val containerToken = java.util.WeakHashMap<LinearLayout, Int>()
     private fun cacheTtl(id: String) = when (id) { "home", "films", "shows" -> 10 * 60_000L; "live" -> 3 * 60_000L; else -> 0L }
-    private fun newBuild(): Int { val t = ++buildToken; containerToken[rows] = t; return t }
+    private fun newBuild(): Int { val t = ++buildToken; containerToken[rows] = t; shownTitles.clear(); return t }
+    /** Titles already in a row on this page, so the next rows don't repeat them. */
+    private val shownTitles = HashSet<String>()
 
     private fun makeRows() = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
@@ -117,6 +119,8 @@ class WatchActivity : AppCompatActivity() {
         trailerHost = FrameLayout(c).apply { alpha = 0f }
         heroLayer.addView(trailerHost, FrameLayout.LayoutParams(-1, -1))
         root.addView(heroLayer, FrameLayout.LayoutParams(-1, -1))
+        heroDim = View(c).apply { setBackgroundColor(0xFF000000.toInt()); alpha = 0f }
+        root.addView(heroDim, FrameLayout.LayoutParams(-1, -1))
         root.addView(View(c).apply {
             background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(0xF2000000.toInt(), 0xA6000000.toInt(), 0x26000000, 0x00000000))
         }, FrameLayout.LayoutParams(-1, -1))
@@ -168,10 +172,16 @@ class WatchActivity : AppCompatActivity() {
         UiSounds.attach(this)
 
         // Glide each row to the top of the rows area as focus reaches it.
-        window.decorView.viewTreeObserver.addOnGlobalFocusChangeListener { _, new ->
+        window.decorView.viewTreeObserver.addOnGlobalFocusChangeListener { old, new ->
             if (new == null) return@addOnGlobalFocusChangeListener
             if (detail != null) { detailFocusMoved(new); return@addOnGlobalFocusChangeListener }
+            // Coming up out of the rows onto the tabs: land on the tab you're in, not whichever is nearest.
+            if (new.parent === nav && old != null && rowOf(old) != null && new.tag != tab) {
+                (0 until nav.childCount).map { nav.getChildAt(it) }.firstOrNull { it.tag == tab }?.let { cur -> new.post { cur.requestFocus() } }
+            }
+            if (new.parent === nav) setHeroCollapsed(false)
             val row = rowOf(new) ?: return@addOnGlobalFocusChangeListener
+            setHeroCollapsed(firstContentRow() !== row)
             val guideRow = row.getTag(R.id.blur_radius) == "guide"
             if (guideRow) (row.getTag(R.id.blur_anim) as? Runnable)?.run()
             scroll.smoothScrollTo(0, (row.top - if (guideRow) dp(this, 64f) else 0).coerceAtLeast(0))
@@ -316,6 +326,31 @@ class WatchActivity : AppCompatActivity() {
 
     private var pendingTab: Runnable? = null
 
+    // ---------- Hero that steps aside (Apple TV): once you're down in the rows they get the whole screen ----------
+
+    private var heroCollapsed = false
+    private var heroAnim: android.animation.ValueAnimator? = null
+
+    private fun firstContentRow(): View? = (0 until rows.childCount).map { rows.getChildAt(it) }
+        .firstOrNull { it.visibility == View.VISIBLE && (it.isFocusable || (it as? ViewGroup)?.focusables(View.FOCUS_DOWN)?.isNotEmpty() == true) }
+    private lateinit var heroDim: View
+
+    private fun setHeroCollapsed(collapse: Boolean) {
+        if (collapse == heroCollapsed || detail != null) return
+        heroCollapsed = collapse
+        val lp = scroll.layoutParams as FrameLayout.LayoutParams
+        val from = lp.topMargin
+        val to = dp(this, if (collapse) 70f else 262f)
+        heroAnim?.cancel()
+        heroAnim = android.animation.ValueAnimator.ofInt(from, to).apply {
+            duration = 380; interpolator = Motion.focusEase
+            addUpdateListener { lp.topMargin = it.animatedValue as Int; scroll.layoutParams = lp }
+            start()
+        }
+        info.animate().alpha(if (collapse) 0f else 1f).setDuration(260).start()
+        heroDim.animate().alpha(if (collapse) 0.72f else 0f).setDuration(380).start()
+    }
+
     /** Live TV: just a doorway to the guide (OK or Down opens it), so moving past it loads nothing. */
     private fun showLiveTab() {
         tab = "live"
@@ -344,6 +379,7 @@ class WatchActivity : AppCompatActivity() {
     private fun tabIndex() = (0 until nav.childCount).firstOrNull { nav.getChildAt(it).tag == tab } ?: 0
 
     private fun showTab(id: String, focusContent: Boolean) {
+        setHeroCollapsed(false)
         tab = id
         collectionFrom = null
         focusFirstLoaded = false
@@ -1149,8 +1185,11 @@ class WatchActivity : AppCompatActivity() {
         val loading = GlassUi.text(this, "Finding tonight’s best…", 13f, R.font.inter_medium, 0x99FFFFFF.toInt())
         host.addView(loading, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(this@WatchActivity, 56f); topMargin = dp(this@WatchActivity, 14f) })
         val app = applicationContext
+        handler.postDelayed({
+            if (containerToken[host] == token && loading.parent != null) loading.text = "Still loading the TV guide… (it can take a minute the first time)"
+        }, 12_000)
         LiveGuide.load(this) { guide ->
-            Bg.run {
+            Thread {
                 val now = System.currentTimeMillis()
                 val cal = java.util.Calendar.getInstance()
                 cal.set(java.util.Calendar.HOUR_OF_DAY, 18); cal.set(java.util.Calendar.MINUTE, 0)
@@ -1167,7 +1206,6 @@ class WatchActivity : AppCompatActivity() {
                 val picks = all.filter { (ch, p) -> big(ch) && p.start in (from - 5 * 60_000L)..(to - 2 * 3_600_000L) && !NOT_FILM.containsMatchIn(p.title) &&
                         p.stop - p.start in 25 * 60_000L..85 * 60_000L }
                     .distinctBy { it.second.title.lowercase() }.sortedBy { it.second.start }.take(30)
-                val newFilms = if (Xtream.isSetUp(app) && !Xtream.isExpired(app)) try { kidsFilms(Xtream.newestFilms(app, 30)) } catch (e: Exception) { emptyList() } else emptyList()
                 runOnUiThread {
                     if (containerToken[host] != token || isDestroyed) return@runOnUiThread
                     host.removeView(loading)
@@ -1180,14 +1218,19 @@ class WatchActivity : AppCompatActivity() {
                     progRow("tn_films", "Films on TV Tonight", films)
                     progRow("tn_picks", "Tonight’s Best on the Main Channels", picks)
                     progRow("tn_sport", "Sport Tonight", sport)
-                    if (newFilms.isNotEmpty()) host.addView(libRow("tn_new", "Just Added to Dodgy Box", newFilms) { h, v -> bindVod(h, v) }.view)
-                    if (films.isEmpty() && picks.isEmpty() && sport.isEmpty() && newFilms.isEmpty())
+                    if (films.isEmpty() && picks.isEmpty() && sport.isEmpty() && guide == null)
                         host.addView(GlassUi.text(this, "The TV guide hasn’t loaded yet - try again in a moment.", 13f, R.font.inter_medium, 0x99FFFFFF.toInt()),
                             LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(this@WatchActivity, 56f); topMargin = dp(this@WatchActivity, 14f) })
-                    refreshResumeRow()
                     focusContentIfIdle()
                 }
-            }
+                // Then what's new on Dodgy Box (that list can be slow to fetch).
+                val newFilms = if (Xtream.isSetUp(app) && !Xtream.isExpired(app)) try { kidsFilms(Xtream.newestFilms(app, 30)) } catch (e: Exception) { emptyList() } else emptyList()
+                runOnUiThread {
+                    if (containerToken[host] != token || isDestroyed || newFilms.isEmpty()) return@runOnUiThread
+                    host.addView(libRow("tn_new", "Just Added to Dodgy Box", newFilms) { h, v -> bindVod(h, v) }.view)
+                    focusContentIfIdle()
+                }
+            }.start()
         }
     }
 
@@ -2152,7 +2195,11 @@ class WatchActivity : AppCompatActivity() {
         host.addView(r.view)
         load { raw ->
             if (containerToken[host] != token || isDestroyed) return@load
-            val titles = raw?.filterNot { Ratings.disliked(this, it.name) }   // "Not for me" titles stay hidden
+            val liked = raw?.filterNot { Ratings.disliked(this, it.name) }   // "Not for me" titles stay hidden
+            // Each title once per page: a row only shows what earlier rows haven't (and goes if little is left).
+            val titles = if (liked == null || key == "results" || key == "loved" || key == "because") liked
+                else liked.filter { it.id !in shownTitles }.let { fresh -> if (fresh.size >= 5 || liked.size < 5) fresh else emptyList() }
+            titles?.forEach { shownTitles.add(it.id) }
             when {
                 titles.isNullOrEmpty() && (quietFail || titles != null) -> host.removeView(r.view)
                 titles == null -> { r.list.adapter = adapter; r.view.addView(GlassUi.text(this, "Couldn’t load - check the internet connection", 12f, R.font.inter_regular, 0x99FFFFFF.toInt()),
