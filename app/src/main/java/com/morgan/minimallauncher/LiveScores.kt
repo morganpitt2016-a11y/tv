@@ -100,20 +100,53 @@ object LiveScores {
         }.start()
     }
 
-    /** The feed's clock sticks at times (rugby especially): work the minute out from kick-off when it's clearly behind. */
+    // Clock state per match: the last minute the feed gave and when it changed, and when the second half began.
+    private val anchor = HashMap<String, Pair<Int, Long>>()
+    private val lastPeriod = HashMap<String, Int>()
+    private val periodStart = HashMap<String, Long>()
+
+    /**
+     * The match minute. The feed's own clock is right (it stops for injuries, TMO and half-time), so it's used as is
+     * whenever it's moving. When it sticks, count on from the last minute it gave (not from kick-off), hold it while
+     * play is stopped or at half-time, start the second half when the feed says it started, and show added time
+     * (45+2', 80'+) rather than counting past the end of a half. Estimates get a small "~".
+     */
     private fun clock(m: Sport.Match, now: Long): String {
         val d = m.detail.trim()
-        if (Regex("(?i)half|^ht$|^ft$|full").containsMatchIn(d)) return if (d.contains("half", true) && !d.contains("2nd", true) && !d.contains("1st", true)) "HT" else d
-        val shown = Regex("^(\\d+)'").find(d)?.groupValues?.get(1)?.toIntOrNull()
+        val status = m.statusName.uppercase()
         val rugby = m.follow.path.startsWith("rugby")
-        val half = if (rugby) 40 else 45; val brk = if (rugby) 12 else 15
-        val elapsed = ((now - m.start) / 60_000L).toInt()
-        val est = when (m.period) {
-            1 -> minOf(elapsed, half)
-            2 -> (half + maxOf(0, elapsed - half - brk)).coerceAtMost(half * 2)
-            else -> return d
+        val half = if (rugby) 40 else 45
+        // Half-time / breaks / finished: as the feed says.
+        if (status.contains("HALFTIME") || Regex("(?i)^(ht|half ?time)$").matches(d)) { anchor.remove(m.id); return "HT" }
+        if (status.contains("FULL_TIME") || status.contains("FINAL") || d.equals("FT", true)) return "FT"
+        if (status.contains("END_PERIOD") || status.contains("END_OF")) return d.ifBlank { "Break" }
+        // A new half: remember when it started.
+        val prevP = lastPeriod[m.id]
+        if (m.period > 0 && prevP != null && m.period != prevP) { periodStart[m.id] = now; anchor.remove(m.id) }
+        if (m.period > 0) lastPeriod[m.id] = m.period
+        // The feed's minute ("23'", "45'+2'", or seconds from displayClock "23:10").
+        val shown = Regex("^(\\d+)'(?:\\s*\\+\\s*(\\d+))?").find(d)?.let { r -> r.groupValues[1].toInt() + (r.groupValues[2].toIntOrNull() ?: 0) }
+            ?: Regex("^(\\d+):(\\d{2})").find(m.displayClock)?.groupValues?.get(1)?.toIntOrNull()
+        if (shown != null) {
+            val a = anchor[m.id]
+            if (a == null || a.first != shown) anchor[m.id] = shown to now        // the feed moved: fresh
         }
-        return if (shown != null && est - shown >= 3) "$est'" else d.ifBlank { "$est'" }
+        val stopped = status.contains("DELAY") || status.contains("SUSPEND") || status.contains("STOPPED")
+        val a = anchor[m.id]
+        val limit = if (m.period >= 2) half * 2 else half
+        fun label(min: Int, estimated: Boolean): String {
+            val txt = if (min > limit) (if (rugby) "$limit'+" else "$limit+${min - limit}'") else "$min'"
+            return if (estimated) "~$txt" else txt
+        }
+        // Fresh from the feed (changed within the last 90 s), or play stopped: show it as is.
+        if (a != null && (now - a.second < 90_000L || stopped)) return if (d.isNotBlank() && shown != null) d else label(a.first, false)
+        // Stuck: count on from the last minute the feed gave.
+        if (a != null) return label(a.first + ((now - a.second) / 60_000L).toInt(), true)
+        // No minute at all yet: from when this half started (second half) or kick-off.
+        val from = if (m.period >= 2) periodStart[m.id] else m.start
+        if (from == null) return d.ifBlank { "LIVE" }
+        val base = if (m.period >= 2) half else 0
+        return label(base + ((now - from) / 60_000L).toInt().coerceAtLeast(0), true)
     }
 
     /** What's on the channel being watched right now (lower case), or null. */

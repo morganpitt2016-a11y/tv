@@ -47,6 +47,7 @@ object Sport {
         val homeScore: String, val awayScore: String, val state: String, val detail: String, val competition: String,
         val homeLogo: String?, val awayLogo: String?, val teamGame: Boolean, val follow: Follow,
         val homeColor: String = "", val awayColor: String = "", val period: Int = 0, val homeAlt: String = "", val awayAlt: String = "",
+        val statusName: String = "", val displayClock: String = "",
     ) {
         val live get() = state == "in"
         val finished get() = state == "post"
@@ -128,6 +129,8 @@ object Sport {
             homeColor = team(home).optString("color"), awayColor = team(away).optString("color"),
             period = (comp.optJSONObject("status") ?: e.optJSONObject("status"))?.optInt("period") ?: 0,
             homeAlt = team(home).optString("alternateColor"), awayAlt = team(away).optString("alternateColor"),
+            statusName = st?.optString("name").orEmpty(),
+            displayClock = (comp.optJSONObject("status") ?: e.optJSONObject("status"))?.optString("displayClock").orEmpty(),
         )
     }
 
