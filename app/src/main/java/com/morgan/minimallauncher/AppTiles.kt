@@ -67,6 +67,18 @@ object AppTiles {
     fun forApp(c: Context, app: AppEntry, w: Int, h: Int): Bitmap {
         val key = "a|${app.packageName}|$w"
         cache.get(key)?.let { return it }
+        // Drawn before (and the app hasn't updated since)? Read it back from disk - far quicker than drawing it again.
+        val stamp = try { c.packageManager.getPackageInfo(app.packageName, 0).lastUpdateTime } catch (e: Exception) { 0L }
+        val file = java.io.File(java.io.File(c.cacheDir, "tiles").apply { mkdirs() }, "${app.packageName}_${w}x${h}_$stamp.png")
+        if (file.exists()) android.graphics.BitmapFactory.decodeFile(file.path)?.let { cache.put(key, it); return it }
+        val bmp = drawApp(c, app, w, h)
+        cache.put(key, bmp)
+        Thread { try { file.parentFile?.listFiles { f -> f.name.startsWith("${app.packageName}_${w}x${h}_") }?.forEach { it.delete() }
+            file.outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) } } catch (_: Exception) {} }.start()
+        return bmp
+    }
+
+    private fun drawApp(c: Context, app: AppEntry, w: Int, h: Int): Bitmap {
         val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bmp)
         val banner = banner(c, app)
@@ -85,7 +97,6 @@ object AppTiles {
             canvas.drawBitmap(icon, left, top, p)
             canvas.restore()
         }
-        cache.put(key, bmp)
         return bmp
     }
 

@@ -517,7 +517,26 @@ object Xtream {
 
     fun episodes(c: Context, s: Series): List<Episode> {
         episodeMem[s.id]?.let { (at, list) -> if (System.currentTimeMillis() - at < 30 * 60_000L) return list }
-        return fetchEpisodes(c, s).also { if (it.isNotEmpty()) episodeMem[s.id] = System.currentTimeMillis() to it }
+        val f = File(dir(c), "eps_${s.id}.bin")
+        if (f.exists() && System.currentTimeMillis() - f.lastModified() < 6 * 3600_000L) try {
+            java.io.DataInputStream(java.io.BufferedInputStream(f.inputStream())).use { i ->
+                if (i.readInt() == MAGIC) {
+                    val list = List(i.readInt()) { Episode(i.readUTF(), i.readInt(), i.readInt(), i.readUTF(), i.readUTF(), i.readUTF().ifEmpty { null }, i.readUTF(), i.readInt()) }
+                    if (list.isNotEmpty()) { episodeMem[s.id] = System.currentTimeMillis() to list; return list }
+                }
+            }
+        } catch (_: Exception) {}
+        return fetchEpisodes(c, s).also { list ->
+            if (list.isEmpty()) return@also
+            episodeMem[s.id] = System.currentTimeMillis() to list
+            try {
+                java.io.DataOutputStream(java.io.BufferedOutputStream(f.outputStream())).use { o ->
+                    o.writeInt(MAGIC); o.writeInt(list.size)
+                    for (e in list) { o.writeUTF(e.id); o.writeInt(e.season); o.writeInt(e.number); o.writeUTF(e.title); o.writeUTF(e.ext)
+                        o.writeUTF(e.image ?: ""); o.writeUTF(e.plot.take(4000)); o.writeInt(e.minutes) }
+                }
+            } catch (_: Exception) {}
+        }
     }
 
     private fun fetchEpisodes(c: Context, s: Series): List<Episode> {
@@ -563,15 +582,36 @@ object Xtream {
 
     private fun yearOf(n: String) = Regex("\\b(19|20)\\d{2}\\b").find(n)?.value?.toIntOrNull()
 
+    // Name → titles, built once per list (scanning tens of thousands of names on every press took seconds).
+    @Volatile private var vodIndex: Pair<List<Vod>, Map<String, List<Vod>>>? = null
+    @Volatile private var seriesIndex: Pair<List<Series>, Map<String, List<Series>>>? = null
+    private fun vodByKey(c: Context): Map<String, List<Vod>> {
+        val list = vod(c)
+        vodIndex?.let { (l, m) -> if (l === list) return m }
+        return list.groupBy { TiviTuner.vodKey(it.name) }.also { vodIndex = list to it }
+    }
+    private fun seriesByKey(c: Context): Map<String, List<Series>> {
+        val list = series(c)
+        seriesIndex?.let { (l, m) -> if (l === list) return m }
+        return list.groupBy { TiviTuner.vodKey(it.name) }.also { seriesIndex = list to it }
+    }
+
+    /** Load the film and series lists (and their indexes) in the background, so Watch on Dodgy Box is instant. */
+    fun warmUp(c: Context) {
+        if (!isSetUp(c)) return
+        val app = c.applicationContext
+        Thread { try { vodByKey(app); seriesByKey(app) } catch (_: Exception) {} }.apply { priority = Thread.MIN_PRIORITY }.start()
+    }
+
     fun findVod(c: Context, title: String, year: Int): Vod? {
         val wanted = TiviTuner.vodKey(title)
-        val hits = vod(c).filter { TiviTuner.vodKey(it.name) == wanted }
+        val hits = vodByKey(c)[wanted].orEmpty()
         return hits.firstOrNull { year > 0 && yearOf(it.name) == year } ?: hits.firstOrNull { yearOf(it.name) == null || year <= 0 } ?: hits.firstOrNull()
     }
 
     fun findSeries(c: Context, title: String, year: Int): Series? {
         val wanted = TiviTuner.vodKey(title)
-        val hits = series(c).filter { TiviTuner.vodKey(it.name) == wanted }
+        val hits = seriesByKey(c)[wanted].orEmpty()
         return hits.firstOrNull { year > 0 && yearOf(it.name) == year } ?: hits.firstOrNull()
     }
 }

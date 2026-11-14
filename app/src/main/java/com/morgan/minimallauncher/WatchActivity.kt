@@ -115,6 +115,7 @@ class WatchActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (Activation.guard(this)) return
+        Xtream.warmUp(this)
         val c = this
         root = FrameLayout(c).apply { setBackgroundColor(0xFF000000.toInt()) }
 
@@ -964,7 +965,11 @@ class WatchActivity : AppCompatActivity() {
         h.root.contentDescription = name
         ImageLoader.load(h.image, s.cover)
         h.root.setOnClickListener { openLibrarySeries(s) }
-        focusEffect(h.root) { showPlainHero("DODGY BOX  ·  SERIES", name, "Press OK for the episodes."); setHeroImage(s.cover) }
+        focusEffect(h.root) {
+            showPlainHero("DODGY BOX  ·  SERIES", name, "Press OK for the episodes."); setHeroImage(s.cover)
+            val app = applicationContext
+            Thread { try { Xtream.episodes(app, s) } catch (_: Exception) {} }.apply { priority = Thread.MIN_PRIORITY }.start()   // ready for OK
+        }
     }
 
     /** On a Kids profile: only what's in children's categories (call off the main thread). */
@@ -2454,8 +2459,12 @@ class WatchActivity : AppCompatActivity() {
         trailerHost.animate().alpha(0f).setStartDelay(0).setDuration(250).withEndAction { trailerView?.loadUrl("about:blank") }.start()
     }
 
+    private var prefetchFor: String? = null
+
     private fun showTitleHero(t: WatchCatalog.Title, now: Boolean = false) = setHero(now) {
         queueTrailer(t)
+        // Resting on a show: fetch its episodes now, so its page opens straight away when OK is pressed.
+        if (t.type == "SHOW" && Xtream.isSetUp(this) && prefetchFor != t.id) { prefetchFor = t.id; Xtream.prefetchSeries(applicationContext, t.name, t.year) }
         val on = t.offers.filter { it.provider.installed != null }.map { it.provider.displayName }.distinct()
         eyebrow.text = listOfNotNull(on.firstOrNull()?.uppercase(), if (t.type == "SHOW") "SERIES" else "FILM").joinToString("  ·  ")
         heroTitle.text = t.name

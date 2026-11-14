@@ -224,6 +224,7 @@ class MainActivity : AppCompatActivity() {
         if (!Accounts.needsSetup(this)) Coach.firstRun(this)
         Coach.resume(this, "home") { coachTarget(it) }
         Updater.maybeUpdate(this)                      // new builds arrive by themselves (rate limited)
+        Xtream.warmUp(this)                            // Dodgy Box's lists ready before Watch is opened
         Xtream.expiryNotice(this)
         Health.mention(this)
         Fleet.checkin(this)
@@ -930,7 +931,8 @@ class MainActivity : AppCompatActivity() {
             when {
                 opened?.backdrop != null -> ImageLoader.load(thumb, opened.backdrop, ImageLoader.CARD)
                 playing?.art != null -> thumb.setImageBitmap(playing.art)
-                else -> thumb.setImageBitmap(AppTiles.forApp(this, app, dp(100), dp(60)))   // rendered once, reused (reading banners is slow)
+                else -> { val ctx = applicationContext; val tw = dp(100); val th = dp(60)
+                    gridExec.execute { val b = try { AppTiles.forApp(ctx, app, tw, th) } catch (e: Throwable) { null }; if (b != null) handler.post { thumb.setImageBitmap(b) } } }
             }
             // Which service it's on: the app's icon in the corner of the artwork.
             if (opened != null || playing != null) {
