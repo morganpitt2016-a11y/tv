@@ -228,7 +228,7 @@ class HomeRedirectService : AccessibilityService() {
             try { Sync.tick(this@HomeRedirectService) } catch (_: Exception) {}
             try { freshen() } catch (_: Exception) {}
             try { Fleet.checkin(this@HomeRedirectService) } catch (_: Exception) {}
-            try { Sport.tick(this@HomeRedirectService) { line, goal -> showScore(line, goal) } } catch (_: Exception) {}
+            try { LiveScores.tick(this@HomeRedirectService) { cards, events -> scoreboard.render(cards, events) } } catch (_: Exception) {}
             mainHandler.postDelayed(this, 30_000)
         }
     }
@@ -246,6 +246,7 @@ class HomeRedirectService : AccessibilityService() {
     // ---------- Live score in the corner ----------
 
     private var scoreView: android.widget.TextView? = null
+    private val scoreboard by lazy { ScoreOverlay(this) }
 
     fun showScore(line: String?, goal: Boolean) {
         val wm = getSystemService(WINDOW_SERVICE) as WindowManager

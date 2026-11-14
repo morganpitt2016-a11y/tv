@@ -46,6 +46,7 @@ object Sport {
         val id: String, val start: Long, val title: String, val home: String, val away: String, val homeAbbr: String, val awayAbbr: String,
         val homeScore: String, val awayScore: String, val state: String, val detail: String, val competition: String,
         val homeLogo: String?, val awayLogo: String?, val teamGame: Boolean, val follow: Follow,
+        val homeColor: String = "", val awayColor: String = "", val period: Int = 0, val homeAlt: String = "", val awayAlt: String = "",
     ) {
         val live get() = state == "in"
         val finished get() = state == "post"
@@ -124,6 +125,9 @@ object Sport {
             st?.optString("state").orEmpty(), st?.optString("shortDetail").orEmpty(),
             e.optJSONObject("season")?.optString("slug")?.replace('-', ' ')?.replaceFirstChar { it.uppercase() } ?: f.name,
             logo(home), logo(away), teamGame, f,
+            homeColor = team(home).optString("color"), awayColor = team(away).optString("color"),
+            period = (comp.optJSONObject("status") ?: e.optJSONObject("status"))?.optInt("period") ?: 0,
+            homeAlt = team(home).optString("alternateColor"), awayAlt = team(away).optString("alternateColor"),
         )
     }
 
@@ -238,37 +242,44 @@ object Sport {
         Xtream.best(Xtream.live(c)).firstOrNull { LiveGuide.guideFor(it.name)?.id == ch.id }
     } catch (e: Exception) { null }
 
-    // ---------- Live scores in the corner (shown by the always-on service) ----------
+    // ---------- Live scores in the corner: see LiveScores (team-coloured scoreboard, celebrations, TMO/VAR) ----------
 
-    @Volatile private var lastPoll = 0L
-    private val lastLines = HashMap<String, String>()
+    /** Today's matches for one follow (today's date first: some sports' default scoreboard isn't today). Off the main thread. */
+    fun todays(f: Follow): List<Match> {
+        val today = day.format(java.util.Date())
+        val evs = (try { events(JSONObject(Net.get("$ROOT/${f.path}/scoreboard?dates=$today", timeoutMs = 10_000))) } catch (e: Exception) { emptyList() }) +
+            (try { events(JSONObject(Net.get("$ROOT/${f.path}/scoreboard", timeoutMs = 10_000))) } catch (e: Exception) { emptyList() })
+        return evs.distinctBy { it.optString("id") }.mapNotNull { parseEvent(it, f) }
+    }
 
-    /** Called every 30 s by the service: polls once a minute; shows whatever you follow that's live. */
-    fun tick(c: Context, show: (String?, Boolean) -> Unit) {
-        if (!Prefs.bool(c, "sport_overlay", true)) { if (lastLines.isNotEmpty()) { lastLines.clear(); show(null, false) }; return }
-        val list = follows(c)
-        if (list.isEmpty()) return
-        val now = System.currentTimeMillis()
-        if (now - lastPoll < 60_000L) return
-        lastPoll = now
-        Thread {
-            val live = list.flatMap { f ->
-                val today = day.format(java.util.Date())
-                val evs = (try { events(JSONObject(Net.get("$ROOT/${f.path}/scoreboard?dates=$today", timeoutMs = 10_000))) } catch (e: Exception) { emptyList() }) +
-                    (try { events(JSONObject(Net.get("$ROOT/${f.path}/scoreboard", timeoutMs = 10_000))) } catch (e: Exception) { emptyList() })
-                evs.distinctBy { it.optString("id") }.mapNotNull { parseEvent(it, f) }
-                    .filter { m -> m.live && (!f.isTeam || m.home.equals(f.name, true) || m.away.equals(f.name, true) || (f.abbr.isNotBlank() && (m.homeAbbr == f.abbr || m.awayAbbr == f.abbr))) }
-            }.distinctBy { it.id }.take(3)
-            var goal = false
-            val lines = live.map { m ->
-                val line = if (spoilersHidden(c)) "${m.follow.icon} ${m.title}  ·  LIVE" else "${m.follow.icon} ${m.scoreLine()}  ·  ${m.detail}"
-                if (m.teamGame && lastLines[m.id]?.substringBefore("  ·") != null && lastLines[m.id]!!.substringBefore("  ·") != line.substringBefore("  ·")) goal = true
-                lastLines[m.id] = line
-                line
+    fun isMine(f: Follow, m: Match) = !f.isTeam || m.home.equals(f.name, true) || m.away.equals(f.name, true) ||
+        (f.abbr.isNotBlank() && (m.homeAbbr == f.abbr || m.awayAbbr == f.abbr))
+
+    /** Key moments as data: type ("try", "goal", "penalty", "conversion", "drop", "yellow", "red", "other"), minute, team, player. */
+    data class Moment(val type: String, val clock: String, val team: String, val who: String, val text: String)
+
+    fun moments(m: Match): List<Moment> {
+        val id = m.id.substringBefore("_")
+        val o = try { JSONObject(Net.get("$ROOT/${m.follow.path}/summary?event=$id", timeoutMs = 10_000)) } catch (e: Exception) { return emptyList() }
+        fun arr(k: String) = o.optJSONArray(k)?.let { a -> (0 until a.length()).mapNotNull { a.optJSONObject(it) } }.orEmpty()
+        val raw = arr("keyEvents").ifEmpty { arr("scoringPlays") }.ifEmpty { arr("plays").filter { it.optBoolean("scoringPlay") } }
+        return raw.map { ev ->
+            val t = ev.optJSONObject("type")?.optString("text").orEmpty()
+            val kind = when {
+                t.contains("try", true) -> "try"
+                t.contains("own goal", true) -> "goal"
+                t.contains("goal", true) && !t.contains("kick", true) && !t.contains("drop", true) -> "goal"
+                t.contains("red", true) -> "red"
+                t.contains("yellow", true) -> "yellow"
+                t.contains("conversion", true) -> "conversion"
+                t.contains("drop", true) -> "drop"
+                t.contains("penalty", true) -> "penalty"
+                else -> "other"
             }
-            val text = lines.takeIf { it.isNotEmpty() }?.joinToString("\n")
-            android.os.Handler(android.os.Looper.getMainLooper()).post { show(text, goal) }
-        }.start()
+            Moment(kind, ev.optJSONObject("clock")?.optString("displayValue").orEmpty(), ev.optJSONObject("team")?.optString("displayName").orEmpty(),
+                ev.optJSONArray("participants")?.optJSONObject(0)?.optJSONObject("athlete")?.optString("displayName").orEmpty(),
+                ev.optString("shortText").ifBlank { ev.optString("text") })
+        }
     }
 }
 

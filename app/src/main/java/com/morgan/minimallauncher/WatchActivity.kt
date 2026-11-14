@@ -1589,6 +1589,7 @@ class WatchActivity : AppCompatActivity() {
         head(if (overlayOn) "Live Scores in Corner: On" else "Live Scores in Corner: Off") {
             Prefs.setBool(this, "sport_overlay", !overlayOn); showTab("sport", focusContent = false)
         }
+        head("Score Pop-ups") { scorePopups() }
         rows.addView(heads, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(this@WatchActivity, 56f); topMargin = dp(this@WatchActivity, 8f) })
         sportTables(token)?.let { rows.addView(it) }
         val loading = GlassUi.text(this, "Loading…", 13f, R.font.inter_medium, 0x99FFFFFF.toInt())
@@ -1723,6 +1724,20 @@ class WatchActivity : AppCompatActivity() {
             c.button("Cancel").show()
         }
         d.button("Cancel").show()
+    }
+
+    /** How the corner scoreboard behaves: celebrations, confetti, hiding the match you're watching. */
+    private fun scorePopups() {
+        val cel = LiveScores.celebrate(this)
+        fun name(v: String) = when (v) { "mine" -> "Only My Teams"; "off" -> "Off"; else -> "All Scores" }
+        GlassDialog(this).title("Score Pop-ups").message("Team-coloured live scores in the corner, with what just happened - tries, goals, TMO and VAR calls, cards and full time.")
+            .button("Celebrations · ${name(cel)}") {
+                val next = when (cel) { "all" -> "mine"; "mine" -> "off"; else -> "all" }
+                Prefs.setString(this, "sport_celebrate", next); scorePopups()
+            }
+            .toggle("Confetti When Someone Scores", LiveScores.confetti(this)) { Prefs.setBool(this, "sport_confetti", !LiveScores.confetti(this)) }
+            .toggle("Hide the Match I’m Watching", LiveScores.hideWatching(this)) { Prefs.setBool(this, "sport_hide_watching", !LiveScores.hideWatching(this)) }
+            .button("Done", GlassDialog.Style.BOLD).show()
     }
 
     /** Pick which league tables appear on the Sport tab. */

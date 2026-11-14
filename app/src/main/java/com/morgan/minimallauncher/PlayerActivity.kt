@@ -313,6 +313,7 @@ class PlayerActivity : Activity() {
     }
 
     private fun start(u: String, resume: Boolean) {
+        liveChannel = if (live) titleText else null
         val p = player ?: newPlayer().also { player = it; view.player = it }   // changing channel reuses the player
         p.stop()
         val useTs = live && tsOffFor != u && Prefs.bool(this, "timeshift_on", true) && u.substringBefore('?').endsWith(".ts")
@@ -403,6 +404,7 @@ class PlayerActivity : Activity() {
 
     override fun onStop() {
         super.onStop()
+        liveChannel = null
         ts?.stop(); ts = null; tsStart = 0L
         watching = false
         handler.removeCallbacks(progressTick)
@@ -1341,6 +1343,8 @@ class PlayerActivity : Activity() {
     companion object {
         /** True while something is on screen in the player (updates wait until it closes). */
         @Volatile var watching = false
+        /** The live channel on screen (so the corner scores can leave out the match you're watching). */
+        @Volatile var liveChannel: String? = null
         const val EXTRA_URL = "url"
         const val EXTRA_ALT_URL = "alt"
         const val EXTRA_LIVE = "live"
