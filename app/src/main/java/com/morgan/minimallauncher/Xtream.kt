@@ -212,6 +212,40 @@ object Xtream {
 
     // ---------- Stream links ----------
 
+    // ---------- Getting a stream ready before it's played ----------
+
+    private val resolvedUrls = java.util.concurrent.ConcurrentHashMap<String, Pair<String, Long>>()
+
+    /**
+     * Follows Dodgy Box's redirect for a film or episode now (in the background) and remembers where it leads for a
+     * minute, so pressing play goes straight to the video server instead of waiting on that hop.
+     */
+    fun preResolve(url: String) {
+        if (!url.startsWith("http")) return
+        resolvedUrls[url]?.let { if (System.currentTimeMillis() - it.second < 50_000L) return }
+        Thread {
+            try {
+                var u = url
+                for (hop in 0 until 4) {
+                    val conn = URL(u).openConnection() as HttpURLConnection
+                    conn.instanceFollowRedirects = false
+                    conn.connectTimeout = 6_000; conn.readTimeout = 6_000
+                    conn.setRequestProperty("User-Agent", PLAYER_AGENT)
+                    conn.setRequestProperty("Range", "bytes=0-0")
+                    val code = conn.responseCode
+                    val loc = conn.getHeaderField("Location")
+                    conn.disconnect()
+                    if (code in 300..399 && loc != null) { u = URL(URL(u), loc).toString(); continue }
+                    if (code in 200..299 && u != url) resolvedUrls[url] = u to System.currentTimeMillis()
+                    break
+                }
+            } catch (_: Exception) {}
+        }.start()
+    }
+
+    /** Where [url] leads, if it was looked up in the last minute. */
+    fun resolved(url: String): String? = resolvedUrls[url]?.takeIf { System.currentTimeMillis() - it.second < 60_000L }?.first
+
     /** Catch-up ("Start Over") for providers that keep an archive: [start] in ms, [minutes] long. */
     fun archiveUrl(c: Context, id: Int, start: Long, minutes: Int): String {
         val f = java.text.SimpleDateFormat("yyyy-MM-dd:HH-mm", java.util.Locale.US)
@@ -588,19 +622,47 @@ object Xtream {
     private fun vodByKey(c: Context): Map<String, List<Vod>> {
         val list = vod(c)
         vodIndex?.let { (l, m) -> if (l === list) return m }
-        return list.groupBy { TiviTuner.vodKey(it.name) }.also { vodIndex = list to it }
+        synchronized(indexLock) {
+            vodIndex?.let { (l, m) -> if (l === list) return m }
+            val keys = keysFor(c, "get_vod_streams", list.size) { i -> list[i].name }
+            return list.indices.groupBy({ keys[it] }, { list[it] }).also { vodIndex = list to it }
+        }
     }
     private fun seriesByKey(c: Context): Map<String, List<Series>> {
         val list = series(c)
         seriesIndex?.let { (l, m) -> if (l === list) return m }
-        return list.groupBy { TiviTuner.vodKey(it.name) }.also { seriesIndex = list to it }
+        synchronized(indexLock) {
+            seriesIndex?.let { (l, m) -> if (l === list) return m }
+            val keys = keysFor(c, "get_series", list.size) { i -> list[i].name }
+            return list.indices.groupBy({ keys[it] }, { list[it] }).also { seriesIndex = list to it }
+        }
+    }
+    private val indexLock = Any()
+
+    /** Each title's tidied name, saved next to the list (tidying 50,000 names is the slow part). */
+    private fun keysFor(c: Context, cacheName: String, n: Int, name: (Int) -> String): List<String> {
+        val bin = File(dir(c), "$cacheName.bin")
+        val f = File(dir(c), "$cacheName.keys")
+        val stamp = bin.length() xor n.toLong()
+        if (f.exists()) try {
+            java.io.DataInputStream(java.io.BufferedInputStream(f.inputStream(), 64 * 1024)).use { i ->
+                if (i.readLong() == stamp && i.readInt() == n) return List(n) { i.readUTF() }
+            }
+        } catch (_: Exception) {}
+        val keys = List(n) { TiviTuner.vodKey(name(it)) }
+        try {
+            java.io.DataOutputStream(java.io.BufferedOutputStream(f.outputStream(), 64 * 1024)).use { o ->
+                o.writeLong(stamp); o.writeInt(n); keys.forEach { o.writeUTF(it) }
+            }
+        } catch (_: Exception) {}
+        return keys
     }
 
     /** Load the film and series lists (and their indexes) in the background, so Watch on Dodgy Box is instant. */
     fun warmUp(c: Context) {
         if (!isSetUp(c)) return
         val app = c.applicationContext
-        Thread { try { vodByKey(app); seriesByKey(app) } catch (_: Exception) {} }.apply { priority = Thread.MIN_PRIORITY }.start()
+        Thread { try { val t0 = Perf.now(); vodByKey(app); seriesByKey(app); Perf.note("Dodgy Box lists ready", t0) } catch (_: Exception) {} }.start()
     }
 
     fun findVod(c: Context, title: String, year: Int): Vod? {

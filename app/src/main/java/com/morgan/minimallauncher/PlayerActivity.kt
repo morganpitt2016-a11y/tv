@@ -73,6 +73,10 @@ class PlayerActivity : Activity() {
     private var altUrl: String? = null
     private var live = false
     private var triedAlt = false
+    private var triedResolved = false
+    private var usingResolved = false
+    private var startedAt = 0L
+    private var firstFrameLogged = false
     /** Netflix-style "You're watching" card shown while paused. */
     private lateinit var pauseInfo: LinearLayout
     private lateinit var pauseEyebrow: android.widget.TextView
@@ -244,7 +248,8 @@ class PlayerActivity : Activity() {
     private fun newPlayer(): ExoPlayer {
         // Start sooner than the defaults: a small buffer to begin with, then it fills while you watch.
         val load = androidx.media3.exoplayer.DefaultLoadControl.Builder()
-            .setBufferDurationsMs(if (live) 2_000 else 15_000, if (live) 20_000 else 60_000, if (live) 500 else 900, if (live) 1_500 else 2_000)
+            .setBufferDurationsMs(if (live) 2_000 else 15_000, if (live) 20_000 else 60_000, if (live) 500 else 400, if (live) 1_500 else 1_500)
+            .setPrioritizeTimeOverSizeThresholds(true)
             .build()
         // Files without a seek index (common with .ts/.mkv from providers) can still jump to a point.
         val extractors = androidx.media3.extractor.DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true)
@@ -269,7 +274,16 @@ class PlayerActivity : Activity() {
             soundFx = SoundProfile.Effect(sid).also { it.apply(SoundProfile.get(this)) }
         } catch (e: Throwable) {}
         p.addListener(object : Player.Listener {
+            override fun onRenderedFirstFrame() {
+                // How long from pressing play to the picture (in the TV's timing log).
+                if (firstFrameLogged) return
+                firstFrameLogged = true
+                val ms = Perf.now() - startedAt
+                Perf.record("Player: first picture ${ms} ms" + (if (usingResolved) " (ready connection)" else "") + " · $titleText")
+            }
             override fun onPlayerError(error: PlaybackException) {
+                // The ready-made connection didn't work: try the normal address once.
+                if (usingResolved) { triedResolved = true; usingResolved = false; start(url, resume = true); return }
                 // Pause/rewind couldn't keep up with this channel: play it straight from the internet instead.
                 if (live && ts != null) { tsOffFor = url; ts?.stop(); ts = null; tsView.visibility = View.GONE; start(url, resume = false); return }
                 // Some providers only serve live TV one way: try the other before giving up.
@@ -325,8 +339,11 @@ class PlayerActivity : Activity() {
                 .createMediaSource(MediaItem.fromUri("timeshift://$liveId/$tsStart")))
         } else {
             if (live) { ts?.stop(); ts = null }
-            p.setMediaItem(MediaItem.fromUri(u))
+            val direct = if (!live && !triedResolved) Xtream.resolved(u) else null
+            usingResolved = direct != null
+            p.setMediaItem(MediaItem.fromUri(direct ?: u))
         }
+        startedAt = Perf.now(); firstFrameLogged = false
         // Pick up the subtitle and audio language you chose last time for this title.
         val key = trackKey()
         val tl = Prefs.string(this, ProfileManager.scope(this, "trk_t_$key"))

@@ -66,6 +66,8 @@ object LiveGuide {
      * one is refreshed quietly for next time. Only the very first run waits for a download.
      * The callback is on the main thread.
      */
+    private val waiting = mutableListOf<(List<Channel>?) -> Unit>()
+
     fun load(c: Context, done: (List<Channel>?) -> Unit) {
         val app = c.applicationContext
         val t0 = Perf.now()
@@ -76,6 +78,11 @@ object LiveGuide {
             refreshIfStale(app)
             return
         }
+        // Already being read (another screen asked a moment ago): wait for that read instead of starting a second one.
+        synchronized(waiting) {
+            waiting += done
+            if (waiting.size > 1) return
+        }
         Thread {
             val f = cacheFile(app)
             var from = "memory"
@@ -85,7 +92,11 @@ object LiveGuide {
             val list = result?.let { trimmed(it) }          // done here, not on the main thread
             if (result != null) { memory = result; shown = list; shownAt = System.currentTimeMillis() }
             val ms = Perf.now() - t0
-            main.post { Perf.record("TV guide ($from): $ms ms"); done(list) }
+            main.post {
+                Perf.record("TV guide ($from): $ms ms")
+                val all = synchronized(waiting) { waiting.toList().also { waiting.clear() } }
+                all.forEach { it(list) }
+            }
             refreshIfStale(app)
         }.start()
     }

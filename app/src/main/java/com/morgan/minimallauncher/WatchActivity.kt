@@ -2214,10 +2214,12 @@ class WatchActivity : AppCompatActivity() {
             var film: Xtream.Vod? = null
             var series: Xtream.Series? = null
             var episodes: List<Xtream.Episode> = emptyList()
+            val t0 = Perf.now()
             try {
                 if (show) { series = Xtream.findSeries(app, t.name, t.year); series?.let { episodes = Xtream.episodes(app, it) } }
                 else film = Xtream.findVod(app, t.name, t.year)
             } catch (e: Exception) {}
+            Perf.note("Dodgy Box: found ${t.name}", t0)
             runOnUiThread {
                 dismiss()
                 if (isDestroyed) return@runOnUiThread
@@ -2242,6 +2244,7 @@ class WatchActivity : AppCompatActivity() {
             PlayerActivity.play(this, url, t.name, live = false, subtitle = t.year.takeIf { it > 0 }?.toString(), eyebrow = "FILM", fromStart = fromStart, image = t.backdrop ?: t.poster)
         }
         val at = WatchHistory.seconds(this, url)
+        Xtream.preResolve(url)            // the stream's connection gets ready while you choose
         if (at <= 30) return go(false)
         GlassDialog(this).title(t.name).message("You stopped at ${WatchHistory.clock(at)}.")
             .button("Continue from ${WatchHistory.clock(at)}", GlassDialog.Style.BOLD) { go(false) }
