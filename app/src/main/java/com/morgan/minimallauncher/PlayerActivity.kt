@@ -240,6 +240,7 @@ class PlayerActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
+        current = java.lang.ref.WeakReference(this)
         watching = true
         start(url, resume = !live && !intent.getBooleanExtra(EXTRA_FROM_START, false))
         handler.removeCallbacks(progressTick); handler.postDelayed(progressTick, 1000)
@@ -1146,6 +1147,7 @@ class PlayerActivity : Activity() {
     private fun glassPill(label: String, selected: Boolean = false, click: () -> Unit) = GlassUi.text(this, label, 14f, R.font.inter_semibold,
             if (selected) 0xFF000000.toInt() else 0xFFFFFFFF.toInt()).apply {
         val c = this@PlayerActivity
+        maxLines = 1; isSingleLine = true
         gravity = Gravity.CENTER; setPadding(dp(c, 18f), dp(c, 9f), dp(c, 18f), dp(c, 9f))
         isFocusable = true; isClickable = true
         fun paint(f: Boolean) {
@@ -1253,15 +1255,19 @@ class PlayerActivity : Activity() {
             }
             "sound" -> {
                 val st = SoundProfile.get(this)
-                pill("Calibrate Automatically") { hideInfoPanel(); startActivity(android.content.Intent(this, RoomCalibrationActivity::class.java)) }
-                pill("Listening Test (A or B)") { hideInfoPanel(); SoundProfile.soundCheck(this, { applySound(it.copy(dialogue = st.dialogue, more = st.more)) }) { r ->
+                pill("Calibrate") { hideInfoPanel(); startActivity(android.content.Intent(this, RoomCalibrationActivity::class.java)) }
+                pill("Listening Test") { hideInfoPanel(); SoundProfile.soundCheck(this, { applySound(it.copy(dialogue = st.dialogue, more = st.more)) }) { r ->
                     val keep = r.copy(dialogue = st.dialogue, more = st.more); SoundProfile.save(this, keep); applySound(keep) } }
-                pill("Enhance Dialogue · ${dlgName(SoundProfile.dialogueLevel(this))}", st.dialogue) { cycleDialogue(); fillInfo("sound") }
+                pill("Dialogue · ${dlgName(SoundProfile.dialogueLevel(this))}", st.dialogue) { cycleDialogue(); fillInfo("sound") }
                 pill("Reduce Loud Sounds", st.level) { val n = SoundProfile.get(this).let { it.copy(level = !it.level) }; SoundProfile.save(this, n); applySound(n); fillInfo("sound") }
                 pill("Original Sound", st.flat) { val n = SoundProfile.Settings(0, 0, 0, false, false); SoundProfile.save(this, n); applySound(n); fillInfo("sound") }
             }
         }
-        body.addView(row, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(c, 14f) })
+        body.addView(android.widget.HorizontalScrollView(c).apply {
+            isHorizontalScrollBarEnabled = false; clipChildren = false; clipToPadding = false; overScrollMode = View.OVER_SCROLL_NEVER
+            setPadding(0, dp(c, 6f), dp(c, 40f), dp(c, 6f))
+            addView(row)
+        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(c, 8f) })
     }
 
     /** Apple-style controls: a thin white progress line on a light dim, no heavy boxes. */
@@ -1361,6 +1367,13 @@ class PlayerActivity : Activity() {
     companion object {
         /** True while something is on screen in the player (updates wait until it closes). */
         @Volatile var watching = false
+        private var current: java.lang.ref.WeakReference<PlayerActivity>? = null
+
+        /** Home was pressed: stop the picture and sound straight away (before the home screen appears). */
+        fun pauseForHome() {
+            val a = current?.get() ?: return
+            a.runOnUiThread { try { a.saveProgress(); a.player?.pause() } catch (_: Exception) {} }
+        }
         /** The live channel on screen (so the corner scores can leave out the match you're watching). */
         @Volatile var liveChannel: String? = null
         const val EXTRA_URL = "url"

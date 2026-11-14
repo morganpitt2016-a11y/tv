@@ -212,7 +212,13 @@ class HomeRedirectService : AccessibilityService() {
             }
             android.view.KeyEvent.ACTION_UP -> {
                 mainHandler.removeCallbacks(homeLong)
-                if (!homeHeld) performGlobalAction(GLOBAL_ACTION_HOME)
+                if (!homeHeld) {
+                    // Straight to our home screen (not via Google's, which flashed up first), with anything playing stopped at once.
+                    PlayerActivity.pauseForHome()
+                    if (AutoLaunch.isEnabled(this)) {
+                        try { lastLaunch = SystemClock.elapsedRealtime(); AutoLaunch.open(this) } catch (_: Exception) { performGlobalAction(GLOBAL_ACTION_HOME) }
+                    } else performGlobalAction(GLOBAL_ACTION_HOME)
+                }
                 homeHeld = false
             }
         }
