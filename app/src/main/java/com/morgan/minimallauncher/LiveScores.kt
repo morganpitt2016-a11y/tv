@@ -66,12 +66,12 @@ object LiveScores {
                             val last = moments.lastOrNull { it.type in setOf("try", "goal", "penalty", "conversion", "drop") && (it.team.isBlank() || it.team.equals(team, true)) }
                             val what = when (last?.type) { "try" -> "Try"; "goal" -> "Goal"; "penalty" -> "Penalty"; "conversion" -> "Conversion"; "drop" -> "Drop goal"; else -> if (m.follow.path.startsWith("soccer")) "Goal" else "Score" }
                             val who = last?.who?.takeIf { it.isNotBlank() }?.let { " (${it.substringAfterLast(' ')})" } ?: ""
-                            events += Event(m.id, "score", side, "$what – $team$who", wants && (f.isTeam.not() || team.equals(f.name, true) || celebrate(c) == "all"),
+                            events += Event(m.id, "score", side, "$what – $team$who  ·  ${m.homeAbbr} $hs–$aws ${m.awayAbbr}", wants && (f.isTeam.not() || team.equals(f.name, true) || celebrate(c) == "all"),
                                 listOf(if (side == 0) hc else ac, Color.WHITE, if (side == 0) color(m.homeAlt, "", "") else color(m.awayAlt, "", "")))
                         } else if (prev != null && (hs < prev.first || aws < prev.second)) {
                             val side = if (hs < prev.first) 0 else 1
                             val label = if (m.follow.path.startsWith("soccer")) "VAR – Goal disallowed" else "TMO – No try"
-                            events += Event(m.id, "disallowed", side, "$label · ${if (side == 0) m.home else m.away}", false, emptyList())
+                            events += Event(m.id, "disallowed", side, "$label · ${if (side == 0) m.home else m.away}  ·  ${m.homeAbbr} $hs–$aws ${m.awayAbbr}", false, emptyList())
                         }
                         val cardsNow = moments.filter { it.type == "yellow" || it.type == "red" }
                         val seen = cardsSeen[m.id]

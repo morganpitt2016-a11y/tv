@@ -59,7 +59,8 @@ class ScoreOverlay(private val c: Context) {
     }
 
     private fun makeColumn(): LinearLayout? {
-        val col = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.END; clipChildren = false; clipToPadding = false }
+        val col = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.END; clipChildren = false; clipToPadding = false
+            setPadding(dp(c, 12f), dp(c, 6f), dp(c, 4f), dp(c, 6f)) }
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
@@ -142,20 +143,21 @@ class ScoreOverlay(private val c: Context) {
         if (t.text.isNullOrEmpty()) { t.text = value; return }
         val up = (value.toIntOrNull() ?: 0) >= (t.text.toString().toIntOrNull() ?: 0)
         val h = t.height.takeIf { it > 0 } ?: dp(c, 24f)
-        t.animate().translationY(if (up) -h.toFloat() else h.toFloat()).alpha(0f).setDuration(180).withEndAction {
+        t.animate().translationY(if (up) -h * 0.35f else h * 0.35f).setDuration(140).withEndAction {
             t.text = value
-            t.translationY = if (up) h.toFloat() else -h.toFloat()
-            t.animate().translationY(0f).alpha(1f).setDuration(260).setInterpolator(Motion.enter).start()
+            t.translationY = if (up) h * 0.35f else -h * 0.35f
+            t.animate().translationY(0f).setDuration(220).setInterpolator(Motion.enter).start()
         }.start()
     }
 
     private fun pulse(v: View) {
-        v.animate().scaleX(1.12f).scaleY(1.12f).setDuration(220).withEndAction { v.animate().scaleX(1f).scaleY(1f).setDuration(500).setInterpolator(Motion.enter).start() }.start()
+        v.pivotX = v.width.toFloat()          // grows from the right edge, so nothing slides off screen
+        v.animate().scaleX(1.05f).scaleY(1.05f).setDuration(200).withEndAction { v.animate().scaleX(1f).scaleY(1f).setDuration(450).setInterpolator(Motion.enter).start() }.start()
     }
 
     private fun flash(bar: View) {
         ValueAnimator.ofFloat(1f, 0.2f, 1f, 0.2f, 1f, 0.2f, 1f).apply { duration = 1400; addUpdateListener { bar.alpha = it.animatedValue as Float }; start() }
-        bar.animate().scaleY(1.6f).setDuration(300).withEndAction { bar.animate().scaleY(1f).setDuration(600).start() }.start()
+        bar.animate().scaleY(1.3f).setDuration(300).withEndAction { bar.animate().scaleY(1f).setDuration(600).start() }.start()
     }
 
     private fun banner(r: Row, text: String, colour: Int, hold: Long = 9_000L) {
@@ -192,15 +194,15 @@ class ScoreOverlay(private val c: Context) {
             post {
                 val w = width.toFloat().coerceAtLeast(1f); val d = resources.displayMetrics.density
                 // Bursts from the top-right corner, where the score is.
-                parts = List(140) {
-                    P(w - 120 * d + Random.nextFloat() * 80 * d, 40 * d, -Random.nextFloat() * 9 * d - 1 * d, Random.nextFloat() * 4 * d - 3 * d,
-                        Random.nextFloat() * 360f, Random.nextFloat() * 14f - 7f, (4 + Random.nextFloat() * 5) * d, (7 + Random.nextFloat() * 6) * d, colours[it % colours.size])
+                parts = List(36) {
+                    P(w - 170 * d + Random.nextFloat() * 130 * d, 30 * d, -Random.nextFloat() * 3.5f * d + 0.8f * d, -Random.nextFloat() * 2.5f * d,
+                        Random.nextFloat() * 360f, Random.nextFloat() * 8f - 4f, (3 + Random.nextFloat() * 2.5f) * d, (5 + Random.nextFloat() * 3) * d, colours[it % colours.size])
                 }
                 ValueAnimator.ofFloat(0f, 1f).apply {
-                    duration = 2800
+                    duration = 1700
                     addUpdateListener { a ->
                         t = a.animatedValue as Float
-                        for (p in parts) { p.x += p.vx; p.vy += 0.28f * d; p.y += p.vy; p.rot += p.vr }
+                        for (p in parts) { p.x += p.vx; p.vy += 0.16f * d; p.y += p.vy; p.rot += p.vr }
                         invalidate()
                     }
                     addListener(object : android.animation.AnimatorListenerAdapter() { override fun onAnimationEnd(an: android.animation.Animator) { done() } })
@@ -210,7 +212,7 @@ class ScoreOverlay(private val c: Context) {
         }
 
         override fun onDraw(canvas: Canvas) {
-            val fade = ((1f - (t - 0.7f).coerceAtLeast(0f) / 0.3f) * 255).toInt()
+            val fade = ((1f - (t - 0.5f).coerceAtLeast(0f) / 0.5f) * 200).toInt()
             for (p in parts) {
                 paint.color = p.colour; paint.alpha = fade
                 canvas.save(); canvas.rotate(p.rot, p.x, p.y)
