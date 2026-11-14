@@ -97,7 +97,13 @@ class WatchActivity : AppCompatActivity() {
         scroll.removeAllViews()
         scroll.addView(c)
         rows = c
+        // A new page settles in rather than snapping (Apple's soft cross-fade).
+        c.alpha = 0f; c.translationY = dp(this, 14f).toFloat()
+        c.animate().alpha(1f).translationY(0f).setDuration(240).setInterpolator(Motion.focusEase).start()
     }
+
+    /** Films/Shows build their rows a few at a time as you scroll down to them (not all at once), per page. */
+    private val moreRowsFor = java.util.WeakHashMap<LinearLayout, () -> Unit>()
     private fun freshRows() = swapRows(makeRows())
 
     private val voice = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
@@ -186,6 +192,7 @@ class WatchActivity : AppCompatActivity() {
             }
             if (new.parent === nav) setHeroCollapsed(false)
             val row = rowOf(new) ?: return@addOnGlobalFocusChangeListener
+            if (rows.indexOfChild(row) >= rows.childCount - 3) moreRowsFor[rows]?.invoke()
             setHeroCollapsed(firstContentRow() !== row)
             val guideRow = row.getTag(R.id.blur_radius) == "guide"
             if (guideRow) (row.getTag(R.id.blur_anim) as? Runnable)?.run()
@@ -216,7 +223,7 @@ class WatchActivity : AppCompatActivity() {
                     if (q != null) search(q) else showTab(intent.getStringExtra(EXTRA_TAB) ?: "home", focusContent = true)
                     // Like Netflix: "Who's watching?" when Watch opens, if more than one person uses this TV (at most every 4 hours).
                     val mins = (System.currentTimeMillis() / 60_000L).toInt()
-                    if (q == null && ProfileManager.getProfiles(this).size > 1 && Prefs.bool(this, "watch_who", true) &&
+                    if (false && q == null && ProfileManager.getProfiles(this).size > 1 && Prefs.bool(this, "watch_who", true) &&
                         mins - Prefs.int(this, "watch_who_at", 0) > 240) {
                         Prefs.setInt(this, "watch_who_at", mins)
                         startActivity(Intent(this, WhoActivity::class.java))
@@ -281,6 +288,26 @@ class WatchActivity : AppCompatActivity() {
             }
             if (event.keyCode == KeyEvent.KEYCODE_BACK) return true
         }
+        // Up/Down between rows: land on the first card showing in the new row (like Apple TV), never a card half off screen.
+        if (event.action == KeyEvent.ACTION_DOWN && rail == null && detail == null && (event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN || event.keyCode == KeyEvent.KEYCODE_DPAD_UP)) {
+            val f = currentFocus
+            val rv = f?.parent as? RecyclerView
+            val row = f?.let { rowOf(it) }
+            if (rv != null && row != null) {
+                val i = rows.indexOfChild(row)
+                val step = if (event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN) 1 else -1
+                var j = i + step
+                while (j in 0 until rows.childCount && (rows.getChildAt(j).visibility != View.VISIBLE || listOf(rows.getChildAt(j)).none { rowList(it) != null || (it as? ViewGroup)?.getFocusables(View.FOCUS_DOWN)?.isNotEmpty() == true })) j += step
+                val target = rows.getChildAt(j)
+                val list = target?.let { rowList(it) }
+                if (list != null && list.childCount > 0) {
+                    val lm = list.layoutManager as? LinearLayoutManager
+                    val first = lm?.findFirstCompletelyVisibleItemPosition()?.takeIf { it >= 0 } ?: lm?.findFirstVisibleItemPosition() ?: 0
+                    val card = lm?.findViewByPosition(first) ?: list.getChildAt(0)
+                    if (card != null && card.isFocusable) { card.requestFocus(); return true }
+                }
+            }
+        }
         // Holding Left/Right along a row: the highlight stays in that row. At the end it stops (it used to slip into
         // another row when the remote repeated faster than the row could lay out its next cards).
         if (event.action == KeyEvent.ACTION_DOWN && rail == null && (event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT || event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT)) {
@@ -313,6 +340,9 @@ class WatchActivity : AppCompatActivity() {
     // ---------- Categories rail down the left (Films / Shows), like Apple TV's sidebar ----------
 
     private var rail: FrameLayout? = null
+
+    /** The horizontal list inside a row (if it is one). */
+    private fun rowList(v: View): RecyclerView? = (v as? ViewGroup)?.let { g -> (0 until g.childCount).map { g.getChildAt(it) }.firstOrNull { it is RecyclerView } as? RecyclerView }
     private var railReturn: View? = null
 
     private fun railItems(): List<Pair<String, String>> =
@@ -363,6 +393,9 @@ class WatchActivity : AppCompatActivity() {
 
     /** Scroll to a category's row and put the highlight on its first title (it loads if it hasn't yet). */
     private fun jumpToRow(key: String) {
+        // Rows further down are only built as you reach them: build up to this one first.
+        var guard = 0
+        while (findRow(key) == null && moreRowsFor[rows] != null && guard++ < 20) moreRowsFor[rows]?.invoke()
         val r = findRow(key)
         if (r == null) {
             // Not on the page (e.g. empty): show that category's whole collection instead.
@@ -491,7 +524,7 @@ class WatchActivity : AppCompatActivity() {
                         when (id) { "search" -> showSearchTab(); "live" -> showLiveTab(); else -> showTab(id, focusContent = false) }
                     }
                     pendingTab = r
-                    handler.postDelayed(r, 320)
+                    handler.postDelayed(r, 200)
                 }
             }
         }
@@ -1140,9 +1173,10 @@ class WatchActivity : AppCompatActivity() {
                 titleRow(token, key, title, quietFail = key.startsWith("g"), more = more, load = load)
             }
             rows = saved
-            if (to < all.size) handler.postDelayed({ add(to, to + 4) }, 90)
+            // The rest wait until you scroll near them - building every row at once made the page stutter.
+            if (to < all.size) moreRowsFor[host] = { moreRowsFor.remove(host); add(to, to + 3) } else moreRowsFor.remove(host)
         }
-        add(0, 6)                                    // first screenful straight away, the rest fill in behind it
+        add(0, 5)                                    // the first screenful straight away
     }
 
     /** Popular new titles that aren't on Dodgy Box yet - OK on one, then Remind Me. */
@@ -2831,7 +2865,7 @@ class WatchActivity : AppCompatActivity() {
             if (has) {
                 // Rest on it: it opens out into a wide preview with the backdrop and a little detail (Netflix).
                 val r = Runnable { if (v.isFocused) expandCard(h, t) }
-                v.setTag(R.id.card_expand, r); handler.postDelayed(r, 1200)
+                v.setTag(R.id.card_expand, r); handler.postDelayed(r, 1500)
             } else collapseCard(h, t)
         }
     }
@@ -2840,6 +2874,12 @@ class WatchActivity : AppCompatActivity() {
         val c = this
         val lp = h.root.layoutParams ?: return
         if (lp.width != dp(c, 104f)) return
+        val rv = h.root.parent as? RecyclerView ?: return
+        if (rv.scrollState != RecyclerView.SCROLL_STATE_IDLE) return
+        // Room for it to open to the right? (after the row slides it to the left edge, or where it is now)
+        val room = rv.width - dp(c, 56f)
+        val canSlide = rv.canScrollHorizontally(1) || h.root.left <= dp(c, 60f)
+        if (!canSlide && h.root.left + dp(c, 262f) > room) return
         val to = dp(c, 262f)
         android.animation.ValueAnimator.ofInt(lp.width, to).apply {
             duration = 320; interpolator = Motion.focusEase

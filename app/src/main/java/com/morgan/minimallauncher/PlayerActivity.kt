@@ -1236,7 +1236,8 @@ class PlayerActivity : Activity() {
             }
             "sound" -> {
                 val st = SoundProfile.get(this)
-                pill("Sound Check…") { hideInfoPanel(); SoundProfile.soundCheck(this, { applySound(it.copy(dialogue = st.dialogue, more = st.more)) }) { r ->
+                pill("Calibrate Automatically") { hideInfoPanel(); startActivity(android.content.Intent(this, RoomCalibrationActivity::class.java)) }
+                pill("Listening Test (A or B)") { hideInfoPanel(); SoundProfile.soundCheck(this, { applySound(it.copy(dialogue = st.dialogue, more = st.more)) }) { r ->
                     val keep = r.copy(dialogue = st.dialogue, more = st.more); SoundProfile.save(this, keep); applySound(keep) } }
                 pill("Enhance Dialogue · ${dlgName(SoundProfile.dialogueLevel(this))}", st.dialogue) { cycleDialogue(); fillInfo("sound") }
                 pill("Reduce Loud Sounds", st.level) { val n = SoundProfile.get(this).let { it.copy(level = !it.level) }; SoundProfile.save(this, n); applySound(n); fillInfo("sound") }

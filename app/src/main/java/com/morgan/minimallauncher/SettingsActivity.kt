@@ -695,10 +695,11 @@ class SettingsActivity : AppCompatActivity() {
     private fun soundCheckInfo() {
         val s = SoundProfile.get(this)
         GlassDialog(this).title("Sound Check")
-            .message(SoundProfile.describe(s) + "\n\nSound Check tunes the sound to your room and your ears with a few “A or B?” listening tests on whatever’s playing. " +
-                "Start a film or episode, then press ↑ on the progress bar → Sound → Sound Check.")
+            .message(SoundProfile.describe(s) + "\n\nAutomatic: test tones play out of the TV and the sound is tuned for your setup - about 20 seconds.\n\n" +
+                "Listening Test: a few “A or B?” choices on whatever’s playing (in the player: ↑ on the progress bar → Sound).")
+            .button("Calibrate Automatically", GlassDialog.Style.BOLD) { startActivity(android.content.Intent(this, RoomCalibrationActivity::class.java)) }
             .button("Reset to the Original Sound") { SoundProfile.save(this, SoundProfile.Settings(0, 0, 0, s.dialogue, s.level, s.more)); refreshValues() }
-            .button("Done", GlassDialog.Style.BOLD).show()
+            .button("Done").show()
     }
 
     private val LANGS = listOf("auto" to "Auto (Original)", "en" to "English", "fr" to "French", "es" to "Spanish", "de" to "German", "it" to "Italian",
@@ -740,9 +741,13 @@ class SettingsActivity : AppCompatActivity() {
         left.removeAllViews()
         left.gravity = Gravity.CENTER_VERTICAL
         left.addView(GlassUi.text(this, "Settings", 26f, R.font.inter_semibold), LinearLayout.LayoutParams(-2, -2).apply { bottomMargin = dp(this@SettingsActivity, 16f); marginStart = dp(this@SettingsActivity, 14f) })
-        val cats = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; clipChildren = false; clipToPadding = false; setPadding(0, dp(context, 4f), dp(context, 12f), dp(context, 4f)) }
-        val catScroll = ScrollView(this).apply { isVerticalScrollBarEnabled = false; overScrollMode = View.OVER_SCROLL_NEVER; clipChildren = false; clipToPadding = false; addView(cats) }
-        left.addView(catScroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        val cats = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; clipChildren = false; clipToPadding = false
+            setPadding(dp(context, 10f), dp(context, 8f), dp(context, 24f), dp(context, 40f)) }
+        val catScroll = ScrollView(this).apply { isVerticalScrollBarEnabled = false; overScrollMode = View.OVER_SCROLL_NEVER; clipChildren = false; clipToPadding = false
+            isFillViewport = false; addView(cats) }
+        left.clipChildren = false; left.clipToPadding = false
+        (left.parent as? ViewGroup)?.let { it.clipChildren = false; it.clipToPadding = false }
+        left.addView(catScroll, LinearLayout.LayoutParams(-1, 0, 1f).apply { bottomMargin = dp(this@SettingsActivity, 24f) })
         pages.forEachIndexed { i, (title, _) ->
             val row = GlassUi.text(this, title, 15f, R.font.inter_medium, 0xCCFFFFFF.toInt()).apply {
                 gravity = Gravity.CENTER_VERTICAL
@@ -757,7 +762,7 @@ class SettingsActivity : AppCompatActivity() {
                 setOnClickListener { focusPage() }
                 setOnKeyListener { _, k, e -> if (e.action == KeyEvent.ACTION_DOWN && k == KeyEvent.KEYCODE_DPAD_RIGHT) { focusPage(); true } else false }
             }
-            cats.addView(row, LinearLayout.LayoutParams(-1, dp(this, 40f)).apply { bottomMargin = dp(this@SettingsActivity, 3f) })
+            cats.addView(row, LinearLayout.LayoutParams(dp(this, 236f), dp(this, 40f)).apply { bottomMargin = dp(this@SettingsActivity, 4f) })
         }
         catColumn = cats
         showPage(0)
@@ -846,7 +851,7 @@ class SettingsActivity : AppCompatActivity() {
         build()
         currentGroup = null
         if (hideSection) g.visibility = View.GONE
-        list.addView(g, LinearLayout.LayoutParams(-1, -2))
+        list.addView(g, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(this@SettingsActivity, if (list.childCount > 0) 22f else 0f) })
     }
 
     private fun row(title: String, chevron: Boolean = false, onClick: () -> Unit): Row {
