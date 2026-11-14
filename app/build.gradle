@@ -33,6 +33,9 @@ android {
         // Shrinking keeps the APK small: the Claude SDK and its JSON
         // library are large, and only a small part of them is used.
         debug {
+            // Not "debuggable": Android runs debuggable apps without its full speed-ups and ignores the
+            // start-up profile. Turning it off makes everything noticeably quicker (same key, updates as before).
+            debuggable false
             minifyEnabled true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }

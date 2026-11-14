@@ -456,7 +456,15 @@ object Xtream {
         apiGet(c, "get_short_epg", "&stream_id=$streamId&limit=$limit", 10_000)
 
     /** One group's channels (small and quick), instead of the whole line-up. */
-    fun liveInCategory(c: Context, categoryId: String): List<Live> =
+    private val liveCatMem = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, List<Live>>>()
+
+    /** A live category's channels: kept in memory for 10 minutes (the guide asks for several at once, often). */
+    fun liveInCategory(c: Context, categoryId: String): List<Live> {
+        liveCatMem[categoryId]?.let { (at, l) -> if (System.currentTimeMillis() - at < 10 * 60_000L) return l }
+        return liveInCategoryLoad(c, categoryId).also { if (it.isNotEmpty()) liveCatMem[categoryId] = System.currentTimeMillis() to it }
+    }
+
+    private fun liveInCategoryLoad(c: Context, categoryId: String): List<Live> =
         liveMem?.filter { it.category == categoryId }?.takeIf { it.isNotEmpty() } ?: list(c, "get_live_streams",
             { o, v: Live -> o.writeInt(v.id); o.writeInt(v.num); o.str(v.name); o.str(v.icon); o.str(v.category) },
             { i -> Live(i.readInt(), i.readInt(), i.readUTF(), i.readUTF().ifEmpty { null }, i.readUTF()) },

@@ -16,8 +16,18 @@ object ResumeStore {
 
     fun keyOf(kind: String, name: String) = kind + ":" + name.lowercase().replace(Regex("[^a-z0-9]+"), "")
 
-    @Synchronized fun all(c: Context): List<Item> = try {
-        val a = JSONArray(Prefs.string(c, key(c)) ?: "[]")
+    @Volatile private var memoRaw: String? = null
+    @Volatile private var memo: List<Item> = emptyList()
+
+    /** Parsed once and reused until it changes (it's read for every card on screen). */
+    @Synchronized fun all(c: Context): List<Item> {
+        val raw = Prefs.string(c, key(c)) ?: "[]"
+        if (raw === memoRaw || raw == memoRaw) return memo
+        return parse(raw).also { memo = it; memoRaw = raw }
+    }
+
+    private fun parse(raw: String): List<Item> = try {
+        val a = JSONArray(raw)
         (0 until a.length()).map { a.getJSONObject(it) }.map {
             Item(it.getString("k"), it.getString("kind"), it.getString("t"), it.optString("s").ifEmpty { null }, it.optInt("se"), it.optInt("ep"),
                 it.getString("u"), it.optString("i").ifEmpty { null }, it.optInt("p"), it.optInt("d"), it.optLong("at"), it.optInt("lid", -1))

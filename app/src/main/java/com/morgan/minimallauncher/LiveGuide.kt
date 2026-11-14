@@ -296,7 +296,7 @@ object LiveGuide {
 
     private fun writeCache(f: File, list: List<Channel>) {
         val keepFrom = System.currentTimeMillis() - 3_600_000L
-        val keepTo = System.currentTimeMillis() + 48 * 3_600_000L      // two days is plenty; the rest just makes the file slow to read
+        val keepTo = System.currentTimeMillis() + 30 * 3_600_000L      // tonight and tomorrow is plenty; more just makes the file slow to read
         java.io.DataOutputStream(java.io.BufferedOutputStream(java.io.FileOutputStream(f), 64 * 1024)).use { o ->
             o.writeInt(MAGIC)
             o.writeInt(list.size)

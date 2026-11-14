@@ -7,14 +7,21 @@ import org.json.JSONObject
 object Ratings {
     private fun key(c: Context) = ProfileManager.scope(c, "ratings")
     private fun norm(t: String) = TextMatch.vodKey(t)
-    private fun all(c: Context) = try { JSONObject(Prefs.string(c, key(c)) ?: "{}") } catch (e: Exception) { JSONObject() }
+    @Volatile private var memoRaw: String? = null
+    @Volatile private var memo = JSONObject()
+    private fun all(c: Context): JSONObject {
+        val raw = Prefs.string(c, key(c)) ?: "{}"
+        if (raw === memoRaw || raw == memoRaw) return memo
+        return (try { JSONObject(raw) } catch (e: Exception) { JSONObject() }).also { memo = it; memoRaw = raw }
+    }
 
     fun get(c: Context, title: String): Int? = all(c).optJSONObject(norm(title))?.optInt("r")
 
     fun set(c: Context, title: String, r: Int) {
         val o = all(c)
-        o.put(norm(title), JSONObject().put("r", r).put("name", title).put("at", System.currentTimeMillis()))
-        Prefs.setString(c, key(c), o.toString())
+        val copy = JSONObject(o.toString())
+        copy.put(norm(title), JSONObject().put("r", r).put("name", title).put("at", System.currentTimeMillis()))
+        Prefs.setString(c, key(c), copy.toString())
     }
 
     /** Loved titles, newest first. */

@@ -485,11 +485,20 @@ object WatchCatalog {
         return added
     }
 
-    private fun readTitles(c: Context, key: String): List<Title> = try {
-        val byShort = providers(c).associateBy { it.short }
-        val arr = JSONArray(Prefs.string(c, key) ?: "[]")
-        (0 until arr.length()).map { fromJson(arr.getJSONObject(it), byShort) }
-    } catch (e: Exception) { emptyList() }
+    private val titlesMemo = java.util.concurrent.ConcurrentHashMap<String, Pair<String, List<Title>>>()
+
+    /** My List / Recently Viewed: parsed once and reused until they change. */
+    private fun readTitles(c: Context, key: String): List<Title> {
+        val raw = Prefs.string(c, key) ?: "[]"
+        titlesMemo[key]?.let { (r, l) -> if (r === raw || r == raw) return l }
+        val list = try {
+            val byShort = providers(c).associateBy { it.short }
+            val arr = JSONArray(raw)
+            (0 until arr.length()).map { fromJson(arr.getJSONObject(it), byShort) }
+        } catch (e: Exception) { emptyList() }
+        titlesMemo[key] = raw to list
+        return list
+    }
 
     // ---------- Apps ----------
 
