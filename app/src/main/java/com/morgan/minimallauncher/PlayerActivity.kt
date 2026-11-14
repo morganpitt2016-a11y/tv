@@ -437,6 +437,7 @@ class PlayerActivity : Activity() {
             p.release()
         }
         player = null
+        handler.removeCallbacks(previewSeek); previewPlayer?.release(); previewPlayer = null; previewFor = null
         soundFx?.release(); soundFx = null
         restoreFromCredits()
     }
@@ -1283,6 +1284,38 @@ class PlayerActivity : Activity() {
     }
 
     private var scrubBox: LinearLayout? = null
+    private var previewFrame: FrameLayout? = null
+    private var previewTex: android.view.TextureView? = null
+    private var previewPlayer: ExoPlayer? = null
+    private var previewWant = 0L
+    private var previewFor: String? = null
+
+    private val previewSeek = Runnable {
+        val tex = previewTex ?: return@Runnable
+        val pp = previewPlayer ?: ExoPlayer.Builder(this)
+            .setLoadControl(androidx.media3.exoplayer.DefaultLoadControl.Builder().setBufferDurationsMs(500, 1500, 0, 0).build())
+            .setMediaSourceFactory(androidx.media3.exoplayer.source.DefaultMediaSourceFactory(this, androidx.media3.extractor.DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true)))
+            .build().also { p ->
+                previewPlayer = p
+                p.volume = 0f
+                p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
+                    .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, true).setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).setMaxVideoSize(640, 360).build()
+                p.setSeekParameters(androidx.media3.exoplayer.SeekParameters.CLOSEST_SYNC)     // nearest keyframe: much quicker
+                p.setVideoTextureView(tex)
+                p.addListener(object : Player.Listener {
+                    override fun onRenderedFirstFrame() { previewFrame?.let { f -> if (scrubBox?.visibility == View.VISIBLE) f.visibility = View.VISIBLE } }
+                })
+            }
+        if (previewFor != url) {
+            previewFor = url
+            pp.setMediaItem(MediaItem.fromUri(Xtream.resolved(url) ?: url))
+            pp.playWhenReady = false
+            pp.prepare()
+        }
+        pp.seekTo(previewWant)
+    }
+
+    private val releasePreview = Runnable { previewPlayer?.release(); previewPlayer = null; previewFor = null }
     private var scrubTime: android.widget.TextView? = null
 
     /**
@@ -1300,6 +1333,17 @@ class PlayerActivity : Activity() {
             clipToOutline = true; outlineProvider = android.view.ViewOutlineProvider.BACKGROUND
             visibility = View.GONE
         }
+        // Pictures: from a small silent second player that jumps to wherever you're skipping to (films and episodes
+        // streamed from Dodgy Box), or straight from the file for downloads and recordings.
+        val frame = FrameLayout(c).apply {
+            background = android.graphics.drawable.GradientDrawable().apply { cornerRadius = dp(c, 8f).toFloat(); setColor(0xFF000000.toInt()); setStroke(dp(c, 2f), 0xFFFFFFFF.toInt()) }
+            clipToOutline = true; outlineProvider = android.view.ViewOutlineProvider.BACKGROUND
+            visibility = View.GONE
+        }
+        val tex = android.view.TextureView(c)
+        frame.addView(tex, FrameLayout.LayoutParams(-1, -1))
+        box.addView(frame, LinearLayout.LayoutParams(dp(c, 240f), dp(c, 135f)).apply { bottomMargin = dp(c, 6f) })
+        previewFrame = frame; previewTex = tex
         box.addView(iv, LinearLayout.LayoutParams(dp(c, 240f), dp(c, 135f)).apply { bottomMargin = dp(c, 6f) })
         val time = GlassUi.text(c, "", 18f, R.font.inter_semibold).apply {
             background = GlassUi.panel(c, 12f, 0x60)
@@ -1311,7 +1355,10 @@ class PlayerActivity : Activity() {
         bar.addListener(object : androidx.media3.ui.TimeBar.OnScrubListener {
             override fun onScrubStart(t: androidx.media3.ui.TimeBar, pos: Long) { onScrub(bar, pos) }
             override fun onScrubMove(t: androidx.media3.ui.TimeBar, pos: Long) { onScrub(bar, pos) }
-            override fun onScrubStop(t: androidx.media3.ui.TimeBar, pos: Long, canceled: Boolean) { thumbWant = -1L; box.visibility = View.GONE; iv.visibility = View.GONE }
+            override fun onScrubStop(t: androidx.media3.ui.TimeBar, pos: Long, canceled: Boolean) {
+                thumbWant = -1L; box.visibility = View.GONE; iv.visibility = View.GONE; previewFrame?.visibility = View.GONE
+                handler.removeCallbacks(previewSeek); handler.removeCallbacks(releasePreview); handler.postDelayed(releasePreview, 6000)
+            }
         })
     }
 
@@ -1331,7 +1378,13 @@ class PlayerActivity : Activity() {
         }
         box.visibility = View.VISIBLE
         box.requestLayout()
-        if (!url.startsWith("file:")) return   // pictures only for files on the TV
+        if (!url.startsWith("file:")) {
+            // Streaming: the preview player jumps there (a moment after you stop moving, so it isn't asked for every step).
+            previewWant = pos
+            handler.removeCallbacks(releasePreview)
+            handler.removeCallbacks(previewSeek); handler.postDelayed(previewSeek, 180)
+            return
+        }
         val want = pos
         thumbWant = want
         val u = url

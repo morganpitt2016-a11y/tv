@@ -1978,8 +1978,11 @@ class WatchActivity : AppCompatActivity() {
         }
         LiveGuide.load(this) { channels ->
             if (token != buildToken || channels == null) return@load
-            val q = query.lowercase()
-            val hits = channels.flatMap { ch -> ch.upcoming().filter { it.title.lowercase().contains(q) }.map { ch to it } }.take(20)
+            val q = query.lowercase().trim()
+            val words = q.split(Regex("\\s+")).filter { it.length > 1 }
+            // Every word, in any order ("doctor who", "who doctor"); exact phrase first.
+            val hits = channels.flatMap { ch -> ch.upcoming().filter { p -> val t = p.title.lowercase(); t.contains(q) || words.isNotEmpty() && words.all { it in t } }.map { ch to it } }
+                .sortedBy { (_, p) -> if (p.title.lowercase().startsWith(q)) 0 else if (p.title.lowercase().contains(q)) 1 else 2 }.take(20)
             if (hits.isEmpty()) return@load
             val r = row("ontv", "On TV", height = 150f)
             r.list.adapter = CardAdapter(hits, { p -> wideCard(p) }) { h, (ch, prog) -> bindProgramme(h, ch, prog) }

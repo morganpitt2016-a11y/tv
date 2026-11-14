@@ -49,6 +49,24 @@ class LiveGuideActivity : Activity() {
     private var current: String? = null
     private var pipChannel = -1
     private val pipJob = Runnable { playPip() }
+    private var pipResolved = false
+    private var pipLogo: android.widget.ImageView? = null
+
+    /** The channel's logo in the little picture while it tunes, so it never just sits black. */
+    private fun showPipLogo(r: EpgView.Row) {
+        val host = pip.overlayFrameLayout ?: return
+        val iv = pipLogo ?: android.widget.ImageView(this).apply {
+            scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+            setBackgroundColor(0xFF0E0E12.toInt())
+            val pad = GlassUi.dp(this@LiveGuideActivity, 28f); setPadding(pad, pad, pad, pad)
+            host.addView(this, android.widget.FrameLayout.LayoutParams(-1, -1))
+            pipLogo = this
+        }
+        if (r.ch.id == pipChannel) return
+        iv.animate().cancel(); iv.alpha = 1f
+        val logo = r.guide?.logo ?: r.ch.icon
+        if (logo != null) ImageLoader.load(iv, logo, ImageLoader.ICON) else iv.setImageDrawable(null)
+    }
     private var selected: EpgView.Row? = null
     private var allUk: List<String> = emptyList()
     private lateinit var recScroll: ScrollView
@@ -120,7 +138,8 @@ class LiveGuideActivity : Activity() {
                 val started = if (prog.start <= System.currentTimeMillis()) "Started at" else "Starts at"
                 listOf(row.ch.name.replace(Regex("(?i)\\s*\\b(uhd|fhd|hd|4k)\\b"), "").trim(), len, q, "$started ${fmt.format(Date(prog.start)).lowercase()}").filter { it.isNotEmpty() }.joinToString("   ·   ")
             }
-            handler.removeCallbacks(pipJob); handler.postDelayed(pipJob, 900)        // only once you settle on a channel
+            handler.removeCallbacks(pipJob); handler.postDelayed(pipJob, 420)        // once you settle on a channel
+            selected?.let { r -> Xtream.preResolve(Xtream.liveUrl(applicationContext, r.ch.id)); showPipLogo(r) }      // connection ready, logo straight away
         }
         epg.onPlay = { row -> watch(row.ch) }
         epg.onProgramme = { row, prog -> recordDialog(row, prog) }
@@ -270,9 +289,22 @@ class LiveGuideActivity : Activity() {
         if (row.ch.id == pipChannel) return
         pipChannel = row.ch.id
         val p = player ?: ExoPlayer.Builder(this).setLoadControl(
-            DefaultLoadControl.Builder().setBufferDurationsMs(1500, 10_000, 500, 1000).build()).build().also { player = it; pip.player = it }
+            DefaultLoadControl.Builder().setBufferDurationsMs(800, 6_000, 250, 600).setPrioritizeTimeOverSizeThresholds(true).build()).build().also { pl ->
+                player = pl; pip.player = pl
+                pl.addListener(object : androidx.media3.common.Player.Listener {
+                    override fun onRenderedFirstFrame() { pipLogo?.animate()?.alpha(0f)?.setDuration(200)?.start() }
+                    override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                        // The ready connection didn't take: the normal address.
+                        val id = pipChannel
+                        if (pipResolved && id >= 0) { pipResolved = false; pl.setMediaItem(MediaItem.fromUri(Xtream.liveUrl(applicationContext, id))); pl.prepare(); pl.play() }
+                    }
+                })
+            }
         p.stop()
-        p.setMediaItem(MediaItem.fromUri(Xtream.liveUrl(applicationContext, row.ch.id)))
+        val plain = Xtream.liveUrl(applicationContext, row.ch.id)
+        val direct = Xtream.resolved(plain)
+        pipResolved = direct != null
+        p.setMediaItem(MediaItem.fromUri(direct ?: plain))
         p.playWhenReady = true
         p.prepare()
     }

@@ -416,17 +416,45 @@ object Xtream {
 
     /** Films and series whose name matches what was typed - everything here really plays. */
     fun searchLibrary(c: Context, query: String, n: Int = 40): Pair<List<Vod>, List<Series>> {
-        val q = TextMatch.vodKey(query)
+        val q = TextMatch.vodKey(query).removePrefix("the ").trim()
         if (q.isBlank()) return emptyList<Vod>() to emptyList()
-        fun score(name: String): Int {
-            val k = TextMatch.vodKey(clean(name))
-            return when { k == q -> 0; k.startsWith(q) -> 1; k.contains(" $q") -> 2; k.contains(q) -> 3; else -> -1 }
+        val qw = q.split(" ").filter { it.isNotBlank() }
+        /** 0 exact · 1 starts with · 2 every word there (any order) · 3 contained · 4 every word there allowing a typo · -1 no. */
+        fun score(key: String): Int {
+            val k = key.removePrefix("the ").trim()
+            if (k == q) return 0
+            if (k.startsWith(q)) return 1
+            val kw = k.split(" ")
+            if (qw.all { w -> kw.any { it.startsWith(w) } }) return 2
+            if (k.contains(q)) return 3
+            if (qw.all { w -> w.length < 4 && kw.any { it.startsWith(w) } || w.length >= 4 && kw.any { near(it, w) } }) return 4
+            return -1
         }
-        val films = vod(c).mapNotNull { v -> score(v.name).takeIf { it >= 0 }?.let { it to v } }
-            .sortedWith(compareBy({ it.first }, { -it.second.id })).map { it.second }.distinctBy { TextMatch.vodKey(clean(it.name)) }.take(n)
-        val shows = series(c).mapNotNull { v -> score(v.name).takeIf { it >= 0 }?.let { it to v } }
-            .sortedWith(compareBy({ it.first }, { -it.second.id })).map { it.second }.distinctBy { TextMatch.vodKey(clean(it.name)) }.take(n)
-        return films to shows
+        // Searches the saved index (names already tidied), so it's quick even over tens of thousands of titles.
+        fun <T> rank(index: Map<String, List<T>>, id: (T) -> Int): List<T> = index.entries
+            .mapNotNull { (key, items) -> score(key).takeIf { it >= 0 }?.let { s -> s to items.maxBy(id) } }
+            .sortedWith(compareBy({ it.first }, { -id(it.second) })).map { it.second }.take(n)
+        return rank(vodByKey(c)) { it.id } to rank(seriesByKey(c)) { it.id }
+    }
+
+    /** Same word give or take a slip: one letter wrong, missing or extra (two for long words); also a prefix of it. */
+    private fun near(word: String, typed: String): Boolean {
+        if (word.startsWith(typed)) return true
+        val w = if (word.length > typed.length + 2) word.substring(0, typed.length + 1) else word
+        val max = if (typed.length >= 8) 2 else 1
+        if (kotlin.math.abs(w.length - typed.length) > max) return false
+        var prev = IntArray(typed.length + 1) { it }
+        for (i in 1..w.length) {
+            val cur = IntArray(typed.length + 1); cur[0] = i
+            var best = cur[0]
+            for (j in 1..typed.length) {
+                cur[j] = minOf(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + if (w[i - 1] == typed[j - 1]) 0 else 1)
+                if (cur[j] < best) best = cur[j]
+            }
+            if (best > max) return false
+            prev = cur
+        }
+        return prev[typed.length] <= max
     }
 
     // ---------- VPN ----------
