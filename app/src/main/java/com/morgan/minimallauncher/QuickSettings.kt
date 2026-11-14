@@ -159,11 +159,31 @@ class QuickSettings(private val activity: AppCompatActivity, private val host: H
             host.nextWallpaper()
             dialog.dismiss()
         }
+        // Night mode: OK turns it on/off; Left/Right makes it lighter/darker (like the Sound tile).
         val night = host.isNightMode()
-        tiles += tile(if (night) R.drawable.ic_lucide_moon else R.drawable.ic_lucide_sun, "Night mode", if (night) "On" else "Off", active = night) {
+        fun nightText() = if (host.isNightMode()) "${NightDim.level(c)}%  ·  ◀ ▶" else "Off  ·  ◀ ▶"
+        val nightTile = tile(if (night) R.drawable.ic_lucide_moon else R.drawable.ic_lucide_sun, "Night mode", nightText(), active = night) {
             host.setNightMode(!host.isNightMode())
             refocusAfterRebuild("Night mode")
         }
+        nightTile.setOnKeyListener { v, code, e ->
+            val delta = when (code) {
+                android.view.KeyEvent.KEYCODE_DPAD_LEFT -> -5
+                android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> 5
+                else -> return@setOnKeyListener false
+            }
+            if (e.action == android.view.KeyEvent.ACTION_DOWN) {
+                val wasOn = host.isNightMode()
+                if (!wasOn && delta < 0) return@setOnKeyListener true
+                val n = NightDim.adjust(c, delta)
+                if (!wasOn) { host.setNightMode(true); refocusAfterRebuild("Night mode"); return@setOnKeyListener true }
+                ((v as? ViewGroup)?.getChildAt(1) as? ViewGroup)?.getChildAt(1)?.let {
+                    (it as? android.widget.TextView)?.text = "$n%  ·  " + (if (n <= NightDim.MIN) "lightest" else if (n >= NightDim.MAX) "darkest" else "◀ ▶")
+                }
+            }
+            true
+        }
+        tiles += nightTile
         tiles += tile(R.drawable.ic_lucide_sparkle, "Claude", "Ask anything") {
             open(Intent(c, ClaudeActivity::class.java), inApp = true)
         }

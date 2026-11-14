@@ -9,6 +9,20 @@ import android.content.Context
 object NightDim {
     const val LEVEL = 0.45f
 
+    /** How dark, 10-70 %. Kept below 70 so pictures stay watchable (darker just crushes the shadows). */
+    fun level(c: Context): Int = Prefs.int(c, "night_level", 45).coerceIn(MIN, MAX)
+    const val MIN = 10
+    const val MAX = 70
+
+    /** Darker / lighter by [delta] percent (turns it on if it was off). Returns the new level. */
+    fun adjust(c: Context, delta: Int): Int {
+        val n = (level(c) + delta).coerceIn(MIN, MAX)
+        Prefs.setInt(c, "night_level", n)
+        if (!isOn(c)) Prefs.setBool(c, "night_mode", true)
+        apply(c)
+        return n
+    }
+
     fun isOn(c: Context) = Prefs.bool(c, "night_mode", false)
 
     fun set(c: Context, on: Boolean) {

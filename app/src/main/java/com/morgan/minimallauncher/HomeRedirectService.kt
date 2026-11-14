@@ -286,8 +286,12 @@ class HomeRedirectService : AccessibilityService() {
 
     fun setNightDim(on: Boolean) {
         val wm = getSystemService(WINDOW_SERVICE) as WindowManager
+        val target = NightDim.level(this) / 100f
+        // Already on: just glide to the new darkness.
+        if (on && dimView != null) { dimView?.animate()?.alpha(target)?.setDuration(250)?.start(); return }
         if (on && dimView == null) {
-            val v = View(this).apply { setBackgroundColor(android.graphics.Color.BLACK); alpha = 0f }
+            // A very dark warm tone rather than plain black: dims without turning the picture grey, and takes the edge off the blue.
+            val v = View(this).apply { setBackgroundColor(0xFF120A02.toInt()); alpha = 0f }
             val params = WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
                 WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
@@ -295,7 +299,7 @@ class HomeRedirectService : AccessibilityService() {
                     WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT
             )
-            try { wm.addView(v, params); dimView = v; v.animate().alpha(NightDim.LEVEL).setDuration(600).start() }
+            try { wm.addView(v, params); dimView = v; v.animate().alpha(target).setDuration(600).start() }
             catch (e: Exception) { RedirectDiag.error(this, "night: ${e.javaClass.simpleName}") }
         } else if (!on) {
             dimView?.let { v -> v.animate().alpha(0f).setDuration(500).withEndAction { try { wm.removeView(v) } catch (_: Exception) {} }.start() }
