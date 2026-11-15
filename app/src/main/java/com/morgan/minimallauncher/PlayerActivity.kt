@@ -74,6 +74,8 @@ class PlayerActivity : Activity() {
     private var live = false
     private var triedAlt = false
     private var triedResolved = false
+    private var audioFallback = false
+    private var audioLoggedFor: String? = null
     private var usingResolved = false
     private var startedAt = 0L
     private var firstFrameLogged = false
@@ -257,7 +259,7 @@ class PlayerActivity : Activity() {
         val sources = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(this, extractors)
         // Audio Format (Settings → Video and Audio): Auto lets Dolby go straight to the soundbar; the others
         // decode on the TV (so Sound Check, Enhance Dialogue and Reduce Loud Sounds work on everything).
-        val format = Prefs.string(this, "audio_format") ?: "auto"
+        val format = if (audioFallback) "auto" else (Prefs.string(this, "audio_format") ?: "auto")
         val builder = ExoPlayer.Builder(this).setLoadControl(load).setMediaSourceFactory(sources)
         if (format != "auto") builder.setRenderersFactory(object : androidx.media3.exoplayer.DefaultRenderersFactory(this) {
             override fun buildAudioSink(context: Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): androidx.media3.exoplayer.audio.AudioSink =
@@ -275,6 +277,33 @@ class PlayerActivity : Activity() {
             soundFx = SoundProfile.Effect(sid).also { it.apply(SoundProfile.get(this)) }
         } catch (e: Throwable) {}
         p.addListener(object : Player.Listener {
+            override fun onTracksChanged(tracks: Tracks) {
+                val audio = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
+                if (audio.isEmpty()) return
+                val selected = audio.firstOrNull { it.isSelected }?.let { g -> (0 until g.length).firstOrNull { g.isTrackSelected(it) }?.let { g.getTrackFormat(it) } }
+                val anyPlayable = audio.any { g -> (0 until g.length).any { g.isTrackSupported(it) } }
+                // What this programme's sound is (in the TV's log), once per programme.
+                if (audioLoggedFor != url) {
+                    audioLoggedFor = url
+                    Diag.send(this@PlayerActivity, "player", "audio for \"$titleText\": " + audio.joinToString(" | ") { g -> (0 until g.length).joinToString(", ") { i ->
+                        val f = g.getTrackFormat(i); "${f.sampleMimeType} ${f.channelCount}ch ${f.language ?: ""} ${if (g.isTrackSupported(i)) "ok" else "UNSUPPORTED"}${if (g.isTrackSelected(i)) " *" else ""}" } } +
+                        " · format=${Prefs.string(this@PlayerActivity, "audio_format") ?: "auto"} fx=${!SoundProfile.get(this@PlayerActivity).flat}")
+                }
+                // The sound can't be played with the TV decoding it (e.g. Dolby Digital Plus): let it go to the TV/soundbar as it is.
+                if (!anyPlayable && !audioFallback) {
+                    audioFallback = true
+                    Diag.send(this@PlayerActivity, "player", "audio: nothing playable - retrying with the sound passed straight through")
+                    saveProgress()
+                    player?.release(); player = null
+                    start(url, resume = true)
+                    return
+                }
+                if (!anyPlayable) GlassUi.toast(this@PlayerActivity, "This programme’s sound isn’t in a format the TV can play")
+                // Surround sound (5.1 / 7.1) or sound passed straight through: the sound-profile effect is stereo-only and can
+                // silence it, so it steps aside for this programme.
+                val surround = (selected?.channelCount ?: 2) > 2 || selected?.sampleMimeType?.let { it.contains("ac3") || it.contains("dts") || it.contains("truehd") } == true
+                if (surround) { soundFx?.release(); soundFx = null }
+            }
             override fun onRenderedFirstFrame() {
                 // How long from pressing play to the picture (in the TV's timing log).
                 if (firstFrameLogged) return
