@@ -503,10 +503,14 @@ object Xtream {
         }
 
     private val qualityNoise = Regex("(?i)\\b(uhd|fhd|hd|sd|4k|hevc|h\\.?265|1080p?|720p?|50fps|60fps)\\b|\\(f\\)|\\[[^\\]]*\\]")
+    /**
+     * Which copy of a channel to use. Full HD first: providers' "UHD/4K" live channels are mostly very heavy (often just
+     * upscaled) and stutter on a streaming stick, while FHD/HD look as good and play smoothly.
+     */
     private fun qualityRank(n: String): Int = when {
-        Regex("(?i)\\b(uhd|4k)\\b").containsMatchIn(n) -> 4
-        Regex("(?i)\\bfhd\\b|1080").containsMatchIn(n) -> 3
-        Regex("(?i)\\bhd\\b|720").containsMatchIn(n) -> 2
+        Regex("(?i)\\bfhd\\b|1080").containsMatchIn(n) -> 4
+        Regex("(?i)\\bhd\\b|720").containsMatchIn(n) && !Regex("(?i)\\buhd\\b").containsMatchIn(n) -> 3
+        Regex("(?i)\\b(uhd|4k)\\b").containsMatchIn(n) -> 2
         Regex("(?i)\\bsd\\b").containsMatchIn(n) -> 0
         else -> 1
     }
@@ -547,6 +551,15 @@ object Xtream {
             if (hit != null) { first += hit; left.remove(hit) }
         }
         return (first + left).mapIndexed { i, l -> l.copy(num = i + 1, name = displayName(l.name)) }
+    }
+
+    /** Every main UK channel in TV-guide order (BBC One 1, BBC Two 2 ...), as the guide's "All channels" shows them. */
+    fun ukGuideList(c: Context): List<Live> {
+        val cats = liveCategories(c)
+        val wanted = listOf("entertainment", "documentar", "kids", "movies", "news", "music", "sport")
+        val ids = cats.filter { (_, n) -> n.trim().startsWith("UK", true) && !n.contains("radio", true) && wanted.any { n.contains(it, true) } }.keys
+        val merged = ids.flatMap { try { liveInCategory(c, it) } catch (e: Exception) { emptyList() } }
+        return guideOrder(best(merged))
     }
 
     /** A group's channels, one per station. */

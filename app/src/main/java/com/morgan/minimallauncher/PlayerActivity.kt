@@ -75,6 +75,7 @@ class PlayerActivity : Activity() {
     private var triedAlt = false
     private var triedResolved = false
     private var audioFallback = false
+    private var stalls = 0
     private var audioLoggedFor: String? = null
     private var usingResolved = false
     private var startedAt = 0L
@@ -235,7 +236,15 @@ class PlayerActivity : Activity() {
                     val cur = all.firstOrNull { it.id == liveId }
                     if (cur == null) emptyList() else all.filter { it.category == cur.category }
                 }).sortedBy { it.num }
-                runOnUiThread { zapList = group; zapIndex = group.indexOfFirst { it.id == liveId }.coerceAtLeast(0) }
+                // Channel up/down in the guide's order (1 BBC One, 2 BBC Two, 3 ITV1 ...) when this channel is one of those.
+                val guide = try { Xtream.ukGuideList(app) } catch (e: Exception) { emptyList() }
+                val curName = TextMatch.normalise(Xtream.displayName(titleText))
+                val inGuide = guide.indexOfFirst { it.id == liveId }.takeIf { it >= 0 }
+                    ?: guide.indexOfFirst { TextMatch.normalise(it.name) == curName }.takeIf { it >= 0 }
+                runOnUiThread {
+                    if (inGuide != null) { zapList = guide; zapIndex = inGuide }
+                    else { zapList = group; zapIndex = group.indexOfFirst { it.id == liveId }.coerceAtLeast(0) }
+                }
             }.start()
         }
     }
@@ -251,7 +260,7 @@ class PlayerActivity : Activity() {
     private fun newPlayer(): ExoPlayer {
         // Start sooner than the defaults: a small buffer to begin with, then it fills while you watch.
         val load = androidx.media3.exoplayer.DefaultLoadControl.Builder()
-            .setBufferDurationsMs(if (live) 2_000 else 15_000, if (live) 20_000 else 60_000, if (live) 500 else 400, if (live) 1_500 else 1_500)
+            .setBufferDurationsMs(if (live) 4_000 else 15_000, if (live) 30_000 else 60_000, if (live) 900 else 400, if (live) 3_000 else 1_500)
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
         // Files without a seek index (common with .ts/.mkv from providers) can still jump to a point.
@@ -344,6 +353,11 @@ class PlayerActivity : Activity() {
                 if (isPlaying && hideControlsOnStart) { hideControlsOnStart = false; view.hideController() }
             }
             override fun onPlaybackStateChanged(state: Int) {
+                // Live picture stalling (for the TV's log): count it, and note which channel.
+                if (live && state == Player.STATE_BUFFERING && firstFrameLogged) {
+                    stalls++
+                    if (stalls == 1 || stalls % 3 == 0) Diag.send(this@PlayerActivity, "player", "stall #$stalls on \"$titleText\" (timeshift=${ts != null})")
+                }
                 // Live pause buffer filled up (or the stream ended): start a fresh one from live.
                 if (state == Player.STATE_ENDED && live && ts != null) { ts?.stop(); ts = null; tsStart = 0L; start(url, resume = false); return }
                 if (state == Player.STATE_ENDED && !live) {
