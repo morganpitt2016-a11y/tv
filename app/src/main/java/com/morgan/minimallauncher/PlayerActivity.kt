@@ -598,6 +598,10 @@ class PlayerActivity : Activity() {
         // Paused with "You're watching" up: a press brings the controls back (and still does its job).
         if (event.action == KeyEvent.ACTION_DOWN && ::pauseInfo.isInitialized && pauseInfo.visibility == View.VISIBLE) {
             hidePauseInfo()
+            // OK on "You're watching": carry on watching (Netflix), rather than only bringing the buttons back.
+            if (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER) {
+                player?.play(); swallowOkUp = true; return true
+            }
         }
         if (event.action == KeyEvent.ACTION_DOWN) pressedThisEpisode = true
         infoPanel?.let {
@@ -621,7 +625,19 @@ class PlayerActivity : Activity() {
         }
         // Watching a film or episode with the controls hidden: Up = "What did they say?", Down = episodes.
         if (!live && event.action == KeyEvent.ACTION_DOWN && !view.isControllerFullyVisible && !counting && !creditsMode) {
-            if (event.keyCode == KeyEvent.KEYCODE_DPAD_UP) { whatDidTheySay(); return true }
+            // Up: the menu along the top (Info · Subtitles · Audio · Sound), like Apple TV's swipe down.
+            if (event.keyCode == KeyEvent.KEYCODE_DPAD_UP) { showInfoPanel(); return true }
+            // Left / Right: straight back or forward 10 seconds, with the progress bar showing (Apple TV).
+            if (event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT || event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                val p = player
+                if (p != null && p.duration > 0) {
+                    val step = if (event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) 10_000L else -10_000L
+                    p.seekTo((p.currentPosition + step).coerceIn(0L, (p.duration - 1_000L).coerceAtLeast(0L)))
+                    view.showController(); hideGear()
+                    view.findViewById<View>(androidx.media3.ui.R.id.exo_progress)?.let { b -> b.post { b.requestFocus() } }
+                    return true
+                }
+            }
             if (event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
                 // Controls up, with the progress bar ready to skip along.
                 view.showController(); hideGear()
@@ -1271,6 +1287,7 @@ class PlayerActivity : Activity() {
                     LinearLayout.LayoutParams(dp(c, 620f), -2).apply { topMargin = dp(c, 8f) }) }
                 body.addView(txt)
                 pill("Start Over") { hideInfoPanel(); player?.seekTo(0) }
+                pill("⟲ 10s with Subtitles") { hideInfoPanel(); whatDidTheySay() }
                 if (seriesTitle != null && curSeason > 0) pill("Episodes") { hideInfoPanel(); showStrip() }
                 if (queue.isNotEmpty()) pill("Next Episode") { hideInfoPanel(); playNext() }
                 pill("Sleep Timer · ${sleepLabel()}") { hideInfoPanel(); pickSleep() }
