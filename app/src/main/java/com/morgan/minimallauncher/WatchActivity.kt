@@ -224,7 +224,7 @@ class WatchActivity : AppCompatActivity() {
                     if (q != null) search(q) else showTab(intent.getStringExtra(EXTRA_TAB) ?: "home", focusContent = true)
                     // Like Netflix: "Who's watching?" when Watch opens, if more than one person uses this TV (at most every 4 hours).
                     val mins = (System.currentTimeMillis() / 60_000L).toInt()
-                    if (false && q == null && ProfileManager.getProfiles(this).size > 1 && Prefs.bool(this, "watch_who", true) &&
+                    if (WATCH_WHO && q == null && ProfileManager.getProfiles(this).size > 1 && Prefs.bool(this, "watch_who", true) &&
                         mins - Prefs.int(this, "watch_who_at", 0) > 240) {
                         Prefs.setInt(this, "watch_who_at", mins)
                         startActivity(Intent(this, WhoActivity::class.java))
@@ -465,6 +465,7 @@ class WatchActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        handler.removeCallbacksAndMessages(null)          // nothing scheduled runs against a closed screen
         try { trailerView?.destroy() } catch (e: Exception) {}
         trailerView = null
         super.onDestroy()
@@ -1944,21 +1945,8 @@ class WatchActivity : AppCompatActivity() {
 
     // ---------- Search ----------
 
-    private fun askSearch() {
-        showSearchTab(); showSearchBar(focus = true); return
-        @Suppress("UNREACHABLE_CODE")
-        val d = GlassDialog(this).title("Search").message("Films, shows and what’s on TV.").input("Title or person", lastSearch.orEmpty())
-        d.button("Search", GlassDialog.Style.BOLD) { if (d.inputText.isNotBlank()) search(d.inputText) }
-        d.button("Speak Instead") {
-            try {
-                voice.launch(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
-                    .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                    .putExtra(RecognizerIntent.EXTRA_PROMPT, "Search films, shows and TV"))
-            } catch (e: ActivityNotFoundException) { GlassUi.toast(this, "Voice search isn’t available") }
-        }
-        d.button("Cancel")
-        d.show()
-    }
+    /** OK on Search: type straight into the search bar (results appear as you type). */
+    private fun askSearch() { showSearchTab(); showSearchBar(focus = true) }
 
     private fun search(query: String, focusResults: Boolean = true) {
         lastSearch = query
@@ -2005,7 +1993,7 @@ class WatchActivity : AppCompatActivity() {
         if (detail == null) detailReturn = from
         detail?.let { root.removeView(it) }
         // The browse screen fades away underneath, so nothing shows through.
-        for (v in listOf<View>(info, nav, scroll)) v.animate().alpha(0f).setDuration(200).withEndAction { if (detail != null) v.visibility = View.INVISIBLE }.start()
+        for (v in listOfNotNull<View>(info, nav, scroll, searchBar?.takeIf { it.visibility == View.VISIBLE })) v.animate().alpha(0f).setDuration(200).withEndAction { if (detail != null) v.visibility = View.INVISIBLE }.start()
         val page = FrameLayout(c).apply { isClickable = true; alpha = 0f }
         page.addView(View(c).apply {
             background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(0xF7000000.toInt(), 0xD9000000.toInt(), 0x66000000, 0x1A000000))
@@ -2269,37 +2257,10 @@ class WatchActivity : AppCompatActivity() {
             fromStart = fromStart, series = name, queue = rest, image = image, season = e.season, episode = e.number)
     }
 
+    /** A Dodgy Box show: its full-screen page (Play / Resume, seasons, episodes) - like Apple TV. */
     private fun chooseEpisode(t: WatchCatalog.Title, episodes: List<Xtream.Episode>) {
-        val app = applicationContext
-        val sorted = episodes.sortedWith(compareBy({ it.season }, { it.number }))
-        lastEpisodes = sorted
-        // The full-screen show page (Play / Resume, seasons, episodes) - like Apple TV.
-        return episodeList(t, sorted)
-        @Suppress("UNREACHABLE_CODE")
-        val last = WatchHistory.last(app, t.name)?.let { l -> sorted.indexOfFirst { it.season == l.season && it.number == l.episode } }?.takeIf { it >= 0 }
-        if (last == null) return episodeList(t, sorted)
-        // Been here before: offer to pick up where you were, move on, or start again - not always episode one.
-        val e = sorted[last]
-        val at = WatchHistory.seconds(app, Xtream.episodeUrl(app, e))
-        val next = sorted.getOrNull(last + 1)
-        val d = GlassDialog(this).title(t.name)
-        if (at > 30) {
-            d.message("You stopped S${e.season} E${e.number} at ${WatchHistory.clock(at)}.")
-            d.button("Continue S${e.season} E${e.number} · ${WatchHistory.clock(at)}", GlassDialog.Style.BOLD) { playEpisode(t, e) }
-            next?.let { n -> d.button("Next episode · S${n.season} E${n.number}") { playEpisode(t, n) } }
-        } else if (next != null) {
-            d.message("You finished S${e.season} E${e.number}.")
-            d.button("Next episode · S${next.season} E${next.number}", GlassDialog.Style.BOLD) { playEpisode(t, next) }
-            d.button("Watch S${e.season} E${e.number} again") { playEpisode(t, e, fromStart = true) }
-        } else {
-            d.message("You've reached the last episode.")
-            d.button("Watch S${e.season} E${e.number} again", GlassDialog.Style.BOLD) { playEpisode(t, e, fromStart = true) }
-        }
-        val first = sorted.first()
-        d.button("Start from the beginning · S${first.season} E${first.number}") { playEpisode(t, first, fromStart = true) }
-        d.button("Choose an episode") { episodeList(t, sorted) }
-        d.button("Cancel")
-        d.show()
+        lastEpisodes = episodes.sortedWith(compareBy({ it.season }, { it.number }))
+        episodeList(t, lastEpisodes)
     }
 
     /** The episode chooser: a full page with each episode's picture, name, description and length. */
@@ -2325,6 +2286,7 @@ class WatchActivity : AppCompatActivity() {
         detailScroll = null
         detailMore = null
         // Back from a title's page: the hero text only comes back if the hero isn't tucked away (else it showed through the rows).
+        searchBar?.takeIf { tab == "search" }?.let { it.visibility = View.VISIBLE; it.animate().alpha(1f).setDuration(240).start() }
         for (v in listOf<View>(info, nav, scroll)) {
             v.visibility = View.VISIBLE
             v.animate().alpha(if (v === info && (heroCollapsed || searchBar?.visibility == View.VISIBLE)) 0f else 1f).setDuration(240).start()
@@ -2957,6 +2919,8 @@ class WatchActivity : AppCompatActivity() {
 
     companion object {
         private const val FEATURE_MS = 8000L
+        /** "Who's watching?" when Watch opens: off (the profile is picked at home). */
+        private const val WATCH_WHO = false
         const val EXTRA_TAB = "tab"
         const val EXTRA_QUERY = "query"
     }

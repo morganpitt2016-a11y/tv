@@ -75,6 +75,7 @@ class PlayerActivity : Activity() {
     private var triedAlt = false
     private var triedResolved = false
     private var audioFallback = false
+    private var audioSession = 0
     private var stalls = 0
     private var audioLoggedFor: String? = null
     private var usingResolved = false
@@ -284,6 +285,7 @@ class PlayerActivity : Activity() {
             p.setAudioSessionId(sid)
             soundFx?.release()
             soundFx = SoundProfile.Effect(sid).also { it.apply(SoundProfile.get(this)) }
+            audioSession = sid
         } catch (e: Throwable) {}
         p.addListener(object : Player.Listener {
             override fun onTracksChanged(tracks: Tracks) {
@@ -312,6 +314,7 @@ class PlayerActivity : Activity() {
                 // silence it, so it steps aside for this programme.
                 val surround = (selected?.channelCount ?: 2) > 2 || selected?.sampleMimeType?.let { it.contains("ac3") || it.contains("dts") || it.contains("truehd") } == true
                 if (surround) { soundFx?.release(); soundFx = null }
+                else if (soundFx == null && audioSession != 0) soundFx = SoundProfile.Effect(audioSession).also { it.apply(SoundProfile.get(this@PlayerActivity)) }
             }
             override fun onRenderedFirstFrame() {
                 // How long from pressing play to the picture (in the TV's timing log).

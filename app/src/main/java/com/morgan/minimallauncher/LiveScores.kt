@@ -39,6 +39,8 @@ object LiveScores {
         val now = System.currentTimeMillis()
         if (now - lastPoll < (if (anyLive) 24_000L else 58_000L)) return
         lastPoll = now
+        if (busy) return                      // the last check is still going (slow internet): don't start a second
+        busy = true
         Thread {
             try {
                 val pairs = follows.flatMap { f -> try { Sport.todays(f).filter { Sport.isMine(f, it) }.map { it to f } } catch (e: Exception) { emptyList() } }
@@ -96,9 +98,10 @@ object LiveScores {
                 anyLive = liveIds.isNotEmpty()
                 val list = cards.take(3)
                 if (list.isNotEmpty() || showing) { showing = list.isNotEmpty(); main.post { show(list, events) } }
-            } catch (e: Exception) {}
+            } catch (e: Throwable) {} finally { busy = false }
         }.start()
     }
+    @Volatile private var busy = false
 
     // Clock state per match: the last minute the feed gave and when it changed, and when the second half began.
     private val anchor = HashMap<String, Pair<Int, Long>>()

@@ -86,11 +86,14 @@ object LiveGuide {
         Thread {
             val f = cacheFile(app)
             var from = "memory"
-            var result: List<Channel>? = memory
-            if (result == null && f.exists()) { result = readCache(f); from = "saved copy" }
-            if (result == null) { from = "download"; result = fetchNow(app, f) }
-            val list = result?.let { trimmed(it) }          // done here, not on the main thread
-            if (result != null) { memory = result; shown = list; shownAt = System.currentTimeMillis() }
+            var list: List<Channel>? = null
+            try {
+                var result: List<Channel>? = memory
+                if (result == null && f.exists()) { result = readCache(f); from = "saved copy" }
+                if (result == null) { from = "download"; result = fetchNow(app, f) }
+                list = result?.let { trimmed(it) }          // done here, not on the main thread
+                if (result != null) { memory = result; shown = list; shownAt = System.currentTimeMillis() }
+            } catch (t: Throwable) { from = "failed: ${t.javaClass.simpleName}" }
             val ms = Perf.now() - t0
             main.post {
                 Perf.record("TV guide ($from): $ms ms")
