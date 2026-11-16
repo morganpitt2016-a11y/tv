@@ -359,6 +359,13 @@ class LauncherApp : Application() {
         Thread.setDefaultUncaughtExceptionHandler { t, e ->
             try { getSharedPreferences("launcher_settings", Context.MODE_PRIVATE).edit()
                 .putString("last_crash", "Build ${try { Updater.installedBuild(this) } catch (_: Exception) { 0 }} · ${t.name}\n" + android.util.Log.getStackTraceString(e).take(6000)).commit() } catch (_: Exception) {}
+            // A background task going wrong (a download, a check, a lookup) shouldn't take the whole launcher down with it:
+            // it's reported straight away and the app carries on. Only a fault on the main screen closes it.
+            if (t !== android.os.Looper.getMainLooper().thread && e !is OutOfMemoryError) {
+                try { Diag.send(this, "crash", "Background (kept running) · ${t.name}\n" + android.util.Log.getStackTraceString(e).take(4000)) } catch (_: Throwable) {}
+                try { getSharedPreferences("launcher_settings", Context.MODE_PRIVATE).edit().remove("last_crash").apply() } catch (_: Exception) {}
+                return@setDefaultUncaughtExceptionHandler
+            }
             previous?.uncaughtException(t, e)
         }
         registerActivityLifecycleCallbacks(Foreground)
