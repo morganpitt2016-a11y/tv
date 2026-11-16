@@ -419,6 +419,8 @@ class WatchActivity : AppCompatActivity() {
 
     private fun startSaver() {
         if (saver != null || isFinishing || detail != null) return
+        // Typing on the keyboard or a pop-up open: those keys never reach this screen, so wait rather than cover them.
+        if (currentFocus is android.widget.EditText || !hasWindowFocus()) { armSaver(); return }
         // What you're watching first, then your list, then what's featured.
         val slides = ResumeStore.forTab(this, "home").filter { it.image != null }.map { Triple(it.image!!, it.title, it as Any) } +
             WatchCatalog.myList(this).mapNotNull { t -> (t.backdrop ?: t.poster)?.let { Triple(it, t.name, t as Any) } } +
