@@ -199,6 +199,7 @@ object Diag {
             }
             cmd == "audio" -> send(app, "audio", TiviTuner.audioReport(app))
             cmd == "recs" -> send(app, "recs", TiviRecorder.describe(app))
+            cmd == "clearlive" -> send(app, "clearlive", "Cleared ${ResumeStore.clearLiveEverywhere(app)} live TV history entries")
             cmd == "clearrec" || cmd.startsWith("clearrec:") -> {
                 val n = TiviRecorder.clear(app, cmd.substringAfter(":", "").trim().ifEmpty { null })
                 send(app, "recs", "Cleared $n scheduled recordings and the matching series rules.\n" + TiviRecorder.describe(app))

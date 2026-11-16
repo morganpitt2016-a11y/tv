@@ -178,6 +178,11 @@ class SettingsActivity : AppCompatActivity() {
                 if (Diag.enabled(this)) GlassUi.toast(this, "On - Claude can now see the tuning log and TiviMate’s screen")
             }
             vrow("Speed Test", { "" }, chevron = true) { runSpeedTest() }
+            vrow("Clear Live TV History", { "" }, chevron = true) {
+                GlassDialog(this).title("Clear Live TV History?").message("Forgets the channels you’ve watched (Recently Watched), for every profile on this TV.")
+                    .button("Clear", GlassDialog.Style.DESTRUCTIVE) { val n = ResumeStore.clearLiveEverywhere(this); GlassUi.toast(this, if (n > 0) "Live TV history cleared" else "Nothing to clear") }
+                    .button("Cancel").show()
+            }
             vrow("Speed Log", { "" }, chevron = true) {
                 GlassDialog(this).title("Speed Log").message(Perf.text().takeLast(3500))
                     .button("Done", GlassDialog.Style.BOLD).show()

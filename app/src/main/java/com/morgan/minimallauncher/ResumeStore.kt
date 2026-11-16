@@ -55,6 +55,20 @@ object ResumeStore {
 
     fun remove(c: Context, key: String) = save(c, all(c).filter { it.key != key })
 
+    /** Forget the channels you've watched (Recently Watched), for every profile on this TV. Returns how many went. */
+    @Synchronized fun clearLiveEverywhere(c: Context): Int {
+        val prefs = c.getSharedPreferences("launcher_settings", Context.MODE_PRIVATE)
+        var removed = 0
+        for ((k, v) in prefs.all) {
+            if (!k.startsWith("resume_v1") || v !is String) continue
+            val a = try { JSONArray(v) } catch (e: Exception) { continue }
+            val keep = JSONArray()
+            for (i in 0 until a.length()) { val o = a.getJSONObject(i); if (o.optString("kind") == "live") removed++ else keep.put(o) }
+            prefs.edit().putString(k, keep.toString()).apply()
+        }
+        return removed
+    }
+
     fun forTab(c: Context, tab: String): List<Item> = all(c).filter {
         when (tab) { "films" -> it.kind == "film"; "shows" -> it.kind == "episode"; "live" -> it.kind == "live"; else -> it.kind != "live" }
     }.sortedByDescending { likely(it) }.take(15)
