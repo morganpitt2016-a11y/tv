@@ -127,12 +127,49 @@ internal fun WatchActivity.bindResume(h: Holder, item: ResumeStore.Item) {
         else -> "$left min left"
     }
     h.progress?.let { bar -> bar.post { bar.layoutParams.width = if (item.durSec > 0) (h.root.width * item.posSec.toFloat() / item.durSec).toInt() else 0; bar.requestLayout() } }
-    ImageLoader.load(h.image, item.image, ImageLoader.CARD)
-    h.root.contentDescription = "Continue ${item.title}"
+    // The show's wide artwork (a tall cover squeezed into a wide card cut heads off), remembered once found.
+    val name = item.series ?: item.title
+    val saved = if (item.kind == "live") null else Prefs.string(this, "rart_$name")
+    ImageLoader.load(h.image, saved ?: item.image, ImageLoader.CARD)
+    val desc = "Continue ${item.title}"
+    h.root.contentDescription = desc
+    if (item.kind != "live") resumeTitle(name, item.kind) { t ->
+        val art = t?.backdrop ?: return@resumeTitle
+        if (art != saved) {
+            Prefs.setString(this, "rart_$name", art)
+            if (h.root.contentDescription == desc) ImageLoader.load(h.image, art, ImageLoader.CARD)
+        }
+    }
     h.root.setOnClickListener { openResume(item) }
     // Hold OK: take it off the row (or start it again).
     h.root.setOnLongClickListener { resumeOptions(item); true }
-    focusEffect(h.root) { }
+    // Resting on it: the big picture shows this one (it used to keep whatever was there before).
+    focusEffect(h.root) { showResumeHero(item, h.sub?.text?.toString().orEmpty()) }
+}
+
+/** The film or show behind a Continue Watching card (for its artwork and story), looked up once. */
+private val resumeTitles = HashMap<String, WatchCatalog.Title?>()
+internal fun WatchActivity.resumeTitle(name: String, kind: String, done: (WatchCatalog.Title?) -> Unit) {
+    if (resumeTitles.containsKey(name)) return done(resumeTitles[name])
+    WatchCatalog.titles(this, search = name, first = 1, types = listOf(if (kind == "episode") "SHOW" else "MOVIE")) { l ->
+        val t = l?.firstOrNull()?.takeIf { TiviTuner.vodKey(it.name) == TiviTuner.vodKey(name) }
+        if (l != null) resumeTitles[name] = t
+        if (!isDestroyed) done(t)
+    }
+}
+
+internal fun WatchActivity.showResumeHero(item: ResumeStore.Item, line: String) {
+    val name = item.series ?: item.title
+    val t = resumeTitles[name]
+    setHero(false) {
+        queueTrailer(null)
+        eyebrow.text = if (item.kind == "live") "WATCH AGAIN" else "CONTINUE WATCHING"
+        heroTitle.text = name
+        heroMeta.text = line
+        heroText.text = t?.description.orEmpty()
+        heroWhere.text = "Press OK to carry on"
+        setHeroImage(t?.backdrop ?: Prefs.string(this, "rart_$name") ?: item.image)
+    }
 }
 
 internal fun WatchActivity.resumeOptions(item: ResumeStore.Item) {
