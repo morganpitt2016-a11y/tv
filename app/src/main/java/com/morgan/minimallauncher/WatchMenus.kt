@@ -32,7 +32,7 @@ private fun WatchActivity.menuItem(label: String, icon: Int?, onClick: () -> Uni
 }
 
 private fun WatchActivity.glassBox(radius: Float) = LayerDrawable(arrayOf(
-    GradientDrawable().apply { cornerRadius = dp(this, radius).toFloat(); setColor(0xCC1C1C1E.toInt()) },
+    GradientDrawable().apply { cornerRadius = dp(this@glassBox, radius).toFloat(); setColor(0xCC1C1C1E.toInt()) },
     GlassUi.panel(this, radius, 0x1C)))
 
 /** Closes whichever glass pop-up is open. */
