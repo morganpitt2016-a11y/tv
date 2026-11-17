@@ -80,6 +80,9 @@ class SettingsActivity : AppCompatActivity() {
             vrow("Who’s Watching at Start", { if (Prefs.bool(this, "who_at_start", true)) "On" else "Off" }) {
                 Prefs.setBool(this, "who_at_start", !Prefs.bool(this, "who_at_start", true)); refreshValues()
             }
+            vrow("Who’s Watching on Wake", { if (Prefs.bool(this, "who_on_wake", true)) "On" else "Off" }) {
+                Prefs.setBool(this, "who_on_wake", !Prefs.bool(this, "who_on_wake", true)); refreshValues()
+            }
             profileRow = row("Profile") { showProfilePicker() }
             dockRow = row("Dock Apps") { showDockAppsPicker() }
             vrow("Arrange Dock", { "" }, chevron = true) { arrangeDock() }
@@ -143,7 +146,7 @@ class SettingsActivity : AppCompatActivity() {
             }
             vrow("Landscape Category", { PhotoSources.aerialCategories.firstOrNull { it.id == Prefs.aerialCategory(this) }?.title ?: "Mountains" }) {
                 choose("Landscape Category", PhotoSources.aerialCategories.map { it.id to it.title }, Prefs.aerialCategory(this)) {
-                    Prefs.setString(this, "aerial_category", it)
+                    Prefs.setString(this, ProfileManager.scope(this, "aerial_category"), it)   // each profile its own
                 }
             }
             vrow("Show Location", { onOff(Prefs.showLocation(this)) }) { Prefs.setBool(this, "show_location", !Prefs.showLocation(this)); refreshValues() }

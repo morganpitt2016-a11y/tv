@@ -39,6 +39,12 @@ class HomeRedirectService : AccessibilityService() {
                 RedirectDiag.event(context, "wake")
                 lastLaunch = 0L // always act on a wake-up, even right after another switch
                 openLauncher()
+                // tvOS 26: choose your profile on wake (when more than one person uses the TV).
+                if (Prefs.bool(context, "who_on_wake", true) && ProfileManager.getProfiles(context).size > 1) {
+                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                        try { context.startActivity(Intent(context, WhoActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (_: Exception) {}
+                    }, 700)
+                }
             }
         }
     }

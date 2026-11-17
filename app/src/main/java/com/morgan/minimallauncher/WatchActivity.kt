@@ -72,6 +72,9 @@ class WatchActivity : AppCompatActivity() {
     internal var detailReturn: View? = null
 
     internal var tab = "home"
+    // The glass pop-up that's open (title menu or sidebar), and where the highlight goes back to.
+    internal var popMenu: FrameLayout? = null
+    internal var popReturn: View? = null
     internal var providers: List<WatchCatalog.Provider> = emptyList()
     internal var installed: List<WatchCatalog.Provider> = emptyList()
     internal var featured: List<WatchCatalog.Title> = emptyList()
@@ -270,6 +273,11 @@ class WatchActivity : AppCompatActivity() {
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // A glass pop-up is open: it gets the keys (Back closes it).
+        if (popMenu != null) { popMenuKey(event)?.let { return it }; return super.dispatchKeyEvent(event) }
+        // Left on the first tab: the tvOS 26 sidebar.
+        if (event.action == KeyEvent.ACTION_DOWN && event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT && rail == null && detail == null &&
+            currentFocus != null && currentFocus === nav.getChildAt(0)) { openSidebar(); return true }
         // Screensaver up: any button puts it away (OK on a show you're watching carries on with it).
         saver?.let { sv ->
             if (event.action == KeyEvent.ACTION_DOWN) {

@@ -37,7 +37,8 @@ object Prefs {
     // Ambient / Aerial
     /** builtin, aerial, art or album */
     fun ambientSource(c: Context) = string(c, "ambient_source", "aerial")!!
-    fun aerialCategory(c: Context) = string(c, "aerial_category", "mountains")!!
+    /** Screensaver landscapes: each profile's own choice (falls back to the TV's). */
+    fun aerialCategory(c: Context) = string(c, ProfileManager.scope(c, "aerial_category"), null) ?: string(c, "aerial_category", "mountains")!!
     fun showLocation(c: Context) = bool(c, "show_location", true)
     fun visualiser(c: Context) = bool(c, "visualiser", true)
 

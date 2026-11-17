@@ -121,6 +121,8 @@ internal fun WatchActivity.bindTitle(h: Holder, t: WatchCatalog.Title, inDetail:
     h.root.contentDescription = t.name
     ImageLoader.load(h.image, t.poster)
     h.root.setOnClickListener { openDetail(t, h.root) }
+    // Hold OK: Play / Go to Film / My List (Apple TV app).
+    if (!inDetail) h.root.setOnLongClickListener { titleMenu(t, h.root); true }
     // Badge in the corner (Netflix / Disney+ style).
     val c = h.root.context
     val badge = (h.root.getTag(R.id.blur_radius) as? TextView) ?: GlassUi.text(c, "", 8.5f, R.font.inter_semibold).apply {
