@@ -663,8 +663,11 @@ class PlayerActivity : Activity() {
         }
         if (event.action == KeyEvent.ACTION_DOWN) pressedThisEpisode = true
         infoPanel?.let {
-            if (event.keyCode == KeyEvent.KEYCODE_BACK || (event.keyCode == KeyEvent.KEYCODE_DPAD_UP && currentFocus?.getTag(R.id.blur_anim) == "tab")) {
-                if (event.action == KeyEvent.ACTION_DOWN) hideInfoPanel(); return true
+            if (event.keyCode == KeyEvent.KEYCODE_BACK) { if (event.action == KeyEvent.ACTION_DOWN) hideInfoPanel(); return true }
+            if (event.keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+                // On the tabs: stay put. From the buttons: back to the tab they belong to (not whichever tab is nearest).
+                if (event.action == KeyEvent.ACTION_DOWN && currentFocus?.getTag(R.id.blur_anim) != "tab") infoTabs[infoShowing]?.requestFocus()
+                return true
             }
             return super.dispatchKeyEvent(event)
         }
@@ -672,6 +675,12 @@ class PlayerActivity : Activity() {
         strip?.let { st ->
             if (event.keyCode == KeyEvent.KEYCODE_BACK) { if (event.action == KeyEvent.ACTION_DOWN) hideStrip(); return true }
             if (event.keyCode == KeyEvent.KEYCODE_DPAD_UP && event.action == KeyEvent.ACTION_DOWN) { hideStrip(); return true }
+            if (event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN) return true
+            if (event.action == KeyEvent.ACTION_DOWN && (event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT || event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT)) {
+                val row = st.getChildAt(0) as? ViewGroup
+                val i = row?.indexOfChild(currentFocus) ?: -1
+                if (row != null && ((event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT && i == 0) || (event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && i == row.childCount - 1))) return true
+            }
             return super.dispatchKeyEvent(event)
         }
         // During the credits: OK plays the next episode, Back carries on with the credits full screen.
@@ -1217,7 +1226,8 @@ class PlayerActivity : Activity() {
                 background = GlassUi.panel(c, 14f, if (now) 0x70 else 0x40)
                 setPadding(dp(c, 14f), dp(c, 10f), dp(c, 14f), dp(c, 10f))
                 isFocusable = true; isClickable = true
-                setOnFocusChangeListener { v, has -> Motion.spring(v, if (has) 1.08f else 1f); v.alpha = if (has) 1f else 0.8f }
+                setOnFocusChangeListener { v, has -> Motion.spring(v, if (has) 1.08f else 1f); v.alpha = if (has) 1f else 0.8f
+                    if (has) (v.parent?.parent as? android.widget.HorizontalScrollView)?.let { hs -> hs.smoothScrollTo((v.left - (hs.width - v.width) / 2).coerceAtLeast(0), 0) } }
                 alpha = 0.8f
                 setOnClickListener { hideStrip(); if (!now) playEpisode(e) }
             }
@@ -1227,7 +1237,7 @@ class PlayerActivity : Activity() {
             row.addView(card, LinearLayout.LayoutParams(dp(c, 210f), dp(c, 96f)).apply { marginEnd = dp(c, 14f) })
             if (now) focusMe = card
         }
-        val hs = android.widget.HorizontalScrollView(c).apply {
+        val hs = StripScroll(c).apply {
             isHorizontalScrollBarEnabled = false; clipChildren = false; clipToPadding = false; addView(row)
             background = android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.BOTTOM_TOP, intArrayOf(0xE6000000.toInt(), 0x00000000))
             setPadding(0, dp(c, 40f), 0, dp(c, 24f))
@@ -1235,7 +1245,12 @@ class PlayerActivity : Activity() {
         (view.parent as? FrameLayout)?.addView(hs, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
         strip = hs
         view.hideController()
-        (focusMe ?: row.getChildAt(0))?.let { f -> f.post { f.requestFocus(); hs.smoothScrollTo((f.left - dp(c, 48f)).coerceAtLeast(0), 0) } }
+        (focusMe ?: row.getChildAt(0))?.let { f -> f.post { hs.scrollTo((f.left - (hs.width - f.width) / 2).coerceAtLeast(0), 0); f.requestFocus() } }
+    }
+
+    /** The episode strip: scrolls only when we say (its own jump on every move fought with the smooth glide). */
+    private class StripScroll(c: Context) : android.widget.HorizontalScrollView(c) {
+        override fun computeScrollDeltaToGetChildRectOnScreen(rect: android.graphics.Rect?) = 0
     }
 
     private fun hideStrip() {
@@ -1325,8 +1340,11 @@ class PlayerActivity : Activity() {
         view.requestFocus()
     }
 
+    private var infoShowing = "info"
+
     private fun fillInfo(tab: String) {
         val body = infoBody ?: return
+        infoShowing = tab
         val c = this
         body.removeAllViews()
         val row = LinearLayout(c).apply { gravity = Gravity.CENTER_VERTICAL; clipChildren = false }
@@ -1364,7 +1382,9 @@ class PlayerActivity : Activity() {
             }
             "audio" -> {
                 val list = choices(C.TRACK_TYPE_AUDIO)
-                if (list.size <= 1) row.addView(GlassUi.text(c, (list.firstOrNull()?.label ?: "Original") + " - the only soundtrack", 13f, R.font.inter_medium, 0x99FFFFFF.toInt()))
+                if (list.size <= 1) row.addView(GlassUi.text(c, "Only soundtrack · " + (list.firstOrNull()?.label?.substringAfter("| ")?.trim() ?: "Original"), 13f, R.font.inter_medium, 0x99FFFFFF.toInt()).apply {
+                    maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; maxWidth = dp(c, 330f)
+                }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(c, 18f) })
                 else for (ch in list) pill(ch.label, ch.group.isTrackSelected(ch.index)) {
                     p?.let { it.trackSelectionParameters = it.trackSelectionParameters.buildUpon().setOverrideForType(TrackSelectionOverride(ch.group.mediaTrackGroup, ch.index)).build() }
                     rememberTrack(C.TRACK_TYPE_AUDIO, ch.group.getTrackFormat(ch.index).language?.takeIf { it != "und" }); fillInfo("audio")

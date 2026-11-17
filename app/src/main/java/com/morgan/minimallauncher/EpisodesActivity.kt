@@ -5,6 +5,7 @@ import android.graphics.Outline
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.text.TextUtils
+import android.view.KeyEvent
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -239,6 +240,30 @@ class EpisodesActivity : Activity() {
         // Lined up on the episode you were up to.
         val idx = adapter.items.indexOfFirst { it.season == last?.season && it.number == last?.episode }.coerceAtLeast(0)
         list.scrollToPosition(idx)
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.action == KeyEvent.ACTION_DOWN && ::list.isInitialized) {
+            val f = currentFocus
+            val inList = f != null && f.parent === list
+            val onSeason = f != null && seasonViews.values.any { it === f }
+            when (event.keyCode) {
+                // Up from the episodes: the season you're in (not whichever season tab sits above, which would switch season).
+                KeyEvent.KEYCODE_DPAD_UP -> if (inList && seasonViews.isNotEmpty()) { seasonViews[season]?.requestFocus(); return true }
+                // Down from the seasons: the first episode showing.
+                KeyEvent.KEYCODE_DPAD_DOWN -> if (onSeason) {
+                    val lm = list.layoutManager as? LinearLayoutManager
+                    val pos = lm?.findFirstCompletelyVisibleItemPosition()?.takeIf { it >= 0 } ?: lm?.findFirstVisibleItemPosition() ?: 0
+                    (lm?.findViewByPosition(pos) ?: list.getChildAt(0))?.let { it.requestFocus(); return true }
+                }
+                // Holding Left/Right: stop at the first and last episode instead of slipping off the row.
+                KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> if (inList) {
+                    val pos = list.getChildAdapterPosition(f!!)
+                    if ((event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT && pos == 0) || (event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && pos == adapter.itemCount - 1)) return true
+                }
+            }
+        }
+        return super.dispatchKeyEvent(event)
     }
 
     private fun selectSeason(s: Int) {
