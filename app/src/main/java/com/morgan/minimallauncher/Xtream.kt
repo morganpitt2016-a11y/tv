@@ -624,12 +624,18 @@ object Xtream {
 
     private fun fetchEpisodes(c: Context, s: Series): List<Episode> {
         val o = org.json.JSONObject(apiGet(c, "get_series_info", "&series_id=${s.id}", 20_000))
-        val eps = o.optJSONObject("episodes") ?: return emptyList()
+        // Usually {"1": [...], "2": [...]}, but some servers send a list of seasons [[...], [...]] or one flat list.
+        val seasons = mutableListOf<Pair<String, org.json.JSONArray>>()
+        o.optJSONObject("episodes")?.let { e -> for (k in e.keys()) e.optJSONArray(k)?.let { seasons += k to it } }
+        o.optJSONArray("episodes")?.let { e ->
+            if (e.length() > 0 && e.optJSONObject(0) != null) seasons += "1" to e
+            else for (i in 0 until e.length()) e.optJSONArray(i)?.let { seasons += (i + 1).toString() to it }
+        }
+        if (seasons.isEmpty()) Diag.send(c, "player", "No episodes in the reply for \"${s.name}\": keys=${o.keys().asSequence().toList().take(6)} episodes=${o.opt("episodes")?.javaClass?.simpleName}")
         val out = mutableListOf<Episode>()
-        for (season in eps.keys()) {
-            val arr = eps.optJSONArray(season) ?: continue
+        for ((season, arr) in seasons) {
             for (i in 0 until arr.length()) {
-                val e = arr.getJSONObject(i)
+                val e = arr.optJSONObject(i) ?: continue
                 val info = e.optJSONObject("info")
                 val secs = info?.optString("duration_secs")?.toIntOrNull()
                     ?: info?.optString("duration")?.split(":")?.mapNotNull { it.toIntOrNull() }?.takeIf { it.size == 3 }?.let { it[0] * 3600 + it[1] * 60 + it[2] } ?: 0
