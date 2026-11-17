@@ -105,7 +105,7 @@ object VirtualSurround {
         private var applied: SoundProfile.Settings? = null
         private var coeffs: Array<FloatArray> = emptyArray()
         // The middle of the mix (voices) and the sides (width) are shaped separately.
-        private val mid = Array(7) { Biquad() }
+        private val mid = Array(8) { Biquad() }
         private val side = Array(4) { Biquad() }
         private var env = 0f
         private var atk = 0f; private var rel = 0f
@@ -117,6 +117,10 @@ object VirtualSurround {
         private var rearA = 0f
         // Rear-channel bass kept in phase on both sides: in opposite phase it cancelled itself in the subwoofer (thin sound).
         private var rearLow = FloatArray(0)
+        // Dynamic EQ (after Audyssey): ears lose bass at lower levels, and TV/streaming is mixed well below film level -
+        // so quieter scenes get up to +5 dB of deep bass, easing to none in loud ones.
+        private var ms = 0f; private var msA = 0f
+        private var dynGain = 0f; private var dynApplied = -99f; private var dynCount = 0
         private var lowA = 0f
         // Lookahead limiter: sees peaks 4 ms early and eases the level down before they arrive (no crackle, no dulling).
         private var la = 1
@@ -132,6 +136,7 @@ object VirtualSurround {
             rearBuf = Array(n) { FloatArray((0.012 * fs).toInt().coerceAtLeast(1)) }; rearLp = FloatArray(n); rearPos = 0
             rearA = (1 - exp(-2 * Math.PI * 7000.0 / fs)).toFloat()
             rearLow = FloatArray(n); lowA = (1 - exp(-2 * Math.PI * 180.0 / fs)).toFloat()
+            msA = (1 - exp(-1.0 / (0.4 * fs))).toFloat(); dynApplied = -99f
             la = (0.004 * fs).toInt().coerceAtLeast(1); limL = FloatArray(la); limR = FloatArray(la); limPos = 0
             holdRel = exp(-1.0 / (0.08 * fs)).toFloat()
             gainAtk = (1 - exp(-1.0 / (0.0015 * fs))).toFloat(); gainRel = (1 - exp(-1.0 / (0.2 * fs))).toFloat()
@@ -158,10 +163,11 @@ object VirtualSurround {
             side[0].lowShelf(fs, 150.0, s.bass.toDouble())
             side[1].peak(fs, 600.0, -(dlg * 0.2), 1.0)
             side[2].highShelf(fs, 8000.0, s.treble.toDouble())
-            // Cinema voicing (Virtual Surround): weight in the sub-bass, less boxiness, a little air on top.
+            // Cinema voicing (Virtual Surround), after Harman's in-room preference research: a bass shelf, less
+            // boxiness, and only a small lift on top (a big treble tilt either way sounds dull or harsh).
             if (surround) {
-                mid[4].lowShelf(fs, 80.0, 3.5); mid[5].peak(fs, 300.0, -1.5, 0.8); mid[6].highShelf(fs, 10_000.0, 2.0)
-                side[3].highShelf(fs, 10_000.0, 2.0)
+                mid[4].lowShelf(fs, 105.0, 4.0); mid[5].peak(fs, 300.0, -1.5, 0.8); mid[6].highShelf(fs, 10_000.0, 1.0)
+                side[3].highShelf(fs, 10_000.0, 1.0)
             } else {
                 mid[4].peak(fs, 1000.0, 0.0, 1.0); mid[5].peak(fs, 1000.0, 0.0, 1.0); mid[6].peak(fs, 1000.0, 0.0, 1.0)
                 side[3].peak(fs, 1000.0, 0.0, 1.0)
@@ -195,6 +201,15 @@ object VirtualSurround {
                 if (rearPos > 1_000_000_000) rearPos = 0
                 // Middle and sides (surround: the sides a little wider).
                 var md = (l + r) * 0.5f; var sd = (l - r) * (if (surround) 0.6f else 0.5f)
+                // Dynamic EQ: track how loud the programme is (~0.4 s), and set the deep-bass lift every ~10 ms.
+                ms += msA * (md * md - ms)
+                if (++dynCount >= 512) {
+                    dynCount = 0
+                    val db = 10 * log10(ms.coerceAtLeast(1e-9f))
+                    val target = ((-15f - db) / 20f).coerceIn(0f, 1f) * 5f        // -35 dB or quieter: +5 dB; -15 dB or louder: 0
+                    dynGain += (target - dynGain) * 0.15f
+                    if (abs(dynGain - dynApplied) > 0.25f) { mid[7].lowShelf(fs, 60.0, dynGain.toDouble()); dynApplied = dynGain }
+                }
                 for (b in mid) md = b.run(md)
                 for (b in side) sd = b.run(sd)
                 l = md + sd; r = md - sd
