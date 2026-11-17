@@ -1310,7 +1310,7 @@ class PlayerActivity : Activity() {
             val t = GlassUi.text(c, label, 15f, R.font.inter_semibold, 0x99FFFFFF.toInt()).apply {
                 setPadding(dp(c, 16f), dp(c, 6f), dp(c, 16f), dp(c, 6f)); isFocusable = true; isClickable = true
                 setTag(R.id.blur_anim, "tab")
-                setOnFocusChangeListener { v, has -> if (has) fillInfo(id); Motion.spring(v, if (has) 1.08f else 1f)
+                setOnFocusChangeListener { v, has -> if (has && !refilling) fillInfo(id); Motion.spring(v, if (has) 1.08f else 1f)
                     (v as android.widget.TextView).setTextColor(if (has) 0xFFFFFFFF.toInt() else 0x99FFFFFF.toInt()) }
                 setOnClickListener { infoBody?.getChildAt(0)?.let { b -> (b as? ViewGroup)?.let { firstFocusable(it) }?.requestFocus() } }
             }
@@ -1341,11 +1341,17 @@ class PlayerActivity : Activity() {
     }
 
     private var infoShowing = "info"
+    private var refilling = false
 
     private fun fillInfo(tab: String) {
         val body = infoBody ?: return
         infoShowing = tab
         val c = this
+        // Pressed a button that redraws this row (Dialogue, Reduce Loud Sounds, a subtitle…): stay on that button afterwards,
+        // instead of the highlight falling back to the film behind.
+        val oldRow = ((body.getChildAt(body.childCount - 1) as? ViewGroup)?.getChildAt(0) as? ViewGroup)
+        val keepAt = oldRow?.let { r -> (0 until r.childCount).map { r.getChildAt(it) }.filter { it.isFocusable }.indexOfFirst { it.hasFocus() } } ?: -1
+        if (keepAt >= 0) infoTabs[tab]?.let { refilling = true; it.requestFocus(); refilling = false }   // park on the tab while the row is rebuilt
         body.removeAllViews()
         val row = LinearLayout(c).apply { gravity = Gravity.CENTER_VERTICAL; clipChildren = false }
         fun pill(label: String, selected: Boolean = false, click: () -> Unit) =
@@ -1407,6 +1413,10 @@ class PlayerActivity : Activity() {
             setPadding(0, dp(c, 6f), dp(c, 40f), dp(c, 6f))
             addView(row)
         }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(c, 8f) })
+        if (keepAt >= 0) {
+            val buttons = (0 until row.childCount).map { row.getChildAt(it) }.filter { it.isFocusable }
+            (buttons.getOrNull(keepAt) ?: buttons.lastOrNull())?.requestFocus()
+        }
     }
 
     /** Apple-style controls: a thin white progress line on a light dim, no heavy boxes. */
