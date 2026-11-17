@@ -1,5 +1,7 @@
 package com.morgan.minimallauncher
 
+import com.morgan.minimallauncher.WatchActivity.CardAdapter
+import com.morgan.minimallauncher.WatchActivity.RowScroll
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent

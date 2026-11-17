@@ -1,5 +1,6 @@
 package com.morgan.minimallauncher
 
+import com.morgan.minimallauncher.WatchActivity.Holder
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent

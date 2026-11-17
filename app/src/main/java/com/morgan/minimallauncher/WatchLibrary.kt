@@ -1,5 +1,8 @@
 package com.morgan.minimallauncher
 
+import com.morgan.minimallauncher.WatchActivity.Row
+import com.morgan.minimallauncher.WatchActivity.Holder
+import com.morgan.minimallauncher.WatchActivity.CardAdapter
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
