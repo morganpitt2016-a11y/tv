@@ -20,7 +20,7 @@ jobs:
         with:
           gradle-version: '8.5'
       - name: Compile
-        run: gradle :app:assembleDebug --stacktrace
+        run: gradle :app:assembleDebug > build.log 2>&1 || { tail -40 build.log; echo '----- compiler errors -----'; grep -E '^e: ' build.log | head -100; exit 1; }
       - name: Unit tests
         continue-on-error: true
         run: gradle :app:testDebugUnitTest
