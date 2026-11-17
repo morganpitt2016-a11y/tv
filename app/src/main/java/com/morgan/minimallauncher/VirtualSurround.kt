@@ -52,7 +52,23 @@ object VirtualSurround {
         else -> Array(n) { i -> when (i) { 0 -> FL; 1 -> FR; else -> floatArrayOf(0.3f * G, 0.3f * G) } }
     }
 
-    fun mixer(): AudioProcessor = Mixer()
+    fun mixer(): AudioProcessor = Mixer(surround = true)
+
+    /** A plain stereo downmix (no surround effect) - for Decode on TV / Stereo Only, so a 2-channel link (HDMI ARC,
+     *  optical) never gets surround PCM it can't carry (that left the soundbar silent). */
+    fun stereo(): AudioProcessor = Mixer(surround = false)
+
+    // Plain downmix: rears to their own side (ITU-style), no opposite-phase blend.
+    private val PSL = floatArrayOf(0.707f * G, 0f)
+    private val PSR = floatArrayOf(0f, 0.707f * G)
+    private fun plain(n: Int, dlg: Float): Array<FloatArray> = rows(n, dlg).mapIndexed { i, r ->
+        when {
+            n >= 4 && r === SL -> PSL
+            n >= 4 && r === SR -> PSR
+            r[0] < 0f -> if (i % 2 == 0) PSL else PSR
+            else -> r
+        }
+    }.toTypedArray()
 
     /** One second-order filter (RBJ cookbook), run on one signal. */
     private class Biquad {
@@ -84,7 +100,7 @@ object VirtualSurround {
         }
     }
 
-    private class Mixer : BaseAudioProcessor() {
+    private class Mixer(private val surround: Boolean) : BaseAudioProcessor() {
         private var n = 2
         private var fs = 48_000
         private var applied: SoundProfile.Settings? = null
@@ -108,7 +124,8 @@ object VirtualSurround {
         private fun tune(s: SoundProfile.Settings) {
             applied = s
             val dlg = if (!s.dialogue) 0.0 else if (s.more) 8.0 else 5.0
-            coeffs = rows(n, 10f.pow((dlg * 0.8 / 20).toFloat()))
+            val boost = 10f.pow((dlg * 0.8 / 20).toFloat())
+            coeffs = if (surround) rows(n, boost) else plain(n, boost)
             // Stereo has no centre channel: the voice band in the middle of the mix gets the whole lift.
             val voice = (if (n <= 2) dlg else dlg * 0.4) + s.clarity
             mid[0].lowShelf(fs, 150.0, s.bass.toDouble() - (if (s.dialogue) 1.5 else 0.0))

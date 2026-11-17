@@ -296,14 +296,14 @@ class PlayerActivity : Activity() {
         // Auto: Dolby goes straight to the soundbar (full surround - decoding it here gave stereo and the sound profile
         // can't attach to it anyway); everything else is decoded here, where the sound profile shapes it.
         decodingAudio = format != "auto"
-        virtualMode = format == "virtual"
+        virtualMode = format != "auto"      // every decoded mode goes through our own mixer (it does the sound profile too)
         VirtualSurround.settings = SoundProfile.get(this)
         val builder = ExoPlayer.Builder(this).setLoadControl(load).setMediaSourceFactory(sources)
         if (decodingAudio) builder.setRenderersFactory(object : androidx.media3.exoplayer.DefaultRenderersFactory(this) {
             override fun buildAudioSink(context: Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): androidx.media3.exoplayer.audio.AudioSink =
                 androidx.media3.exoplayer.audio.DefaultAudioSink.Builder(context)
                     .setAudioCapabilities(androidx.media3.exoplayer.audio.AudioCapabilities.DEFAULT_AUDIO_CAPABILITIES)
-                    .apply { if (format == "virtual") setAudioProcessors(arrayOf(VirtualSurround.mixer())) }
+                    .apply { setAudioProcessors(arrayOf(if (format == "virtual") VirtualSurround.mixer() else VirtualSurround.stereo())) }
                     .build()
         })
         val p = builder.build()
@@ -1127,7 +1127,7 @@ class PlayerActivity : Activity() {
         val s = SoundProfile.get(this)
         VirtualSurround.settings = s
         // Virtual Surround does the sound profile itself (Android's effects won't attach to decoded Dolby here).
-        if (virtualMode) { Diag.send(this, "player", "sound processing in Virtual Surround · " + SoundProfile.describe(s).removePrefix("Your sound: ") + " · \"$titleText\""); return }
+        if (virtualMode) { Diag.send(this, "player", "sound processing in the mixer (" + (Prefs.string(this, "audio_format") ?: "auto") + ") · " + SoundProfile.describe(s).removePrefix("Your sound: ") + " · \"$titleText\""); return }
         if (audioSession == 0 || passthroughNow || fxFailedFor == url) {
             if (!s.flat && passthroughNow) Diag.send(this, "player", "sound settings not applied to \"$titleText\": Dolby goes straight to the soundbar")
             return
