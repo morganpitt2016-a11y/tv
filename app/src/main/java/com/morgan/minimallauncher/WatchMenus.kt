@@ -8,6 +8,7 @@ import android.view.View
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
+import com.morgan.minimallauncher.GlassUi.dp
 
 // Part of the Watch screen: the tvOS 26 glass pop-ups - the menu when you hold OK on a title, and the sidebar.
 
