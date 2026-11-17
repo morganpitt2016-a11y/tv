@@ -130,11 +130,15 @@ internal fun WatchActivity.bindResume(h: Holder, item: ResumeStore.Item) {
     // The show's wide artwork (a tall cover squeezed into a wide card cut heads off), remembered once found.
     val name = item.series ?: item.title
     val saved = if (item.kind == "live") null else Prefs.string(this, "rart_$name")
-    ImageLoader.load(h.image, saved ?: item.image, ImageLoader.CARD)
     val desc = "Continue ${item.title}"
     h.root.contentDescription = desc
+    val first = saved ?: item.image
+    if (first != null) ImageLoader.load(h.image, first, ImageLoader.CARD) { bmp ->
+        // The saved picture didn't load (dead link): use the looked-up one.
+        if (bmp == null && h.root.contentDescription == desc) resumeTitles[name]?.let { t -> (t.backdrop ?: t.poster)?.let { ImageLoader.load(h.image, it, ImageLoader.CARD) } }
+    } else h.image.setImageDrawable(null)
     if (item.kind != "live") resumeTitle(name, item.kind) { t ->
-        val art = t?.backdrop ?: return@resumeTitle
+        val art = t?.backdrop ?: t?.poster ?: return@resumeTitle
         if (art != saved) {
             Prefs.setString(this, "rart_$name", art)
             if (h.root.contentDescription == desc) ImageLoader.load(h.image, art, ImageLoader.CARD)
@@ -151,8 +155,13 @@ internal fun WatchActivity.bindResume(h: Holder, item: ResumeStore.Item) {
 private val resumeTitles = HashMap<String, WatchCatalog.Title?>()
 internal fun WatchActivity.resumeTitle(name: String, kind: String, done: (WatchCatalog.Title?) -> Unit) {
     if (resumeTitles.containsKey(name)) return done(resumeTitles[name])
-    WatchCatalog.titles(this, search = name, first = 1, types = listOf(if (kind == "episode") "SHOW" else "MOVIE")) { l ->
-        val t = l?.firstOrNull()?.takeIf { TiviTuner.vodKey(it.name) == TiviTuner.vodKey(name) }
+    // "A Christmas Carol (1951)": search the plain name, and prefer that year when there are several.
+    val year = Regex("\\b(19|20)\\d{2}\\b").find(name)?.value?.toIntOrNull() ?: 0
+    val key = TiviTuner.vodKey(name).replace(Regex(" (19|20)\\d{2}$"), "")
+    WatchCatalog.titles(this, search = key, first = 8, types = listOf(if (kind == "episode") "SHOW" else "MOVIE")) { l ->
+        val same = l.orEmpty().filter { TiviTuner.vodKey(it.name) == key }
+        val t = same.firstOrNull { year > 0 && Math.abs(it.year - year) <= 1 && (it.backdrop ?: it.poster) != null }
+            ?: same.firstOrNull { (it.backdrop ?: it.poster) != null } ?: same.firstOrNull()
         if (l != null) resumeTitles[name] = t
         if (!isDestroyed) done(t)
     }
@@ -168,7 +177,7 @@ internal fun WatchActivity.showResumeHero(item: ResumeStore.Item, line: String) 
         heroMeta.text = line
         heroText.text = t?.description.orEmpty()
         heroWhere.text = "Press OK to carry on"
-        setHeroImage(t?.backdrop ?: Prefs.string(this, "rart_$name") ?: item.image)
+        setHeroImage(t?.backdrop ?: Prefs.string(this, "rart_$name") ?: item.image ?: t?.poster)
     }
 }
 
