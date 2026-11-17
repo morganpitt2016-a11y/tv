@@ -276,8 +276,11 @@ class PlayerActivity : Activity() {
         // Audio Format (Settings → Video and Audio): Auto lets Dolby go straight to the soundbar; the others
         // decode on the TV (so Sound Check, Enhance Dialogue and Reduce Loud Sounds work on everything).
         val format = if (audioFallback) "auto" else (Prefs.string(this, "audio_format") ?: "auto")
+        // A sound setting on (Enhance Dialogue, Reduce Loud Sounds, Sound Check): the TV decodes the sound itself so it can
+        // shape it - Dolby can't be changed on its way to the soundbar. All off: Dolby goes straight through as before.
+        decodingAudio = format != "auto" || (!audioFallback && !SoundProfile.get(this).flat)
         val builder = ExoPlayer.Builder(this).setLoadControl(load).setMediaSourceFactory(sources)
-        if (format != "auto") builder.setRenderersFactory(object : androidx.media3.exoplayer.DefaultRenderersFactory(this) {
+        if (decodingAudio) builder.setRenderersFactory(object : androidx.media3.exoplayer.DefaultRenderersFactory(this) {
             override fun buildAudioSink(context: Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): androidx.media3.exoplayer.audio.AudioSink =
                 androidx.media3.exoplayer.audio.DefaultAudioSink.Builder(context)
                     .setAudioCapabilities(androidx.media3.exoplayer.audio.AudioCapabilities.DEFAULT_AUDIO_CAPABILITIES)
@@ -289,9 +292,9 @@ class PlayerActivity : Activity() {
         try {
             val sid = androidx.media3.common.util.Util.generateAudioSessionIdV21(this)
             p.setAudioSessionId(sid)
-            soundFx?.release()
-            soundFx = SoundProfile.Effect(sid).also { it.apply(SoundProfile.get(this)) }
+            soundFx?.release(); soundFx = null
             audioSession = sid
+            fxFor = null
         } catch (e: Throwable) {}
         p.addListener(object : Player.Listener {
             override fun onTracksChanged(tracks: Tracks) {
@@ -304,7 +307,7 @@ class PlayerActivity : Activity() {
                     audioLoggedFor = url
                     Diag.send(this@PlayerActivity, "player", "audio for \"$titleText\": " + audio.joinToString(" | ") { g -> (0 until g.length).joinToString(", ") { i ->
                         val f = g.getTrackFormat(i); "${f.sampleMimeType} ${f.channelCount}ch ${f.language ?: ""} ${if (g.isTrackSupported(i)) "ok" else "UNSUPPORTED"}${if (g.isTrackSelected(i)) " *" else ""}" } } +
-                        " · format=${Prefs.string(this@PlayerActivity, "audio_format") ?: "auto"} fx=${!SoundProfile.get(this@PlayerActivity).flat}")
+                        " · format=${Prefs.string(this@PlayerActivity, "audio_format") ?: "auto"} settings=${if (SoundProfile.get(this@PlayerActivity).flat) "off" else "on"} decoding=${if (decodingAudio && !audioFallback) "TV" else "soundbar"}")
                 }
                 // The sound can't be played with the TV decoding it (e.g. Dolby Digital Plus): let it go to the TV/soundbar as it is.
                 if (!anyPlayable && !audioFallback) {
@@ -318,9 +321,8 @@ class PlayerActivity : Activity() {
                 if (!anyPlayable) GlassUi.toast(this@PlayerActivity, "This programme’s sound isn’t in a format the TV can play")
                 // Surround sound (5.1 / 7.1) or sound passed straight through: the sound-profile effect is stereo-only and can
                 // silence it, so it steps aside for this programme.
-                val surround = (selected?.channelCount ?: 2) > 2 || selected?.sampleMimeType?.let { it.contains("ac3") || it.contains("dts") || it.contains("truehd") } == true
-                if (surround) { soundFx?.release(); soundFx = null }
-                else if (soundFx == null && audioSession != 0) soundFx = SoundProfile.Effect(audioSession).also { it.apply(SoundProfile.get(this@PlayerActivity)) }
+                // Sound passed straight to the soundbar (Dolby the TV can't decode): nothing can shape it.
+                if (!decodingAudio || audioFallback) { soundFx?.release(); soundFx = null }
             }
             override fun onRenderedFirstFrame() {
                 // How long from pressing play to the picture (in the TV's timing log).
@@ -363,6 +365,8 @@ class PlayerActivity : Activity() {
                 if (reason == Player.DISCONTINUITY_REASON_SEEK && atItemEnd && player?.currentMediaItemIndex == 0) atItemEnd = false   // went back into it
             }
             override fun onIsPlayingChanged(isPlaying: Boolean) {
+                // The sound has started: set the sound profile up now, when the real channel layout (stereo, 5.1…) is known.
+                if (isPlaying && fxFor != url) { fxFor = url; startSoundFx() }
                 handler.removeCallbacks(showPause)
                 val pausedByYou = !isPlaying && !atItemEnd && player?.playWhenReady == false && player?.playbackState == Player.STATE_READY
                 if (pausedByYou) handler.postDelayed(showPause, 1200) else hidePauseInfo()
@@ -1064,7 +1068,35 @@ class PlayerActivity : Activity() {
             if (s.dialogue) (if (s.more) "Enhance More" else "Enhance Dialogue") else null, if (s.level) "Reduce Loud Sounds" else null).joinToString(" · ").ifBlank { "Custom" } }
     }
 
-    private fun applySound(s: SoundProfile.Settings) { soundFx?.apply(s) }
+    private var decodingAudio = false
+    private var fxFor: String? = null
+
+    /** (Re)starts the sound profile on what's playing. Logged, so the TV's log shows whether it's really on. */
+    private fun startSoundFx() {
+        soundFx?.release(); soundFx = null
+        val s = SoundProfile.get(this)
+        if (audioSession == 0 || !decodingAudio || audioFallback) {
+            if (!s.flat) Diag.send(this, "player", "sound settings not applied to \"$titleText\": sound goes straight to the soundbar" + (if (audioFallback) " (the TV can't decode it)" else ""))
+            return
+        }
+        val name = titleText
+        soundFx = SoundProfile.Effect(audioSession) { Diag.send(applicationContext, "player", "sound processing $it · \"$name\"") }.also { it.apply(s) }
+    }
+
+    private fun applySound(s: SoundProfile.Settings) {
+        val p = player
+        // Turned a setting on while Dolby is going straight to the soundbar: reload here with the TV decoding, so it applies.
+        if (!s.flat && !decodingAudio && !audioFallback && p != null) {
+            GlassUi.toast(this, "Turning on sound processing…")
+            val pos = p.currentPosition
+            saveProgress()
+            p.release(); player = null
+            start(url, resume = false)
+            if (!live) player?.seekTo(pos)
+            return
+        }
+        if (soundFx == null && !s.flat) startSoundFx() else soundFx?.apply(s)
+    }
 
     private fun dlgName(n: Int) = when (n) { 1 -> "Enhance"; 2 -> "Enhance More"; else -> "Off" }
 

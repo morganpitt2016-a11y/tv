@@ -36,29 +36,40 @@ object SoundProfile {
 
     fun calibrated(c: Context) = Prefs.bool(c, k(c, "calibrated"), false)
 
-    /** The effect on one player's sound. Call [apply] whenever the settings change; [release] when done. */
-    class Effect(private val session: Int) {
+    /**
+     * The effect on one player's sound. Call [apply] whenever the settings change; [release] when done.
+     * Works on stereo and on surround (up to 7.1) once the TV is decoding the sound: Enhance Dialogue lifts the
+     * centre channel (where the voices are), the bass channel only gets bass, and a limiter stops anything clipping.
+     * [log] hears whether it's on (and on how many channels) or why it couldn't start.
+     */
+    class Effect(private val session: Int, private val log: ((String) -> Unit)? = null) {
         private var dp: DynamicsProcessing? = null
+        /** "on · 6 channels", "off", or why it failed - for the TV's log. */
+        var state = "off"; private set
 
         fun apply(s: Settings) {
             if (session == 0) return
             try {
-                if (s.flat) { dp?.setEnabled(false); return }
+                if (s.flat) { dp?.setEnabled(false); state = "off"; return }
                 val e = dp ?: create().also { dp = it }
-                // Five bands: bass / low-mid / voice / presence / air.
+                val n = e.channelCount.coerceIn(1, MAX_CH)
                 val dialogueDb = if (!s.dialogue) 0f else if (s.more) 8f else 5f
-                val gains = floatArrayOf(
-                    s.bass.toFloat() - (if (s.dialogue) 1.5f else 0f),
-                    -(dialogueDb * 0.4f) - s.clarity * 0.3f,
-                    dialogueDb + s.clarity.toFloat(),
-                    dialogueDb * 0.4f + s.clarity * 0.5f + s.treble * 0.4f,
-                    s.treble.toFloat())
-                for (ch in 0 until CHANNELS) {
+                for (ch in 0 until n) {
+                    val centre = n >= 3 && ch == 2
+                    val lfe = n >= 4 && ch == 3
+                    // Stereo: voices are in both sides. Surround: mostly the centre, a touch in the front pair.
+                    val dlg = when { n <= 2 -> dialogueDb; centre -> dialogueDb; lfe -> 0f; else -> dialogueDb * 0.25f }
+                    val gains = if (lfe) floatArrayOf(s.bass.toFloat(), 0f, 0f, 0f, 0f) else floatArrayOf(
+                        s.bass.toFloat() - (if (s.dialogue && !centre) 1.5f else 0f),
+                        -(dlg * 0.4f) - s.clarity * 0.3f,
+                        dlg + s.clarity.toFloat(),
+                        dlg * 0.4f + s.clarity * 0.5f + s.treble * 0.4f,
+                        s.treble.toFloat())
                     val eq = e.getPreEqByChannelIndex(ch)
                     for (i in CUTS.indices) eq.getBand(i).let { b -> b.isEnabled = true; b.gain = gains[i]; eq.setBand(i, b) }
                     eq.isEnabled = true
                     e.setPreEqByChannelIndex(ch, eq)
-                    // Even Volume: gentle compression with make-up gain.
+                    // Reduce Loud Sounds: gentle compression with make-up gain.
                     val mbc = e.getMbcByChannelIndex(ch)
                     mbc.isEnabled = s.level
                     mbc.getBand(0).let { b ->
@@ -68,17 +79,23 @@ object SoundProfile {
                         mbc.setBand(0, b)
                     }
                     e.setMbcByChannelIndex(ch, mbc)
-                    // Always: a limiter so boosts never clip.
                     e.setLimiterByChannelIndex(ch, DynamicsProcessing.Limiter(true, true, 0, 1f, 60f, 10f, -1.5f, 0f))
                 }
                 e.setEnabled(true)
-            } catch (ex: Throwable) { release() }
+                val now = "on · $n channel${if (n == 1) "" else "s"}"
+                if (now != state) { state = now; log?.invoke(now + " · " + describe(s).removePrefix("Your sound: ")) }
+            } catch (ex: Throwable) {
+                state = "failed (${ex.javaClass.simpleName})"
+                log?.invoke("couldn't start: ${ex.javaClass.simpleName} ${ex.message.orEmpty().take(120)}")
+                release()
+            }
         }
 
         private fun create(): DynamicsProcessing {
-            val cfg = DynamicsProcessing.Config.Builder(DynamicsProcessing.VARIANT_FAVOR_FREQUENCY_RESOLUTION, CHANNELS,
+            // Set up for the most channels a programme can have; only the ones actually playing are tuned.
+            val cfg = DynamicsProcessing.Config.Builder(DynamicsProcessing.VARIANT_FAVOR_FREQUENCY_RESOLUTION, MAX_CH,
                 true, CUTS.size, true, 1, false, 0, true).setPreferredFrameDuration(10f).build()
-            for (ch in 0 until CHANNELS) {
+            for (ch in 0 until MAX_CH) {
                 val eq = cfg.getPreEqByChannelIndex(ch)
                 for (i in CUTS.indices) eq.setBand(i, DynamicsProcessing.EqBand(true, CUTS[i], 0f))
                 cfg.setPreEqByChannelIndex(ch, eq)
@@ -86,10 +103,10 @@ object SoundProfile {
             return DynamicsProcessing(0, session, cfg)
         }
 
-        fun release() { try { dp?.release() } catch (e: Throwable) {}; dp = null }
+        fun release() { try { dp?.release() } catch (e: Throwable) {}; dp = null; if (!state.startsWith("failed")) state = "off" }
     }
 
-    private const val CHANNELS = 2
+    private const val MAX_CH = 8
     private val CUTS = floatArrayOf(150f, 600f, 3_500f, 8_000f, 20_000f)
 
     // ---------- Sound Check: "A or B?" on whatever's playing ----------
