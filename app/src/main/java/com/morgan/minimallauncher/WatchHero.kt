@@ -120,7 +120,7 @@ internal fun WatchActivity.queueTrailer(t: WatchCatalog.Title?) {
 internal fun WatchActivity.stopTrailer() {
     handler.removeCallbacks(trailerJob)
     trailerFor = null
-    if (!::trailerHost.isInitialized) return
+    if (!trailerHostReady) return
     trailerHost.animate().cancel()
     trailerHost.animate().alpha(0f).setStartDelay(0).setDuration(250).withEndAction { trailerView?.loadUrl("about:blank") }.start()
 }

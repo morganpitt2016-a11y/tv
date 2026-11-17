@@ -530,6 +530,7 @@ class WatchActivity : AppCompatActivity() {
     // ---------- Trailers behind the hero (Netflix-style) ----------
 
     internal lateinit var trailerHost: FrameLayout
+    internal val trailerHostReady get() = ::trailerHost.isInitialized
     internal var trailerView: android.webkit.WebView? = null
     internal var trailerFor: String? = null
     internal val trailerJob = Runnable { startTrailer() }

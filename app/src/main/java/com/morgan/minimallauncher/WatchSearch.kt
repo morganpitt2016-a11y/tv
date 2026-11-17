@@ -70,7 +70,7 @@ internal fun WatchActivity.showSearchBar(focus: Boolean) {
             setOnEditorActionListener { v, _, _ ->
                 val q = v.text.toString().trim()
                 if (q.isNotBlank()) { handler.removeCallbacks(typedSearch); rememberSearch(q); search(q) }
-                (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).hideSoftInputFromWindow(v.windowToken, 0)
+                (getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).hideSoftInputFromWindow(v.windowToken, 0)
                 true
             }
         }
@@ -90,7 +90,7 @@ internal fun WatchActivity.showSearchBar(focus: Boolean) {
     info.alpha = 0f
     if (focus) searchField?.let { f ->
         f.requestFocus()
-        f.post { (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).showSoftInput(f, 0) }
+        f.post { (getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).showSoftInput(f, 0) }
     }
 }
 
