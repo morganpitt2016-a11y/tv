@@ -39,6 +39,7 @@ internal fun WatchActivity.playLive(ch: Xtream.Live) {
     val app = applicationContext
     PlayerActivity.play(this, Xtream.liveUrl(app, ch.id), ch.name, live = true, subtitle = LiveGuide.nowNext(app, ch.name),
         eyebrow = "LIVE", alt = Xtream.liveUrl(app, ch.id, hls = true), liveId = ch.id, liveCat = ch.category)
+}
 
 /** Live TV: a big "TV Guide" button (opens the full-screen guide) and the popular channels, ready at once. */
 internal fun WatchActivity.buildLiveProvider(token: Int) {
@@ -82,6 +83,7 @@ internal fun WatchActivity.buildLiveProvider(token: Int) {
             if (host === rows) focusContentIfIdle()
         }
     }
+}
 
 internal fun WatchActivity.bindLiveCard(h: Holder, ch: Xtream.Live) {
     val g = LiveGuide.guideFor(ch.name)
@@ -93,6 +95,7 @@ internal fun WatchActivity.bindLiveCard(h: Holder, ch: Xtream.Live) {
     h.root.contentDescription = ch.name
     h.root.setOnClickListener { playLive(ch) }
     focusEffect(h.root) { }
+}
 
 internal fun WatchActivity.channelRow(ch: Xtream.Live, group: List<Xtream.Live>): View {
     val c = this
@@ -118,10 +121,12 @@ internal fun WatchActivity.channelRow(ch: Xtream.Live, group: List<Xtream.Live>)
     }
     focusEffect(row) { }
     return row
+}
 
 internal fun WatchActivity.buildLive(token: Int) {
     showPlainHero("LIVE TV", "What’s on", "Popular channels first, then every group, with a full guide.")
     if (Xtream.isSetUp(this)) buildLiveProvider(token) else buildLiveGuide(token)
+}
 
 internal fun WatchActivity.buildLiveGuide(token: Int) {
     val t0 = Perf.now()
@@ -171,6 +176,7 @@ internal fun WatchActivity.buildLiveGuide(token: Int) {
         }
         addBatch(16)
     }
+}
 
 internal fun WatchActivity.guideRow(ch: LiveGuide.Channel): View {
     val c = this
@@ -193,6 +199,7 @@ internal fun WatchActivity.guideRow(ch: LiveGuide.Channel): View {
         row.addView(guideBlock(ch, p, i == 0), LinearLayout.LayoutParams(dp(c, if (i == 0) 290f else 205f), dp(c, 46f)).apply { marginStart = dp(c, 8f) })
     }
     return row
+}
 
 internal fun WatchActivity.guideBlock(ch: LiveGuide.Channel, p: LiveGuide.Programme, first: Boolean): View {
     val c = this
@@ -217,6 +224,7 @@ internal fun WatchActivity.guideBlock(ch: LiveGuide.Channel, p: LiveGuide.Progra
         if (has) showProgrammeHero(ch, p)
     }
     return block
+}
 
 internal fun WatchActivity.bindProgramme(h: Holder, ch: LiveGuide.Channel, p: LiveGuide.Programme) {
     h.label.text = p.title
@@ -227,10 +235,12 @@ internal fun WatchActivity.bindProgramme(h: Holder, ch: LiveGuide.Channel, p: Li
     h.root.setOnClickListener { playOrAsk(ch, p) }
     h.root.setOnLongClickListener { programmeDialog(ch, p); true }
     focusEffect(h.root) { showProgrammeHero(ch, p) }
+}
 
 /** On now: straight to that channel in TiviMate. Later (or no TiviMate): the options. Hold OK for options any time. */
 internal fun WatchActivity.playOrAsk(ch: LiveGuide.Channel, p: LiveGuide.Programme) {
     if (p.isOn() && LiveGuide.hasTiviMate(this)) LiveGuide.openTiviMate(this, ch) else programmeDialog(ch, p)
+}
 
 internal fun WatchActivity.programmeDialog(ch: LiveGuide.Channel, p: LiveGuide.Programme) {
     val d = GlassDialog(this).title(p.title)
@@ -272,6 +282,7 @@ internal fun WatchActivity.programmeDialog(ch: LiveGuide.Channel, p: LiveGuide.P
     d.button("Find on Demand") { search(p.title) }
     d.button("Cancel")
     d.show()
+}
 
 // ---------- My List ----------
 
@@ -303,6 +314,7 @@ internal fun WatchActivity.recordingsRow(key: String): View? {
         focusEffect(h.root) { showPlainHero("RECORDING", rec.title, rec.channel) }
     }
     return r.view
+}
 
 internal fun WatchActivity.buildTonight(token: Int, onHome: Boolean = false) {
     if (!onHome) showPlainHero("TONIGHT", "What’s On Tonight", "The best of tonight’s TV, the newest films on Dodgy Box, and your new episodes - all in one place.")
@@ -360,6 +372,7 @@ internal fun WatchActivity.buildTonight(token: Int, onHome: Boolean = false) {
             }
         }.start()
     }
+}
 
 /** On now: watch it here. Later: a reminder (or the usual options). */
 internal fun WatchActivity.tonightOpen(ch: LiveGuide.Channel, p: LiveGuide.Programme) {
@@ -382,3 +395,4 @@ internal fun WatchActivity.tonightOpen(ch: LiveGuide.Channel, p: LiveGuide.Progr
             }
         }
     }
+}

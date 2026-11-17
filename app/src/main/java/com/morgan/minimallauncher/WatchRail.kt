@@ -76,11 +76,13 @@ internal fun WatchActivity.openRail() {
     rail = panel
     panel.animate().alpha(1f).translationX(0f).setDuration(240).setInterpolator(Motion.focusEase).start()
     (focusMe ?: list.getChildAt(1))?.let { f -> f.post { f.requestFocus() } }
+}
 
 internal fun WatchActivity.closeRail() {
     val r = rail ?: return
     rail = null
     r.animate().alpha(0f).translationX(-dp(this, 40f).toFloat()).setDuration(180).withEndAction { root.removeView(r) }.start()
+}
 
 /** Scroll to a category's row and put the highlight on its first title (it loads if it hasn't yet). */
 internal fun WatchActivity.jumpToRow(key: String) {
@@ -98,3 +100,4 @@ internal fun WatchActivity.jumpToRow(key: String) {
     setHeroCollapsed(true)
     scroll.smoothScrollTo(0, r.top)
     r.post { ((r as? ViewGroup)?.getFocusables(View.FOCUS_DOWN)?.firstOrNull() ?: r).requestFocus() }
+}

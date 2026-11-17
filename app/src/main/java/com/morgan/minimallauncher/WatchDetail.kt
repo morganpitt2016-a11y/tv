@@ -164,6 +164,7 @@ internal fun WatchActivity.openDetail(t: WatchCatalog.Title, from: View?) {
             more.view.visibility = View.VISIBLE
         }
     }
+}
 
 /**
  * Play a film or show from the provider directly (signed in), or through TiviMate's
@@ -221,6 +222,7 @@ internal fun WatchActivity.showFinding(t: WatchCatalog.Title): () -> Unit {
             overlay.animate().alpha(0f).setDuration(160).withEndAction { root.removeView(overlay) }.start()
         }
     }
+}
 
 internal fun WatchActivity.watchOnDodgyBox(t: WatchCatalog.Title) {
     val show = t.type == "SHOW"
@@ -271,6 +273,7 @@ internal fun WatchActivity.watchOnDodgyBox(t: WatchCatalog.Title) {
             }
         }
     }
+}
 
 internal fun WatchActivity.playFilm(t: WatchCatalog.Title, url: String) {
     fun go(fromStart: Boolean) {
@@ -284,6 +287,7 @@ internal fun WatchActivity.playFilm(t: WatchCatalog.Title, url: String) {
         .button("Continue from ${WatchHistory.clock(at)}", GlassDialog.Style.BOLD) { go(false) }
         .button("Start from the beginning") { go(true) }
         .button("Cancel").show()
+}
 
 internal fun WatchActivity.playEpisode(t: WatchCatalog.Title, e: Xtream.Episode, fromStart: Boolean = false) =
     playEpisodeNamed(t.name, t.backdrop ?: t.poster, e, fromStart)
@@ -297,17 +301,20 @@ internal fun WatchActivity.playEpisodeNamed(name: String, image: String?, e: Xtr
     val rest = all.dropWhile { it.id != e.id }.drop(1).map { Triple(Xtream.episodeUrl(app, it), it.season, it.number) }
     PlayerActivity.play(this, url, name, live = false, subtitle = "Season ${e.season}, Episode ${e.number}", eyebrow = "SERIES",
         fromStart = fromStart, series = name, queue = rest, image = image, season = e.season, episode = e.number)
+}
 
 /** A Dodgy Box show: its full-screen page (Play / Resume, seasons, episodes) - like Apple TV. */
 internal fun WatchActivity.chooseEpisode(t: WatchCatalog.Title, episodes: List<Xtream.Episode>) {
     lastEpisodes = episodes.sortedWith(compareBy({ it.season }, { it.number }))
     episodeList(t, lastEpisodes)
+}
 
 /** The episode chooser: a full page with each episode's picture, name, description and length. */
 internal fun WatchActivity.episodeList(t: WatchCatalog.Title, episodes: List<Xtream.Episode>) {
     lastEpisodes = episodes
     startActivity(Intent(this, EpisodesActivity::class.java)
         .putExtra(EpisodesActivity.EXTRA_NAME, t.name).putExtra(EpisodesActivity.EXTRA_IMAGE, t.backdrop ?: t.poster))
+}
 
 /** Inside the detail page: glide down to More Like This, or back up to the buttons. */
 internal fun WatchActivity.detailFocusMoved(v: View) {
@@ -317,6 +324,7 @@ internal fun WatchActivity.detailFocusMoved(v: View) {
     var inMore = false
     while (p is View) { if (p === more) { inMore = true; break }; p = p.parent }
     sv.smoothScrollTo(0, if (inMore) (more.top - dp(this, 24f)).coerceAtLeast(0) else 0)
+}
 
 internal fun WatchActivity.closeDetail() {
     val page = detail ?: return
@@ -335,6 +343,7 @@ internal fun WatchActivity.closeDetail() {
     if (rows.childCount > 0) { if (tab == "home") refreshPersonalRows(); refreshResumeRow() }
     detailReturn?.takeIf { it.isAttachedToWindow }?.requestFocus() ?: firstItem()?.requestFocus()
     detailReturn = null
+}
 
 internal fun WatchActivity.metaLine(t: WatchCatalog.Title, d: WatchCatalog.Detail?) = listOfNotNull(
     t.year.takeIf { it > 0 }?.toString(),
@@ -343,6 +352,7 @@ internal fun WatchActivity.metaLine(t: WatchCatalog.Title, d: WatchCatalog.Detai
     d?.runtime?.takeIf { it > 0 }?.let { if (it >= 60 && t.type == "MOVIE") "${it / 60}h ${it % 60}m" else "$it min" },
     t.imdb?.let { "IMDb %.1f".format(it) },
     t.genres.take(3).joinToString(", ").ifEmpty { null },
+).joinToString("  ·  ")
 
 /** Watch / rent / buy, or offer to install the app. */
 internal fun WatchActivity.useOffer(t: WatchCatalog.Title, o: WatchCatalog.Offer) {
@@ -352,6 +362,7 @@ internal fun WatchActivity.useOffer(t: WatchCatalog.Title, o: WatchCatalog.Offer
         .button("Get the App", GlassDialog.Style.BOLD) { WatchCatalog.getApp(this, o.provider) }
         .button("Cancel")
         .show()
+}
 
 internal fun WatchActivity.offerChip(t: WatchCatalog.Title, o: WatchCatalog.Offer): View {
     val c = this
@@ -383,6 +394,7 @@ internal fun WatchActivity.offerChip(t: WatchCatalog.Title, o: WatchCatalog.Offe
     chip.addView(text, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(c, 9f) })
     GlassUi.focusLift(chip, 1.05f)
     return chip
+}
 
 internal fun WatchActivity.pillButton(label: String, primary: Boolean = false, onClick: () -> Unit): View {
     val c = this
@@ -395,3 +407,4 @@ internal fun WatchActivity.pillButton(label: String, primary: Boolean = false, o
         setOnClickListener { onClick() }
         GlassUi.focusLift(this, 1.05f)
     }
+}

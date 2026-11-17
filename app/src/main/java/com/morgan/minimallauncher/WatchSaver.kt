@@ -77,9 +77,11 @@ internal fun WatchActivity.startSaver() {
         handler.postDelayed({ next() }, 9000)
     }
     next()
+}
 
 internal fun WatchActivity.hideSaver() {
     val sv = saver ?: return
     saver = null
     sv.animate().alpha(0f).setDuration(300).withEndAction { root.removeView(sv) }.start()
     armSaver()
+}

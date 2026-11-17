@@ -344,21 +344,11 @@ class WatchActivity : AppCompatActivity() {
 
     internal var railReturn: View? = null
 
-    }
-
-    }
-
-    }
-
     // ---------- Screensaver of your shows (Apple's Top Shelf idea) ----------
 
     internal var saver: FrameLayout? = null
     internal val SAVER_MS = 3 * 60_000L
     internal val showSaver = Runnable { startSaver() }
-    }
-
-    }
-
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)          // nothing scheduled runs against a closed screen
         try { trailerView?.destroy() } catch (e: Exception) {}
@@ -436,23 +426,11 @@ class WatchActivity : AppCompatActivity() {
 
     internal lateinit var heroDim: View
 
-    }
-
-    }
-
-    }
-
     // ---------- Search as you type (Apple TV) ----------
 
     internal var searchBar: LinearLayout? = null
     internal var searchField: android.widget.EditText? = null
     internal val typedSearch = Runnable { searchField?.text?.toString()?.trim()?.takeIf { it.length >= 2 }?.let { search(it, focusResults = false) } }
-    }
-
-    }
-
-    }
-
     internal fun tabIndex() = (0 until nav.childCount).firstOrNull { nav.getChildAt(it).tag == tab } ?: 0
 
     internal fun showTab(id: String, focusContent: Boolean) {
@@ -490,10 +468,6 @@ class WatchActivity : AppCompatActivity() {
         if (focusContent) rows.post { firstItem()?.requestFocus() }
     }
 
-    }
-
-    }
-
     // ---------- Films / Shows ----------
 
     /** Every category, in the order shown down the side rail (Apple TV style). */
@@ -504,8 +478,6 @@ class WatchActivity : AppCompatActivity() {
     internal val genreList = listOf("act" to "Action", "cmy" to "Comedy", "drm" to "Drama", "trl" to "Thrillers", "crm" to "Crime",
         "scf" to "Sci-Fi", "fml" to "Family", "doc" to "Documentaries")
 
-    }
-
     // ---------- See More: a whole section, sorted into categories ----------
 
     internal val allGenres = genreList + listOf("hrr" to "Horror", "rma" to "Romance", "ani" to "Animation", "fnt" to "Fantasy",
@@ -514,50 +486,7 @@ class WatchActivity : AppCompatActivity() {
     internal var collectionFrom: String? = null
     internal var focusFirstLoaded = false
 
-    }
-
-    }
-
-    }
-
-    }
-
-    }
-
-    }
-
     internal var providerType = "MOVIE"
-
-    }
-
-    }
-
-    }
-
-    }
-
-    }
-
-    }
-
-    }
-
-    }
-
-    }
-
-    }
-
-
-    }
-
-    }
-
-    }
-
-    }
-
-    }
 
     // ---------- Live TV ----------
 
@@ -569,30 +498,6 @@ class WatchActivity : AppCompatActivity() {
     internal val popularNames = listOf("BBC One", "BBC Two", "ITV1", "Channel 4", "Channel 5", "ITV2", "BBC Three", "E4", "Sky News", "BBC News",
         "Dave", "ITV3", "ITV4", "Film4", "More4", "Drama", "5 USA", "CBBC", "CBeebies", "BBC Four")
 
-    }
-
-    }
-
-    }
-
-    }
-
-    }
-
-    }
-
-    }
-
-    }
-
-    }
-
-    }
-
-    }
-
-    }
-
     // ---------- Tonight ----------
 
     internal val BIG_CHANNELS = listOf("bbc one", "bbc two", "itv1", "channel 4", "5", "sky showcase", "sky max", "sky atlantic", "sky cinema premiere",
@@ -600,70 +505,14 @@ class WatchActivity : AppCompatActivity() {
     internal val NOT_FILM = Regex("(?i)\\b(news|weather|live|football|darts|snooker|racing|rugby|cricket|golf|boxing|f1|grand prix|teleshopping|programmes resume|close)\\b")
     internal val SPORT = Regex("(?i)(\\bv\\b|\\bvs\\b|live:|premier league|champions league|football|darts|boxing|grand prix|rugby|snooker|cricket|golf)")
 
-    }
-
-    }
-
-    }
-
     internal val matchDay = java.text.SimpleDateFormat("EEE d MMM  ·  h:mma", java.util.Locale.UK)
-
-    }
-
-    }
-
-    }
-
-    }
-
-    }
-
-    }
-
-    }
-
-    }
-
-    }
-
-    }
-
-    }
-
-    }
 
     // ---------- Detail page ----------
 
     internal var detailScroll: ScrollView? = null
     internal var detailMore: View? = null
 
-    }
-
-    }
-
-    }
-
     internal var lastEpisodes: List<Xtream.Episode> = emptyList()
-
-    }
-
-    }
-
-    }
-
-    }
-
-    }
-
-    }
-
-    ).joinToString("  ·  ")
-
-    }
-
-    }
-
-    }
 
     // ---------- Hero ----------
 
@@ -686,73 +535,11 @@ class WatchActivity : AppCompatActivity() {
     internal val trailerJob = Runnable { startTrailer() }
     internal var trailerTitle: WatchCatalog.Title? = null
 
-    }
-
-    }
-
-    }
-
     internal var prefetchFor: String? = null
-
-    }
-
-    }
-
-    }
-
-    }
-
-    }
 
     // ---------- Rows ----------
 
     internal class Row(val view: LinearLayout, val list: RecyclerView)
-
-    }
-
-    ): Row {
-        val r = row(key, title, icon = icon, height = 196f)
-        val moreCard: ((ViewGroup) -> Holder)? = if (more != null) { p -> seeMoreCard(p) } else null
-        val adapter = CardAdapter(emptyList<WatchCatalog.Title>(), { p -> posterCard(p, ranked) }, more, moreCard) { h, t -> bindTitle(h, t) }
-        r.list.adapter = SkeletonAdapter(104f, 156f)            // soft placeholders until the titles arrive
-        val host = rows
-        host.addView(r.view)
-        load { raw ->
-            if (containerToken[host] != token || isDestroyed) return@load
-            val liked = raw?.filterNot { Ratings.disliked(this, it.name) }   // "Not for me" titles stay hidden
-            // Each title once per page: a row only shows what earlier rows haven't (and goes if little is left).
-            if (ranked) liked?.forEach { top10Ids.add(it.id) }
-            val titles = if (liked == null || ranked || key == "results" || key == "loved" || key == "because" || key == "soon") liked
-                else liked.partition { it.id !in shownTitles }.let { (fresh, seen) -> if (fresh.size >= 12) fresh else fresh + seen.take(12 - fresh.size) }
-            titles?.forEach { shownTitles.add(it.id) }
-            when {
-                titles.isNullOrEmpty() && (quietFail || titles != null) -> host.removeView(r.view)
-                titles == null -> { r.list.adapter = adapter; r.view.addView(GlassUi.text(this, "Couldn’t load - check the internet connection", 12f, R.font.inter_regular, 0x99FFFFFF.toInt()),
-                    LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(this@WatchActivity, 56f) }) }
-                else -> {
-                    r.list.adapter = adapter
-                    adapter.update(titles)
-                    // A collection page puts the highlight on its first title as soon as it arrives.
-                    if (focusFirstLoaded) { focusFirstLoaded = false; r.list.post { r.list.getChildAt(0)?.requestFocus() } }
-                }
-            }
-        }
-        return r
-    }
-
-    }
-
-    }
-
-    }
-
-    }
-
-    }
-
-    }
-
-    }
 
     /** A row that stops at its first and last card: Left/Right never jumps to another row. */
     internal class EdgeStopRecyclerView(c: Context) : RecyclerView(c) {
@@ -824,28 +611,8 @@ class WatchActivity : AppCompatActivity() {
         override fun onViewRecycled(holder: Holder) { holder.root.animate().cancel() }
     }
 
-    }
-
-    }
-
-    }
-
-    }
-
     /** Titles in a Top 10 row (for the "TOP 10" badge). */
     internal val top10Ids = HashSet<String>()
-
-    }
-
-    }
-
-    }
-
-    }
-
-    }
-
-    }
 
     // ---------- Bits ----------
 

@@ -92,6 +92,7 @@ internal fun WatchActivity.buildHome(token: Int) {
             WatchCatalog.titles(this, packages = listOf(p.short), done = done)
         }
     }
+}
 
 /** Continue Watching and My List: refreshed whenever you come back. */
 internal fun WatchActivity.refreshPersonalRows() {
@@ -104,6 +105,7 @@ internal fun WatchActivity.refreshPersonalRows() {
     if (myList.isNotEmpty()) { rows.addView(staticTitleRow("mylist", "My List", myList).view, at++) }
     findRow("recordings")?.let { rows.removeView(it) }
     recordingsRow("recordings")?.let { rows.addView(it, at) }
+}
 
 /** The rows of the Films / Shows tabs: (key, title, loader). */
 internal fun WatchActivity.categoryLoads(type: String): List<Triple<String, String, TitleLoader>> {
@@ -133,6 +135,7 @@ internal fun WatchActivity.categoryLoads(type: String): List<Triple<String, Stri
     // A few extras for the big genres.
     for ((g, name) in genreList.take(4)) row("gb_$g", "Best $name", listOf(g)) { best(it) }
     return list
+}
 
 /**
  * Rows for a See More page: all the films, all the series, then each category
@@ -154,6 +157,7 @@ internal fun WatchActivity.catalogue(packages: List<String>, types: List<String>
             WatchCatalog.titles(this, packages = listOf(p.short), types = types, genres = g, first = 40, done = d) }
     }
     return list
+}
 
 internal fun WatchActivity.openCollection(title: String, sections: List<Triple<String, String, TitleLoader>>) {
     if (collectionFrom == null) collectionFrom = tab
@@ -164,8 +168,10 @@ internal fun WatchActivity.openCollection(title: String, sections: List<Triple<S
     showPlainHero("SEE ALL", title, "Everything, by category.")
     focusFirstLoaded = true
     for ((key, name, load) in sections) titleRow(token, key, name, quietFail = true, load = load)
+}
 
 internal fun WatchActivity.closeCollection() {
     val back = collectionFrom ?: return
     collectionFrom = null
     showTab(back, focusContent = true)
+}

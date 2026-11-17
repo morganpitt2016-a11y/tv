@@ -68,17 +68,48 @@ internal fun WatchActivity.row(key: String, title: String, height: Float = 196f,
     }
     box.addView(list, LinearLayout.LayoutParams(-1, dp(c, height)))
     return Row(box, list)
+}
 
 /** A row of titles that loads itself; disappears if empty. */
 internal fun WatchActivity.titleRow(
     token: Int, key: String, title: String, icon: String? = null, ranked: Boolean = false, quietFail: Boolean = false,
     more: (() -> Unit)? = null,
     load: ((List<WatchCatalog.Title>?) -> Unit) -> Unit,
+): Row {
+    val r = row(key, title, icon = icon, height = 196f)
+    val moreCard: ((ViewGroup) -> Holder)? = if (more != null) { p -> seeMoreCard(p) } else null
+    val adapter = CardAdapter(emptyList<WatchCatalog.Title>(), { p -> posterCard(p, ranked) }, more, moreCard) { h, t -> bindTitle(h, t) }
+    r.list.adapter = SkeletonAdapter(104f, 156f)            // soft placeholders until the titles arrive
+    val host = rows
+    host.addView(r.view)
+    load { raw ->
+        if (containerToken[host] != token || isDestroyed) return@load
+        val liked = raw?.filterNot { Ratings.disliked(this, it.name) }   // "Not for me" titles stay hidden
+        // Each title once per page: a row only shows what earlier rows haven't (and goes if little is left).
+        if (ranked) liked?.forEach { top10Ids.add(it.id) }
+        val titles = if (liked == null || ranked || key == "results" || key == "loved" || key == "because" || key == "soon") liked
+            else liked.partition { it.id !in shownTitles }.let { (fresh, seen) -> if (fresh.size >= 12) fresh else fresh + seen.take(12 - fresh.size) }
+        titles?.forEach { shownTitles.add(it.id) }
+        when {
+            titles.isNullOrEmpty() && (quietFail || titles != null) -> host.removeView(r.view)
+            titles == null -> { r.list.adapter = adapter; r.view.addView(GlassUi.text(this, "Couldn’t load - check the internet connection", 12f, R.font.inter_regular, 0x99FFFFFF.toInt()),
+                LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(this@titleRow, 56f) }) }
+            else -> {
+                r.list.adapter = adapter
+                adapter.update(titles)
+                // A collection page puts the highlight on its first title as soon as it arrives.
+                if (focusFirstLoaded) { focusFirstLoaded = false; r.list.post { r.list.getChildAt(0)?.requestFocus() } }
+            }
+        }
+    }
+    return r
+}
 
 internal fun WatchActivity.staticTitleRow(key: String, title: String, titles: List<WatchCatalog.Title>): Row {
     val r = row(key, title)
     r.list.adapter = CardAdapter(titles, { p -> posterCard(p) }) { h, t -> bindTitle(h, t) }
     return r
+}
 
 // ---------- Continue Watching ----------
 
@@ -98,6 +129,7 @@ internal fun WatchActivity.bindResume(h: Holder, item: ResumeStore.Item) {
     // Hold OK: take it off the row (or start it again).
     h.root.setOnLongClickListener { resumeOptions(item); true }
     focusEffect(h.root) { }
+}
 
 internal fun WatchActivity.resumeOptions(item: ResumeStore.Item) {
     val rowName = if (item.kind == "live") "Recently Watched" else "Continue Watching"
@@ -113,6 +145,7 @@ internal fun WatchActivity.resumeOptions(item: ResumeStore.Item) {
         GlassUi.toast(this, "Removed from $rowName")
     }
     d.button("Cancel").show()
+}
 
 internal fun WatchActivity.openResume(it: ResumeStore.Item) {
     val app = applicationContext
@@ -135,6 +168,7 @@ internal fun WatchActivity.openResume(it: ResumeStore.Item) {
             }
         }
     }
+}
 
 /** The row at the top of Home, Films, Shows and Live TV: click to carry on where you left off. */
 internal fun WatchActivity.refreshResumeRow() {
@@ -145,6 +179,7 @@ internal fun WatchActivity.refreshResumeRow() {
     val r = row("resume", if (tab == "live") "Recently Watched" else "Continue Watching", height = 150f)
     r.list.adapter = CardAdapter(items, { p -> wideCard(p) }) { h, item -> bindResume(h, item) }
     rows.addView(r.view, 0)
+}
 
 internal fun WatchActivity.findRow(key: String): View? = (0 until rows.childCount).map { rows.getChildAt(it) }.firstOrNull { it.tag == key }
 
@@ -157,6 +192,7 @@ internal fun WatchActivity.rowOf(v: View): View? {
         p = p.parent
     }
     return null
+}
 
 internal fun WatchActivity.firstItem(): View? {
     for (i in 0 until rows.childCount) {
@@ -166,3 +202,4 @@ internal fun WatchActivity.firstItem(): View? {
         list.getChildAt(0)?.let { return it }
     }
     return null
+}

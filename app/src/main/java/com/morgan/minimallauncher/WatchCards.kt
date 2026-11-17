@@ -48,6 +48,7 @@ internal fun WatchActivity.seeMoreCard(parent: ViewGroup): Holder {
     h.root.contentDescription = "See More"
     focusEffect(h.root) { }
     return h
+}
 
 internal fun WatchActivity.card(parent: ViewGroup, w: Float, h: Float, gap: Float = 14f): Holder {
     val c = parent.context
@@ -66,6 +67,7 @@ internal fun WatchActivity.card(parent: ViewGroup, w: Float, h: Float, gap: Floa
     val image = ImageView(c).apply { scaleType = ImageView.ScaleType.CENTER_CROP }
     root.addView(image, FrameLayout.LayoutParams(-1, -1))
     return Holder(root, image, label)
+}
 
 /** Poster; Top 10 posters get a big rank number in the corner. */
 internal fun WatchActivity.posterCard(parent: ViewGroup, ranked: Boolean = false): Holder {
@@ -82,6 +84,7 @@ internal fun WatchActivity.posterCard(parent: ViewGroup, ranked: Boolean = false
         h.root.setTag(R.id.blur_anim, n)
     }
     return h
+}
 
 /** 16:9 picture card with title, channel/time and a progress line. */
 internal fun WatchActivity.wideCard(parent: ViewGroup): Holder {
@@ -99,6 +102,7 @@ internal fun WatchActivity.wideCard(parent: ViewGroup): Holder {
     base.root.addView(bar, FrameLayout.LayoutParams(0, dp(c, 3f), Gravity.BOTTOM))
     base.label.visibility = View.GONE
     return Holder(base.root, base.image, title, sub, bar)
+}
 
 internal fun WatchActivity.badgeFor(t: WatchCatalog.Title): String? {
     val year = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
@@ -109,6 +113,7 @@ internal fun WatchActivity.badgeFor(t: WatchCatalog.Title): String? {
         (t.imdb ?: 0.0) >= 8.3 -> "ACCLAIMED"
         else -> null
     }
+}
 
 internal fun WatchActivity.bindTitle(h: Holder, t: WatchCatalog.Title, inDetail: Boolean = false) {
     h.label.text = t.name
@@ -139,6 +144,7 @@ internal fun WatchActivity.bindTitle(h: Holder, t: WatchCatalog.Title, inDetail:
             v.setTag(R.id.card_expand, r); handler.postDelayed(r, 1500)
         } else collapseCard(h, t)
     }
+}
 
 internal fun WatchActivity.expandCard(h: Holder, t: WatchCatalog.Title) {
     val c = this
@@ -173,6 +179,7 @@ internal fun WatchActivity.expandCard(h: Holder, t: WatchCatalog.Title) {
     h.root.addView(info, FrameLayout.LayoutParams(-1, -1))
     h.root.setTag(R.id.card_info, info)
     info.animate().alpha(1f).setStartDelay(150).setDuration(250).start()
+}
 
 internal fun WatchActivity.collapseCard(h: Holder, t: WatchCatalog.Title, reload: Boolean = true) {
     val lp = h.root.layoutParams ?: return
@@ -184,6 +191,7 @@ internal fun WatchActivity.collapseCard(h: Holder, t: WatchCatalog.Title, reload
         lp.width = dp(this, 104f); h.root.layoutParams = lp
         if (reload) ImageLoader.load(h.image, t.poster)
     }
+}
 
 internal fun WatchActivity.bindApp(h: Holder, app: AppEntry) {
     h.label.text = app.label
@@ -191,6 +199,8 @@ internal fun WatchActivity.bindApp(h: Holder, app: AppEntry) {
     h.image.scaleType = ImageView.ScaleType.CENTER_CROP
     h.image.setPadding(0, 0, 0, 0)
     h.image.setImageBitmap(AppTiles.forApp(this, app, dp(this, 200f), dp(this, 120f)))
+}
 
 internal fun WatchActivity.focusEffect(v: View, onFocus: () -> Unit) {
     Motion.focusable(v, 1.1f, 14f, onFocus)
+}

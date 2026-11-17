@@ -58,6 +58,7 @@ internal fun WatchActivity.appsRow() {
         } else bindProvider(h, item as WatchCatalog.Provider)
     }
     rows.addView(r.view)
+}
 
 internal fun WatchActivity.bindProvider(h: Holder, p: WatchCatalog.Provider) {
     run {
@@ -68,6 +69,7 @@ internal fun WatchActivity.bindProvider(h: Holder, p: WatchCatalog.Provider) {
         h.root.setOnClickListener { openProviderPage(p) }
         focusEffect(h.root) { showPlainHero(if (p.installed != null) "YOUR APP" else "GET THE APP", p.displayName, "Every film and series on ${p.displayName}, by category.") }
     }
+}
 
 /** A service tile: its logo on a dark glass card, name underneath. */
 internal fun WatchActivity.serviceCard(parent: ViewGroup): Holder {
@@ -86,6 +88,7 @@ internal fun WatchActivity.serviceCard(parent: ViewGroup): Holder {
     }
     h.root.removeView(h.label); h.root.addView(h.label)
     return h
+}
 
 // ---------- Dodgy Box library (everything here really plays) ----------
 
@@ -96,6 +99,7 @@ internal fun WatchActivity.libTitle(name: String, type: String, image: String?) 
 internal fun WatchActivity.openLibraryFilm(v: Xtream.Vod) {
     if (Xtream.isExpired(this)) { Xtream.showExpired(this); return }
     playFilm(libTitle(v.name, "MOVIE", v.icon), Xtream.vodUrl(applicationContext, v))
+}
 
 internal fun WatchActivity.openLibrarySeries(s: Xtream.Series) {
     if (Xtream.isExpired(this)) { Xtream.showExpired(this); return }
@@ -110,6 +114,7 @@ internal fun WatchActivity.openLibrarySeries(s: Xtream.Series) {
             if (eps.isEmpty()) GlassUi.toast(this, "${t.name} has no episodes on Dodgy Box right now") else chooseEpisode(t, eps)
         }
     }
+}
 
 internal fun WatchActivity.bindVod(h: Holder, v: Xtream.Vod) {
     val name = Xtream.clean(v.name)
@@ -125,6 +130,7 @@ internal fun WatchActivity.bindVod(h: Holder, v: Xtream.Vod) {
         true
     }
     focusEffect(h.root) { showPlainHero("DODGY BOX  ·  FILM", name, "OK to watch  ·  hold OK to download for later"); setHeroImage(v.icon) }
+}
 
 internal fun WatchActivity.bindSeries(h: Holder, s: Xtream.Series) {
     val name = Xtream.clean(s.name)
@@ -137,23 +143,27 @@ internal fun WatchActivity.bindSeries(h: Holder, s: Xtream.Series) {
         val app = applicationContext
         Thread { try { Xtream.episodes(app, s) } catch (_: Exception) {} }.apply { priority = Thread.MIN_PRIORITY }.start()   // ready for OK
     }
+}
 
 /** On a Kids profile: only what's in children's categories (call off the main thread). */
 internal fun WatchActivity.kidsFilms(l: List<Xtream.Vod>): List<Xtream.Vod> {
     if (!Kids.isOn(this)) return l
     val names = Xtream.vodCategories(applicationContext)
     return l.filter { Kids.isKidsCategory(names[it.category].orEmpty()) }
+}
 
 internal fun WatchActivity.kidsSeries(l: List<Xtream.Series>): List<Xtream.Series> {
     if (!Kids.isOn(this)) return l
     val names = Xtream.seriesCategories(applicationContext)
     return l.filter { Kids.isKidsCategory(names[it.category].orEmpty()) }
+}
 
 /** A row of Dodgy Box films or series. */
 internal fun <T> WatchActivity.libRow(key: String, title: String, items: List<T>, bind: (Holder, T) -> Unit): Row {
     val r = row(key, title, height = 196f)
     r.list.adapter = CardAdapter(items, { p -> posterCard(p) }, bind = bind)
     return r
+}
 
 /** "New on Dodgy Box" rows for the Home tab (loaded in the background, then slotted in). */
 internal fun WatchActivity.dodgyHomeRows(token: Int) {
@@ -171,6 +181,7 @@ internal fun WatchActivity.dodgyHomeRows(token: Int) {
             if (shows.isNotEmpty()) host.addView(libRow("dodgy_series", "New Series on Dodgy Box", shows) { h, v -> bindSeries(h, v) }.view, at)
         }
     }
+}
 
 /** Dodgy Box's own page, like a streaming app: Films / Series, new first, then every category. */
 internal fun WatchActivity.openDodgyBoxPage(type: String = providerType) {
@@ -236,6 +247,7 @@ internal fun WatchActivity.openDodgyBoxPage(type: String = providerType) {
                 LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(this@openDodgyBoxPage, 56f) })
         }
     }
+}
 
 /** Search results from the Dodgy Box library (shown first, because they play straight away). */
 internal fun WatchActivity.dodgySearchRows(token: Int, query: String) {
@@ -253,6 +265,7 @@ internal fun WatchActivity.dodgySearchRows(token: Int, query: String) {
             if (films.isNotEmpty() || shows.isNotEmpty()) focusContentIfIdle()
         }
     }
+}
 
 /**
  * A service's own page: Films / Series at the top, then everything it has of that
@@ -280,6 +293,7 @@ internal fun WatchActivity.openProviderPage(p: WatchCatalog.Provider, type: Stri
     val what = if (type == "MOVIE") "Films" else "Series"
     pagedRow(token, "all", "All $what", listOf(p.short), listOf(type), emptyList())
     for ((code, name) in allGenres) pagedRow(token, "g_$code", name, listOf(p.short), listOf(type), listOf(code))
+}
 
 /** A row of a whole library that fetches the next 100 as you near its end. */
 internal fun WatchActivity.pagedRow(token: Int, key: String, title: String, packages: List<String>, types: List<String>, genres: List<String>) {
@@ -317,6 +331,7 @@ internal fun WatchActivity.pagedRow(token: Int, key: String, title: String, pack
         }
     })
     load()
+}
 
 internal fun WatchActivity.buildCategory(token: Int, type: String) {
     val what = if (type == "MOVIE") "Films" else "Series"
@@ -339,6 +354,7 @@ internal fun WatchActivity.buildCategory(token: Int, type: String) {
         if (to < all.size) moreRowsFor[host] = { moreRowsFor.remove(host); add(to, to + 3) } else moreRowsFor.remove(host)
     }
     add(0, 5)                                    // the first screenful straight away
+}
 
 /** Popular new titles that aren't on Dodgy Box yet - OK on one, then Remind Me. */
 internal fun WatchActivity.comingSoon(type: String): TitleLoader = { done ->
@@ -351,6 +367,7 @@ internal fun WatchActivity.comingSoon(type: String): TitleLoader = { done ->
             runOnUiThread { if (!isDestroyed) done(missing) }
         }
     }
+}
 
 /** Quietly load the other tabs (and their first posters) so switching is instant. */
 internal fun WatchActivity.prefetch() {
@@ -359,3 +376,4 @@ internal fun WatchActivity.prefetch() {
     // every row at once fought with scrolling for the first few seconds.
     for (type in listOf("MOVIE", "SHOW")) categoryLoads(type).take(4).forEach { (_, _, load) -> load(warm) }
     LiveGuide.load(this) {}
+}

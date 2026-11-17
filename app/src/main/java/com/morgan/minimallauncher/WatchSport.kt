@@ -117,6 +117,7 @@ internal fun WatchActivity.buildSport(token: Int) {
             }
         }
     }
+}
 
 internal fun WatchActivity.bindMatch(h: Holder, m: Sport.Match, ch: LiveGuide.Channel?) {
     val f = m.follow
@@ -137,6 +138,7 @@ internal fun WatchActivity.bindMatch(h: Holder, m: Sport.Match, ch: LiveGuide.Ch
     h.root.contentDescription = h.label.text
     h.root.setOnClickListener { openMatch(m, ch) }
     focusEffect(h.root) { showMatchHero(m, ch) }
+}
 
 internal fun WatchActivity.showMatchHero(m: Sport.Match, ch: LiveGuide.Channel?) = showPlainHero(
     (if (m.live) "LIVE  ·  ${m.detail}" else if (m.finished) "RESULT" else "COMING UP") + "  ·  " + m.follow.name.uppercase(),
@@ -165,6 +167,7 @@ internal fun WatchActivity.openMatch(m: Sport.Match, ch: LiveGuide.Channel?) {
             }
         }
     }
+}
 
 /** Joining a match that's under way: the key moments so far first, then live (like Apple's Catch Up). */
 internal fun WatchActivity.catchUp(m: Sport.Match, watch: () -> Unit) {
@@ -178,6 +181,7 @@ internal fun WatchActivity.catchUp(m: Sport.Match, watch: () -> Unit) {
                 .button("Cancel").show()
         }
     }
+}
 
 /** Add a team, or a whole sport (F1, golf, tennis...). */
 internal fun WatchActivity.addFollow() {
@@ -207,6 +211,7 @@ internal fun WatchActivity.addFollow() {
         c.button("Cancel").show()
     }
     d.button("Cancel").show()
+}
 
 /** How the corner scoreboard behaves: celebrations, confetti, hiding the match you're watching. */
 internal fun WatchActivity.scorePopups() {
@@ -220,6 +225,7 @@ internal fun WatchActivity.scorePopups() {
         .toggle("Confetti When Someone Scores", LiveScores.confetti(this)) { Prefs.setBool(this, "sport_confetti", !LiveScores.confetti(this)) }
         .toggle("Hide the Match I’m Watching", LiveScores.hideWatching(this)) { Prefs.setBool(this, "sport_hide_watching", !LiveScores.hideWatching(this)) }
         .button("Done", GlassDialog.Style.BOLD).show()
+}
 
 /** Pick which league tables appear on the Sport tab. */
 internal fun WatchActivity.chooseTables() {
@@ -229,6 +235,7 @@ internal fun WatchActivity.chooseTables() {
         if (ch.path in picked) picked.remove(ch.path) else picked.add(ch.path)
     }
     d.button("Done", GlassDialog.Style.BOLD) { SportTables.setPicked(this, picked); showTab("sport", focusContent = false) }.show()
+}
 
 /** The chosen tables, side by side: each row opens that team; the heading opens the full table. */
 internal fun WatchActivity.sportTables(token: Int): View? {
@@ -264,6 +271,7 @@ internal fun WatchActivity.sportTables(token: Int): View? {
         }
     }
     return box
+}
 
 /** A league table card in the style of Apple Sports: dark glass, a thin colour line, clean numbers. */
 internal fun WatchActivity.miniTable(path: String, g: SportTables.Group, showGroup: Boolean): View {
@@ -316,6 +324,7 @@ internal fun WatchActivity.miniTable(path: String, g: SportTables.Group, showGro
     card.addView(GlassUi.text(c, if (g.rows.size > shown.size) "Full table  ›" else "Table & fixtures  ›", 12f, R.font.inter_semibold, 0x99FFFFFF.toInt()),
         LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(c, 10f) })
     return card
+}
 
 internal fun WatchActivity.manageFollows() {
     val list = Sport.follows(this)
@@ -327,6 +336,7 @@ internal fun WatchActivity.manageFollows() {
     }
     d.button("Add a Team or Sport", GlassDialog.Style.BOLD) { addFollow() }
     d.button("Done").show()
+}
 
 internal fun WatchActivity.downloadsRow(): View? {
     val items = Downloads.all(this)
@@ -354,6 +364,7 @@ internal fun WatchActivity.downloadsRow(): View? {
         focusEffect(h.root) { showPlainHero("DOWNLOADED", d.label, if (ready) "Plays from the TV itself - no buffering." else st) }
     }
     return r.view
+}
 
 internal fun WatchActivity.buildList() {
     showPlainHero("MY STUFF", "Everything You’re Watching", "Continue Watching, your list, reminders, downloads and recordings - all in one place.")
@@ -377,3 +388,4 @@ internal fun WatchActivity.buildList() {
         return
     }
     list.chunked(7).forEachIndexed { i, chunk -> rows.addView(staticTitleRow("list$i", if (i == 0) "My List" else "", chunk).view) }
+}

@@ -91,10 +91,12 @@ internal fun WatchActivity.showSearchBar(focus: Boolean) {
         f.requestFocus()
         f.post { (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).showSoftInput(f, 0) }
     }
+}
 
 internal fun WatchActivity.hideSearchBar() {
     searchBar?.visibility = View.GONE
     if (!heroCollapsed) info.alpha = 1f
+}
 
 internal fun WatchActivity.showRecentSearches() {
     val recent = recentSearches()
@@ -106,6 +108,7 @@ internal fun WatchActivity.showRecentSearches() {
     for (q in recent) pills.addView(pillButton(q) { searchField?.setText(q); search(q) }, LinearLayout.LayoutParams(-2, dp(c, 38f)).apply { marginEnd = dp(c, 10f) })
     box.addView(android.widget.HorizontalScrollView(c).apply { isHorizontalScrollBarEnabled = false; clipChildren = false; clipToPadding = false; addView(pills) })
     rows.addView(box)
+}
 
 // ---------- Search ----------
 
@@ -144,3 +147,4 @@ internal fun WatchActivity.search(query: String, focusResults: Boolean = true) {
         rows.post { firstItem()?.requestFocus() }
         handler.postDelayed({ if (tab == "search" && rows.findFocus() == null) firstItem()?.requestFocus() }, 1500)
     }
+}

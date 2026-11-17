@@ -52,6 +52,7 @@ internal fun WatchActivity.setHeroCollapsed(collapse: Boolean) {
     }
     info.animate().alpha(if (collapse || searchBar?.visibility == View.VISIBLE) 0f else 1f).setDuration(260).start()
     heroDim.animate().alpha(if (collapse) 0.9f else 0f).setDuration(380).start()
+}
 
 /** Live TV: just a doorway to the guide (OK or Down opens it), so moving past it loads nothing. */
 internal fun WatchActivity.showLiveTab() {
@@ -64,6 +65,7 @@ internal fun WatchActivity.showLiveTab() {
     val now = LiveGuide.nowNext(this, "BBC One")
     showPlainHero("LIVE TV", "TV Guide", "Press OK or ↓ to open the guide - every channel, what’s on now and next, pause and rewind." +
         (now?.let { "\n\nBBC One: $it" } ?: ""))
+}
 
 internal fun WatchActivity.openGuide() = startActivity(Intent(this, LiveGuideActivity::class.java))
 
@@ -78,6 +80,7 @@ internal fun WatchActivity.showSearchTab() {
     ++buildToken
     showPlainHero("SEARCH", "Find anything", "")
     showRecentSearches()
+}
 
 /** Rest on a title for 3 seconds and its trailer plays quietly behind the details. */
 internal fun WatchActivity.queueTrailer(t: WatchCatalog.Title?) {
@@ -85,6 +88,7 @@ internal fun WatchActivity.queueTrailer(t: WatchCatalog.Title?) {
     if (t?.id != trailerFor) stopTrailer()
     trailerTitle = t
     if (t != null && Prefs.bool(this, "hero_trailers", true) && !Kids.isOn(this)) handler.postDelayed(trailerJob, 3000)
+}
 
     internal fun WatchActivity.startTrailer() {
         val t = trailerTitle ?: return
@@ -111,6 +115,7 @@ internal fun WatchActivity.queueTrailer(t: WatchCatalog.Title?) {
             trailerHost.animate().cancel()
             trailerHost.animate().alpha(1f).setStartDelay(1800).setDuration(900).start()
         }
+    }
 
 internal fun WatchActivity.stopTrailer() {
     handler.removeCallbacks(trailerJob)
@@ -118,6 +123,7 @@ internal fun WatchActivity.stopTrailer() {
     if (!::trailerHost.isInitialized) return
     trailerHost.animate().cancel()
     trailerHost.animate().alpha(0f).setStartDelay(0).setDuration(250).withEndAction { trailerView?.loadUrl("about:blank") }.start()
+}
 
 internal fun WatchActivity.showTitleHero(t: WatchCatalog.Title, now: Boolean = false) = setHero(now) {
     queueTrailer(t)
@@ -134,6 +140,7 @@ internal fun WatchActivity.showTitleHero(t: WatchCatalog.Title, now: Boolean = f
         else -> ""
     }
     setHeroImage(t.backdrop ?: t.poster)
+}
 
 internal fun WatchActivity.showProgrammeHero(ch: LiveGuide.Channel, p: LiveGuide.Programme) = setHero(false) {
     queueTrailer(null)
@@ -143,6 +150,7 @@ internal fun WatchActivity.showProgrammeHero(ch: LiveGuide.Channel, p: LiveGuide
     heroText.text = p.desc
     heroWhere.text = if (LiveGuide.hasTiviMate(this) && p.isOn()) "Press OK to watch on Dodgy Box · hold OK for more" else if (LiveGuide.hasTiviMate(this)) "Hold OK for options" else ""
     setHeroImage(p.image)
+}
 
 internal fun WatchActivity.showPlainHero(top: String, title: String, text: String) = setHero(true) {
     queueTrailer(null)
@@ -151,6 +159,7 @@ internal fun WatchActivity.showPlainHero(top: String, title: String, text: Strin
     heroMeta.text = ""
     heroText.text = text
     heroWhere.text = ""
+}
 
 /** Debounced, so whizzing along a row doesn't flicker through every title. */
 internal fun WatchActivity.setHero(now: Boolean, update: () -> Unit) {
@@ -158,6 +167,7 @@ internal fun WatchActivity.setHero(now: Boolean, update: () -> Unit) {
     val r = Runnable { if (detail == null || now) update() }
     pendingHero = r
     if (now) r.run() else handler.postDelayed(r, 260)
+}
 
 internal fun WatchActivity.setHeroImage(url: String?) {
     if (url == heroUrl) return
@@ -174,3 +184,4 @@ internal fun WatchActivity.setHeroImage(url: String?) {
         incoming.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(Motion.HERO).setInterpolator(Motion.enter).start()
         outgoing.animate().alpha(0f).setDuration(Motion.HERO).setInterpolator(Motion.standard).start()
     }
+}
