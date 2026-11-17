@@ -682,7 +682,7 @@ class MainActivity : AppCompatActivity() {
                 true
             }
         }
-        addDockTile(systemTile(R.drawable.ic_lucide_play, "Watch"), 0xFF000000.toInt(), "Watch: films and shows on all your apps") { v ->
+        addDockTile(systemTile(R.drawable.ic_lucide_play, "Watch"), 0xFF000000.toInt(), "Watch: films and shows on all your apps", onFocus = { showTopShelf(it) }) { v ->
             LaunchTransition.open(this, v) { o -> startActivity(Intent(this, WatchActivity::class.java), o) }
         }
         addDockTile(glyph(R.drawable.ic_lucide_settings, (dockTileH * 0.42f).toInt()), 0, getString(R.string.settings), SETTINGS_GRADIENT) { v ->
@@ -715,7 +715,7 @@ class MainActivity : AppCompatActivity() {
             LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(4) })
     }
 
-    private fun addDockTile(content: View, background: Int, label: String, gradient: IntArray? = null, onClick: (View) -> Unit): View {
+    private fun addDockTile(content: View, background: Int, label: String, gradient: IntArray? = null, onFocus: ((Boolean) -> Unit)? = null, onClick: (View) -> Unit): View {
         val ring = ProfileStyle.Ring(this, 10f)
         val tile = FrameLayout(this).apply {
             this.background = GradientDrawable().apply {
@@ -737,6 +737,7 @@ class MainActivity : AppCompatActivity() {
             ring.focus(v, has)
             if (has && ::dogPet.isInitialized) dogPet.attend(dock.left + v.left + v.width / 2f)
             showDockLabel(if (has) v else null, name)
+            if (onFocus != null) onFocus(has) else if (has) showTopShelf(false)
         }
         val lp = LinearLayout.LayoutParams(dp(dockTileW), dp(dockTileH))
         if (dock.childCount > 0) lp.marginStart = dp(DOCK_GAP)
@@ -757,6 +758,50 @@ class MainActivity : AppCompatActivity() {
             dockLabel.animate().alpha(1f).setInterpolator(Motion.standard).setDuration(Motion.FADE).start()
         }
     }
+
+    // ---------- Top shelf (tvOS): resting on Watch fills the screen with what you're watching ----------
+
+    private var shelf: FrameLayout? = null
+    private var shelfImage: ImageView? = null
+    private var shelfTitle: TextView? = null
+    private var shelfSub: TextView? = null
+
+    private fun showTopShelf(show: Boolean) {
+        if (!show) { shelf?.animate()?.alpha(0f)?.setDuration(Motion.PANEL)?.start(); return }
+        val item = ResumeStore.all(this).firstOrNull { it.kind != "live" } ?: return
+        val name = item.series ?: item.title
+        val art = Prefs.string(this, "rart_$name") ?: item.image ?: return
+        val box = shelf ?: FrameLayout(this).apply {
+            alpha = 0f
+            val img = ImageView(this@MainActivity).apply { scaleType = ImageView.ScaleType.CENTER_CROP }
+            addView(img, FrameLayout.LayoutParams(-1, -1))
+            // Fades into the wallpaper towards the dock, and darkens behind the words.
+            addView(View(this@MainActivity).apply { background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                intArrayOf(0x33000000, 0x00000000, 0x66000000, 0xE6000000.toInt())) }, FrameLayout.LayoutParams(-1, -1))
+            addView(View(this@MainActivity).apply { background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
+                intArrayOf(0x99000000.toInt(), 0x00000000)) }, FrameLayout.LayoutParams(dp(520), -1))
+            val col = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.VERTICAL }
+            val eyebrow = label("CONTINUE WATCHING", R.font.inter_semibold, 11f, 0xB3FFFFFF.toInt()).apply { letterSpacing = 0.12f }
+            val t = label("", R.font.inter_semibold, 34f, 0xFFFFFFFF.toInt())
+            val sub = label("", R.font.inter_medium, 14f, 0xE6FFFFFF.toInt())
+            col.addView(eyebrow); col.addView(t, marginTop(4)); col.addView(sub, marginTop(6))
+            addView(col, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.START).apply { setMargins(dp(56), 0, 0, dp(250)) })
+            shelfImage = img; shelfTitle = t; shelfSub = sub
+            stage.addView(this, stage.indexOfChild(ambientShade), FrameLayout.LayoutParams(-1, -1))
+            shelf = this
+        }
+        shelfTitle?.text = name
+        val left = if (item.durSec > 0) ((item.durSec - item.posSec) / 60).coerceAtLeast(1) else 0
+        shelfSub?.text = listOfNotNull(if (item.kind == "episode") "S${item.season} E${item.episode}" else null, if (left > 0) "$left min left" else null)
+            .joinToString("  ·  ") + "   ·   Press OK to open Watch"
+        shelfImage?.let { ImageLoader.load(it, art, ImageLoader.HERO) }
+        box.animate().alpha(1f).setDuration(Motion.HERO).setInterpolator(Motion.standard).start()
+    }
+
+    /** Installed in the last 3 days: a blue dot by its name, like tvOS. */
+    private fun isNewApp(pkg: String): Boolean = try {
+        pkg != packageName && System.currentTimeMillis() - packageManager.getPackageInfo(pkg, 0).firstInstallTime < 3 * 86_400_000L
+    } catch (e: Exception) { false }
 
     // ---------- App grid (below the dock, like tvOS) ----------
 
@@ -812,9 +857,13 @@ class MainActivity : AppCompatActivity() {
             contentDescription = if (item is AppTiles.StoreApp) "Get $name" else "Open $name"
             addView(image, FrameLayout.LayoutParams(-1, -1))
         }
-        val caption = label(name, R.font.inter_medium, 11f, 0xF2FFFFFF.toInt()).apply {
+        val fresh = item is AppEntry && isNewApp(item.packageName)
+        val caption = label(if (fresh) "● $name" else name, R.font.inter_medium, 11f, 0xF2FFFFFF.toInt()).apply {
             gravity = Gravity.CENTER
-            alpha = 0f
+            alpha = if (fresh) 1f else 0f
+            if (fresh) text = android.text.SpannableString("●  $name").apply {
+                setSpan(android.text.style.ForegroundColorSpan(0xFF0A84FF.toInt()), 0, 1, 0)
+            }
         }
         val cell = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -826,7 +875,7 @@ class MainActivity : AppCompatActivity() {
         tile.setOnFocusChangeListener { v, has ->
             Motion.focus(v, has, 1.1f, 12f)
             ring.focus(v, has)
-            caption.animate().alpha(if (has) 1f else 0f).setDuration(Motion.FADE).setInterpolator(Motion.standard).start()
+            caption.animate().alpha(if (has || fresh) 1f else 0f).setDuration(Motion.FADE).setInterpolator(Motion.standard).start()
         }
         when (item) {
             is AppEntry -> {

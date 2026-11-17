@@ -307,7 +307,7 @@ class PlayerActivity : Activity() {
                     audioLoggedFor = url
                     Diag.send(this@PlayerActivity, "player", "audio for \"$titleText\": " + audio.joinToString(" | ") { g -> (0 until g.length).joinToString(", ") { i ->
                         val f = g.getTrackFormat(i); "${f.sampleMimeType} ${f.channelCount}ch ${f.language ?: ""} ${if (g.isTrackSupported(i)) "ok" else "UNSUPPORTED"}${if (g.isTrackSelected(i)) " *" else ""}" } } +
-                        " · format=${Prefs.string(this@PlayerActivity, "audio_format") ?: "auto"} settings=${if (SoundProfile.get(this@PlayerActivity).flat) "off" else "on"}")
+                        " · format=${Prefs.string(this@PlayerActivity, "audio_format") ?: "auto"} settings=${if (SoundProfile.get(this@PlayerActivity).flat) "off" else "on"} · ${passFormats()}")
                 }
                 // The sound can't be played with the TV decoding it (e.g. Dolby Digital Plus): let it go to the TV/soundbar as it is.
                 if (!anyPlayable && !audioFallback) {
@@ -1071,6 +1071,15 @@ class PlayerActivity : Activity() {
     }
 
     private var decodingAudio = false
+
+    /** What the Chromecast says it can send to the TV/soundbar untouched (if Dolby isn't here, it gets turned into LPCM). */
+    @Suppress("DEPRECATION")
+    private fun passFormats(): String = try {
+        val caps = androidx.media3.exoplayer.audio.AudioCapabilities.getCapabilities(this)
+        val names = listOf(C.ENCODING_AC3 to "DD", C.ENCODING_E_AC3 to "DD+", C.ENCODING_E_AC3_JOC to "Atmos", C.ENCODING_DTS to "DTS", C.ENCODING_DOLBY_TRUEHD to "TrueHD")
+            .filter { caps.supportsEncoding(it.first) }.map { it.second }
+        "passthrough=" + (names.joinToString("/").ifEmpty { "none" }) + " maxch=" + caps.maxChannelCount
+    } catch (e: Throwable) { "passthrough=?" }
     private var passthroughNow = false
     private var fxFor: String? = null
     private var fxFailedFor: String? = null

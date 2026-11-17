@@ -62,8 +62,8 @@ class QuickSettings(private val activity: AppCompatActivity, private val host: H
         panel = LinearLayout(c).apply {
             orientation = LinearLayout.VERTICAL
             background = LayerDrawable(arrayOf(
-                GradientDrawable().apply { cornerRadius = dp(c, 28f).toFloat(); setColor(0xD9161619.toInt()) },
-                GlassUi.panel(c, 28f, 0x14)
+                GradientDrawable().apply { cornerRadius = dp(c, 30f).toFloat(); setColor(0xB3141418.toInt()) },
+                GlassUi.panel(c, 30f, 0x1C)
             ))
             setPadding(dp(c, 20f), dp(c, 22f), dp(c, 20f), dp(c, 18f))
             elevation = dp(c, 30f).toFloat()
@@ -73,7 +73,7 @@ class QuickSettings(private val activity: AppCompatActivity, private val host: H
             clipToPadding = false
             addView(panel)
         }
-        root.addView(scroll, FrameLayout.LayoutParams(dp(c, 372f), -1, Gravity.END).apply {
+        root.addView(scroll, FrameLayout.LayoutParams(dp(c, 372f), -2, Gravity.END or Gravity.TOP).apply {
             setMargins(0, dp(c, 18f), dp(c, 18f), dp(c, 18f))
         })
         build()
@@ -93,11 +93,36 @@ class QuickSettings(private val activity: AppCompatActivity, private val host: H
     }
 
     private var firstFocus: View? = null
+    private var firstFocusTop: View? = null
 
     private fun build() {
         panel.removeAllViews()
 
-        panel.addView(GlassUi.text(c, "Control Centre", 17f, R.font.inter_semibold), LinearLayout.LayoutParams(-2, -2).apply { bottomMargin = dp(c, 12f) })
+
+        // ---- tvOS 26 block: big Power Off on the left; Wi-Fi and Do Not Disturb beside it; Audio and Sleep Timer below ----
+        val block = LinearLayout(c)
+        val power = bigTile(R.drawable.ic_lucide_power, "Power Off") {
+            dialog.dismiss()
+            HomeRedirectService.instance?.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN)
+                ?: AmbientActivity.start(activity, AmbientActivity.SLEEP)
+        }
+        block.addView(power, LinearLayout.LayoutParams(dp(c, 128f), dp(c, 134f)))
+        val side = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL }
+        side.addView(tile(if (online()) R.drawable.ic_lucide_wifi else R.drawable.ic_lucide_wifi_off, "Wi-Fi", networkName()) {
+            openSettings(Settings.ACTION_WIFI_SETTINGS) }, LinearLayout.LayoutParams(-1, dp(c, 62f)))
+        val dnd = Prefs.bool(c, "dnd", false)
+        side.addView(tile(R.drawable.ic_lucide_moon, "Do Not Disturb", if (dnd) "On · no pop-ups" else "Off", active = dnd) {
+            Prefs.setBool(c, "dnd", !Prefs.bool(c, "dnd", false)); refocusAfterRebuild("Do Not Disturb")
+        }, LinearLayout.LayoutParams(-1, dp(c, 62f)).apply { topMargin = dp(c, 10f) })
+        block.addView(side, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(c, 10f) })
+        panel.addView(block, LinearLayout.LayoutParams(-1, -2))
+        val second = LinearLayout(c)
+        second.addView(soundTile(), LinearLayout.LayoutParams(0, dp(c, 62f), 1f))
+        second.addView(tile(R.drawable.ic_lucide_clock, "Sleep Timer", SleepTimer.label()) {
+            SleepTimer.next(activity); refocusAfterRebuild("Sleep Timer")
+        }, LinearLayout.LayoutParams(0, dp(c, 62f), 1f).apply { marginStart = dp(c, 10f) })
+        panel.addView(second, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(c, 10f) })
+        firstFocusTop = power
 
         // ---- Top: status pills + settings ----
         val top = LinearLayout(c).apply { gravity = Gravity.CENTER_VERTICAL }
@@ -107,7 +132,7 @@ class QuickSettings(private val activity: AppCompatActivity, private val host: H
             LinearLayout.LayoutParams(0, dp(c, 34f), 1f).apply { marginStart = dp(c, 8f) })
         top.addView(round(R.drawable.ic_lucide_settings, "All TV settings") { openSettings(Settings.ACTION_SETTINGS) },
             LinearLayout.LayoutParams(dp(c, 34f), dp(c, 34f)).apply { marginStart = dp(c, 8f) })
-        panel.addView(top, LinearLayout.LayoutParams(-1, dp(c, 34f)))
+        panel.addView(top, LinearLayout.LayoutParams(-1, dp(c, 34f)).apply { topMargin = dp(c, 14f) })
 
         // ---- Last app (like the media card) ----
         val recent = try {
@@ -117,30 +142,6 @@ class QuickSettings(private val activity: AppCompatActivity, private val host: H
 
         // ---- Tiles ----
         val tiles = mutableListOf<View>()
-        tiles += tile(if (online()) R.drawable.ic_lucide_wifi else R.drawable.ic_lucide_wifi_off, "Wi-Fi", networkName()) {
-            openSettings(Settings.ACTION_WIFI_SETTINGS)
-        }
-        // Sound: hold Left / Right to turn it down / up; OK opens the sound settings.
-        val sound = tile(R.drawable.ic_lucide_volume, "Sound", soundSummary().let { if (it.contains("◀")) it else "$it  ·  ◀ ▶" }) { openSettings(Settings.ACTION_SOUND_SETTINGS) }
-        sound.setOnKeyListener { v, code, e ->
-            val dir = when (code) {
-                android.view.KeyEvent.KEYCODE_DPAD_LEFT -> android.media.AudioManager.ADJUST_LOWER
-                android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> android.media.AudioManager.ADJUST_RAISE
-                else -> return@setOnKeyListener false
-            }
-            if (e.action == android.view.KeyEvent.ACTION_DOWN) {
-                try {
-                    val am = c.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
-                    am.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, dir, 0)
-                } catch (_: Exception) {}
-                val now = soundSummary()
-                ((v as? ViewGroup)?.getChildAt(1) as? ViewGroup)?.getChildAt(1)?.let {
-                    (it as? android.widget.TextView)?.text = if (now.contains("◀")) (if (dir == android.media.AudioManager.ADJUST_RAISE) "Turning up  ▶" else "◀  Turning down") else "$now  ·  ◀ ▶"
-                }
-            }
-            true
-        }
-        tiles += sound
         tiles += tile(R.drawable.ic_lucide_mountain, "Aerial", "Start now") {
             dialog.dismiss(); AmbientActivity.start(activity, AmbientActivity.AERIAL)
         }
@@ -206,12 +207,13 @@ class QuickSettings(private val activity: AppCompatActivity, private val host: H
         val shortcuts = listOf(
             Triple(R.drawable.ic_lucide_search, "Voice") { dialog.dismiss(); activity.startActivity(Intent(c, VoiceActivity::class.java)) },
             Triple(R.drawable.ic_lucide_grid, "Apps") { open(Intent(c, AllAppsActivity::class.java), inApp = true) },
+            Triple(R.drawable.ic_lucide_sparkle, "Profiles") { open(Intent(c, WhoActivity::class.java), inApp = true) },
             Triple(R.drawable.ic_lucide_monitor, "Display & sound") { openSettings(Settings.ACTION_DISPLAY_SETTINGS) },
             Triple(R.drawable.ic_lucide_settings, "Launcher settings") { open(Intent(c, SettingsActivity::class.java), inApp = true) },
         )
         shortcuts.forEachIndexed { i, (icon, label, action) ->
             buttons.addView(round(icon, label, action), LinearLayout.LayoutParams(dp(c, 46f), dp(c, 46f)).apply {
-                if (i > 0) marginStart = dp(c, 18f)
+                if (i > 0) marginStart = dp(c, 12f)
             })
         }
         panel.addView(buttons, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(c, 18f) })
@@ -221,7 +223,7 @@ class QuickSettings(private val activity: AppCompatActivity, private val host: H
             gravity = Gravity.CENTER
         }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(c, 14f) })
 
-        firstFocus = tiles.firstOrNull()
+        firstFocus = firstFocusTop ?: tiles.firstOrNull()
     }
 
     /** Rebuild (to show new on/off states) and keep focus on the same tile. */
@@ -238,6 +240,43 @@ class QuickSettings(private val activity: AppCompatActivity, private val host: H
     }
 
     // ---------- Pieces ----------
+
+    /** The big square tvOS 26 tile (Power Off): round icon on top, name underneath. */
+    private fun bigTile(icon: Int, title: String, onClick: () -> Unit): View {
+        val t = LinearLayout(c).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            background = GlassUi.rowBackground(c, 22f, 0x1FFFFFFF)
+            isFocusable = true; isClickable = true
+            tag = title; contentDescription = title
+            setOnClickListener { onClick() }
+        }
+        t.addView(icon(icon, 34f), LinearLayout.LayoutParams(dp(c, 34f), dp(c, 34f)))
+        t.addView(GlassUi.rowText(c, title, 13f, R.font.inter_semibold, GlassUi.primaryText()), LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(c, 12f) })
+        GlassUi.focusLift(t, 1.04f)
+        return t
+    }
+
+    /** Audio: where the sound goes and the volume; hold Left/Right to turn it down/up, OK for sound settings. */
+    private fun soundTile(): View {
+        val sound = tile(R.drawable.ic_lucide_volume, "Audio", soundSummary().let { if (it.contains("◀")) it else "$it  ·  ◀ ▶" }) { openSettings(Settings.ACTION_SOUND_SETTINGS) }
+        sound.setOnKeyListener { v, code, e ->
+            val dir = when (code) {
+                android.view.KeyEvent.KEYCODE_DPAD_LEFT -> AudioManager.ADJUST_LOWER
+                android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> AudioManager.ADJUST_RAISE
+                else -> return@setOnKeyListener false
+            }
+            if (e.action == android.view.KeyEvent.ACTION_DOWN) {
+                try { (c.getSystemService(Context.AUDIO_SERVICE) as AudioManager).adjustStreamVolume(AudioManager.STREAM_MUSIC, dir, 0) } catch (_: Exception) {}
+                val now = soundSummary()
+                ((v as? ViewGroup)?.getChildAt(1) as? ViewGroup)?.getChildAt(1)?.let {
+                    (it as? android.widget.TextView)?.text = if (now.contains("◀")) (if (dir == AudioManager.ADJUST_RAISE) "Turning up  ▶" else "◀  Turning down") else "$now  ·  ◀ ▶"
+                }
+            }
+            true
+        }
+        return sound
+    }
 
     private fun tile(icon: Int, title: String, subtitle: String, active: Boolean = false, onClick: () -> Unit): View {
         val t = LinearLayout(c).apply {
@@ -420,5 +459,27 @@ class QuickSettings(private val activity: AppCompatActivity, private val host: H
             }
         }
         return false
+    }
+}
+
+/** Control Centre's Sleep Timer: Off → 15 → 30 → 60 → 90 minutes, then the TV goes to sleep (whatever is on). */
+object SleepTimer {
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var endsAt = 0L
+    private val steps = listOf(0, 15, 30, 60, 90)
+    private val sleep = Runnable {
+        endsAt = 0L
+        PlayerActivity.pauseForHome()
+        HomeRedirectService.instance?.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN)
+    }
+    private fun minutesLeft() = if (endsAt == 0L) 0 else ((endsAt - System.currentTimeMillis()) / 60_000L + 1).toInt().coerceAtLeast(0)
+    fun label() = minutesLeft().let { if (it == 0) "Off" else "$it min left" }
+    fun next(a: android.app.Activity) {
+        val now = minutesLeft()
+        val n = steps.firstOrNull { it > now } ?: 0
+        handler.removeCallbacks(sleep)
+        endsAt = if (n == 0) 0L else System.currentTimeMillis() + n * 60_000L
+        if (n > 0) handler.postDelayed(sleep, n * 60_000L)
+        GlassUi.toast(a, if (n == 0) "Sleep Timer off" else "The TV will sleep in $n minutes")
     }
 }

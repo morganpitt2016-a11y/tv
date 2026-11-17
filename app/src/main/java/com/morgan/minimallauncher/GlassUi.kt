@@ -82,27 +82,44 @@ object GlassUi {
         root.addView(dim, 1, FrameLayout.LayoutParams(-1, -1))
     }
 
-    /** Translucent glass panel with a brighter top edge, like tvOS "Liquid Glass". */
-    fun panel(c: Context, radiusDp: Float, fillAlpha: Int = 0x24): Drawable {
-        val r = dp(c, radiusDp).toFloat()
-        val body = GradientDrawable(
-            GradientDrawable.Orientation.TOP_BOTTOM,
-            intArrayOf((fillAlpha + 0x10 shl 24) or 0xFFFFFF, (fillAlpha shl 24) or 0xFFFFFF)
-        ).apply {
-            cornerRadius = r
-            setStroke(dp(c, 1f), 0x33FFFFFF)
+    /**
+     * tvOS 26 "Liquid Glass": a frosted fill, a specular rim that catches the light along the top and fades
+     * down the sides, and a soft sheen across the top - drawn in one pass, so it stays smooth on TV hardware.
+     */
+    fun panel(c: Context, radiusDp: Float, fillAlpha: Int = 0x24): Drawable = LiquidGlass(dp(c, radiusDp).toFloat(), fillAlpha, dp(c, 1f).toFloat() * 1.2f)
+
+    class LiquidGlass(private val r: Float, private val fillAlpha: Int, private val rim: Float) : Drawable() {
+        private val fill = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+        private val edge = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { style = android.graphics.Paint.Style.STROKE }
+        private val sheen = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+        private val box = android.graphics.RectF()
+        private var alphaMul = 255
+
+        override fun onBoundsChange(b: android.graphics.Rect) {
+            val h = b.height().toFloat().coerceAtLeast(1f)
+            val top = (minOf(255, fillAlpha + 0x14) shl 24) or 0xFFFFFF
+            val bottom = (fillAlpha shl 24) or 0xFFFFFF
+            fill.shader = android.graphics.LinearGradient(0f, b.top.toFloat(), 0f, b.bottom.toFloat(), top, bottom, Shader.TileMode.CLAMP)
+            edge.strokeWidth = rim
+            edge.shader = android.graphics.LinearGradient(b.left.toFloat(), b.top.toFloat(), b.left + b.width() * 0.35f, b.bottom.toFloat(),
+                intArrayOf(0x8CFFFFFF.toInt(), 0x33FFFFFF, 0x14FFFFFF), floatArrayOf(0f, 0.45f, 1f), Shader.TileMode.CLAMP)
+            val sh = minOf(h * 0.5f, maxOf(r * 1.6f, h * 0.18f))
+            sheen.shader = android.graphics.LinearGradient(0f, b.top.toFloat(), 0f, b.top + sh, 0x2EFFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP)
         }
-        // The sheen follows the body's top corners exactly. It must be at least as tall as the corner
-        // radius, or Android shrinks its corners and they poke out past the panel as a pale ghost edge.
-        val sheenH = maxOf(dp(c, 28f), r.toInt() + dp(c, 2f))
-        val sheen = GradientDrawable(
-            GradientDrawable.Orientation.TOP_BOTTOM,
-            intArrayOf(0x24FFFFFF, 0x00FFFFFF)
-        ).apply { cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f) }
-        return LayerDrawable(arrayOf(body, sheen)).apply {
-            setLayerInset(1, 0, 0, 0, 0)
-            setLayerHeight(1, sheenH)
+
+        override fun draw(canvas: android.graphics.Canvas) {
+            val b = bounds
+            box.set(b.left + rim / 2, b.top + rim / 2, b.right - rim / 2, b.bottom - rim / 2)
+            listOf(fill, sheen, edge).forEach { it.alpha = alphaMul }
+            canvas.drawRoundRect(box, r, r, fill)
+            canvas.drawRoundRect(box, r, r, sheen)
+            canvas.drawRoundRect(box, r, r, edge)
         }
+
+        override fun getOutline(outline: android.graphics.Outline) { outline.setRoundRect(bounds, r) }
+        override fun setAlpha(a: Int) { alphaMul = a; invalidateSelf() }
+        override fun setColorFilter(cf: android.graphics.ColorFilter?) { fill.colorFilter = cf; invalidateSelf() }
+        @Deprecated("Deprecated in Java") override fun getOpacity() = android.graphics.PixelFormat.TRANSLUCENT
     }
 
     /** Row background: invisible normally, solid white when focused (tvOS style). */

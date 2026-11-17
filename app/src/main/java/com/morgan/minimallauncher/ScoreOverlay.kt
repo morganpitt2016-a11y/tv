@@ -33,7 +33,7 @@ class ScoreOverlay(private val c: Context) {
                       val homeBar: View, val awayBar: View, val banner: TextView)
 
     fun render(cards: List<LiveScores.Card>, events: List<LiveScores.Event>) {
-        if (cards.isEmpty()) { removeAll(); return }
+        if (cards.isEmpty() || Prefs.bool(c, "dnd", false)) { removeAll(); return }   // Do Not Disturb (Control Centre): no pop-ups
         val col = column ?: makeColumn() ?: return
         // Gone: fade away.
         for (id in rows.keys.toList()) if (cards.none { it.id == id }) rows.remove(id)?.let { r ->
