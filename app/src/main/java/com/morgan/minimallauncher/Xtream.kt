@@ -745,7 +745,7 @@ object Xtream {
         if (hits.isEmpty()) hits = byKey.entries.filter { (k, _) -> same(k) }.flatMap { it.value }
         hits = hits.filter { same(TiviTuner.vodKey(it.name)) }                                          // never trust a stale index
         if (hits.isEmpty()) return emptyList()
-        val picked = Prefs.int(c, "xpick_$wanted", -1)
+        val picked = Prefs.int(c, "xpick2_$wanted", -1)
         return hits.sortedBy { s ->
             when {
                 s.id == picked -> 0
@@ -761,10 +761,18 @@ object Xtream {
     /** The show and its episodes: tries each matching entry until one actually has episodes, and remembers it. */
     fun seriesEpisodes(c: Context, title: String, year: Int): Pair<Series, List<Episode>>? {
         val wanted = TiviTuner.vodKey(title)
-        for (s in seriesCandidates(c, title, year).take(6)) {
-            val eps = try { episodes(c, s) } catch (e: Exception) { try { episodes(c, s) } catch (e2: Exception) { emptyList() } }
-            if (eps.isNotEmpty()) { Prefs.setInt(c, "xpick_$wanted", s.id); return s to eps }
-        }
-        return null
+        val list = seriesCandidates(c, title, year).take(6)
+        fun eps(s: Series) = try { episodes(c, s) } catch (e: Exception) { try { episodes(c, s) } catch (e2: Exception) { emptyList() } }
+        // The one that worked last time, if it still has episodes.
+        val picked = Prefs.int(c, "xpick2_$wanted", -1)
+        list.firstOrNull { it.id == picked }?.let { s -> eps(s).takeIf { it.isNotEmpty() }?.let { return s to it } }
+        // Same name twice with nothing to tell them apart ("The Office" UK and US): the fuller one.
+        val yearHit = list.filter { year > 0 && yearOf(it.name) == year }
+        val pool = yearHit.ifEmpty { list }
+        val best = pool.map { it to eps(it) }.filter { it.second.isNotEmpty() }.maxByOrNull { it.second.size }
+            ?: list.minus(pool.toSet()).map { it to eps(it) }.firstOrNull { it.second.isNotEmpty() }
+            ?: return null
+        Prefs.setInt(c, "xpick2_$wanted", best.first.id)
+        return best
     }
 }
