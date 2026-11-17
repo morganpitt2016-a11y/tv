@@ -284,6 +284,7 @@ class PlayerActivity : Activity() {
             override fun buildAudioSink(context: Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): androidx.media3.exoplayer.audio.AudioSink =
                 androidx.media3.exoplayer.audio.DefaultAudioSink.Builder(context)
                     .setAudioCapabilities(androidx.media3.exoplayer.audio.AudioCapabilities.DEFAULT_AUDIO_CAPABILITIES)
+                    .apply { if (format == "virtual") setAudioProcessors(arrayOf(VirtualSurround.mixer())) }
                     .build()
         })
         val p = builder.build()

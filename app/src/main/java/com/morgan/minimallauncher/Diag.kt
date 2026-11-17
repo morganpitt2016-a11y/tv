@@ -160,6 +160,11 @@ object Diag {
                 } catch (e: Exception) { out.append("failed: ${e.javaClass.simpleName}") }
                 send(app, "xshow", out.toString())
             }
+            cmd.startsWith("audiofmt:") -> {
+                val f = cmd.removePrefix("audiofmt:").trim()
+                if (f in listOf("auto", "decode", "stereo", "virtual")) { Prefs.setString(app, "audio_format", f); send(app, "audiofmt", "Audio Format set to $f") }
+                else send(app, "audiofmt", "Unknown format \"$f\"")
+            }
             cmd == "update" -> Updater.maybeUpdate(app, force = true, asked = true) { send(app, "update", it) }
             cmd == "xcheck" -> thread(isDaemon = true) {
                 // The result only - never the server, username or password.

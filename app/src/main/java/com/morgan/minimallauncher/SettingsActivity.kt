@@ -675,15 +675,17 @@ class SettingsActivity : AppCompatActivity() {
         d.button("Done").show()
     }
 
-    private fun formatName(f: String) = when (f) { "decode" -> "Decode on TV"; "stereo" -> "Stereo Only"; else -> "Auto" }
+    private fun formatName(f: String) = when (f) { "decode" -> "Decode on TV"; "stereo" -> "Stereo Only"; "virtual" -> "Virtual Surround"; else -> "Auto" }
 
     private fun pickAudioFormat() {
         val cur = Prefs.string(this, "audio_format") ?: "auto"
         val d = GlassDialog(this).title("Audio Format")
             .message("Auto (recommended): Dolby and surround go straight to your soundbar when it supports them; everything else is decoded on the TV.\n\n" +
                 "Decode on TV: all sound is decoded here, so Enhance Dialogue, Reduce Loud Sounds and Sound Check work on every programme.\n\n" +
-                "Stereo Only: two-channel sound - for TV speakers, headphones or a stereo setup.")
-        for (f in listOf("auto", "decode", "stereo")) d.button(formatName(f) + if (f == cur) "  ✓" else "", if (f == "auto") GlassDialog.Style.BOLD else GlassDialog.Style.NORMAL) {
+                "Stereo Only: two-channel sound - for TV speakers, headphones or a stereo setup.\n\n" +
+                "Virtual Surround: everything decoded here and mixed into surround-encoded stereo - wide, with voices up the middle. " +
+                "Best for a soundbar on an optical cable; turn on its Surround or Movie mode. Your sound settings work on everything.")
+        for (f in listOf("auto", "decode", "stereo", "virtual")) d.button(formatName(f) + if (f == cur) "  ✓" else "", if (f == "auto") GlassDialog.Style.BOLD else GlassDialog.Style.NORMAL) {
             Prefs.setString(this, "audio_format", f); refreshValues()
             GlassUi.toast(this, "Audio Format: ${formatName(f)} - takes effect from the next thing you play")
         }
