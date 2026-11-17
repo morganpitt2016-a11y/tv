@@ -1137,6 +1137,18 @@ class PlayerActivity : Activity() {
         if (soundFx?.state?.startsWith("failed") == true) { fxFailedFor = url; soundFx = null }
     }
 
+    /** Rebuilds the player at the same moment with the new Audio Format (for comparing the two by ear). */
+    private fun reloadSound() {
+        val p = player ?: return
+        val pos = p.currentPosition
+        saveProgress()
+        p.release(); player = null
+        audioFallback = false
+        start(url, resume = false)
+        if (!live) player?.seekTo(pos)
+        GlassUi.toast(this, if ((Prefs.string(this, "audio_format") ?: "auto") == "virtual") "Virtual Surround" else "Dolby to your soundbar")
+    }
+
     private fun applySound(s: SoundProfile.Settings) {
         VirtualSurround.settings = s
         if (virtualMode) return
@@ -1479,6 +1491,12 @@ class PlayerActivity : Activity() {
             }
             "sound" -> {
                 val st = SoundProfile.get(this)
+                // A/B: our Virtual Surround mixer, or Dolby straight to the soundbar (its own surround) - same scene, both ways.
+                val fmt = Prefs.string(this, "audio_format") ?: "auto"
+                pill("Format · " + when (fmt) { "virtual" -> "Virtual Surround"; "auto" -> "Dolby to Soundbar"; "decode" -> "Decode on TV"; else -> "Stereo" }) {
+                    Prefs.setString(this, "audio_format", if (fmt == "virtual") "auto" else "virtual")
+                    reloadSound(); fillInfo("sound")
+                }
                 pill("Calibrate") { hideInfoPanel(); startActivity(android.content.Intent(this, RoomCalibrationActivity::class.java)) }
                 pill("Listening Test") { hideInfoPanel(); SoundProfile.soundCheck(this, { applySound(it.copy(dialogue = st.dialogue, more = st.more)) }) { r ->
                     val keep = r.copy(dialogue = st.dialogue, more = st.more); SoundProfile.save(this, keep); applySound(keep) } }

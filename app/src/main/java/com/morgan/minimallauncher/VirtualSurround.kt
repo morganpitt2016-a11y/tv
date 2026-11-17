@@ -11,7 +11,6 @@ import kotlin.math.log10
 import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sqrt
-import kotlin.math.tanh
 
 /**
  * Virtual Surround: everything (stereo, 5.1, 7.1, Dolby once decoded) mixed into surround-encoded stereo for a
@@ -29,10 +28,10 @@ object VirtualSurround {
     /** The listener's sound profile, read by the mixer as it plays (changes apply straight away). */
     @Volatile var settings: SoundProfile.Settings = SoundProfile.Settings(0, 0, 0, false, false)
 
-    private const val G = 0.55f            // headroom for surround mixes
+    private const val G = 0.72f            // level for surround mixes (the lookahead limiter catches the peaks)
     private val FL = floatArrayOf(G, 0f)
     private val FR = floatArrayOf(0f, G)
-    private val LFE = floatArrayOf(0.5f * G, 0.5f * G)
+    private val LFE = floatArrayOf(0.8f * G, 0.8f * G)   // the film's bass channel, fuller into the subwoofer
     private val SL = floatArrayOf(-0.87f * G, 0.49f * G)
     private val SR = floatArrayOf(-0.49f * G, 0.87f * G)
     private fun centre(boost: Float) = floatArrayOf(0.707f * G * boost, 0.707f * G * boost)
@@ -110,22 +109,42 @@ object VirtualSurround {
         private val side = Array(3) { Biquad() }
         private var env = 0f
         private var atk = 0f; private var rel = 0f
+        // Rear channels arrive ~12 ms late and a touch softer on top - heard as around and behind, not from the bar.
+        private var rear = BooleanArray(0)
+        private var rearBuf: Array<FloatArray> = emptyArray()
+        private var rearLp = FloatArray(0)
+        private var rearPos = 0
+        private var rearA = 0f
+        // Lookahead limiter: sees peaks 4 ms early and eases the level down before they arrive (no crackle, no dulling).
+        private var la = 1
+        private var limL = FloatArray(1); private var limR = FloatArray(1); private var limPos = 0
+        private var hold = 0f; private var gain = 1f
+        private var holdRel = 0f; private var gainAtk = 0f; private var gainRel = 0f
 
         override fun onConfigure(f: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
             if (f.encoding != C.ENCODING_PCM_16BIT || f.channelCount < 1) return AudioProcessor.AudioFormat.NOT_SET
             n = f.channelCount; fs = f.sampleRate
             applied = null
             atk = exp(-1.0 / (0.008 * fs)).toFloat(); rel = exp(-1.0 / (0.25 * fs)).toFloat()
+            rearBuf = Array(n) { FloatArray((0.012 * fs).toInt().coerceAtLeast(1)) }; rearLp = FloatArray(n); rearPos = 0
+            rearA = (1 - exp(-2 * Math.PI * 7000.0 / fs)).toFloat()
+            la = (0.004 * fs).toInt().coerceAtLeast(1); limL = FloatArray(la); limR = FloatArray(la); limPos = 0
+            holdRel = exp(-1.0 / (0.08 * fs)).toFloat()
+            gainAtk = (1 - exp(-1.0 / (0.0015 * fs))).toFloat(); gainRel = (1 - exp(-1.0 / (0.2 * fs))).toFloat()
             return AudioProcessor.AudioFormat(f.sampleRate, 2, C.ENCODING_PCM_16BIT)
         }
 
-        override fun onFlush() { mid.forEach { it.clear() }; side.forEach { it.clear() }; env = 0f }
+        override fun onFlush() {
+            mid.forEach { it.clear() }; side.forEach { it.clear() }; env = 0f
+            rearBuf.forEach { it.fill(0f) }; rearLp.fill(0f); limL.fill(0f); limR.fill(0f); hold = 0f; gain = 1f
+        }
 
         private fun tune(s: SoundProfile.Settings) {
             applied = s
             val dlg = if (!s.dialogue) 0.0 else if (s.more) 8.0 else 5.0
             val boost = 10f.pow((dlg * 0.8 / 20).toFloat())
             coeffs = if (surround) rows(n, boost) else plain(n, boost)
+            rear = BooleanArray(n) { surround && coeffs[it][0] < 0f }
             // Stereo has no centre channel: the voice band in the middle of the mix gets the whole lift.
             val voice = (if (n <= 2) dlg else dlg * 0.4) + s.clarity
             mid[0].lowShelf(fs, 150.0, s.bass.toDouble() - (if (s.dialogue) 1.5 else 0.0))
@@ -148,11 +167,17 @@ object VirtualSurround {
             for (f in 0 until frames) {
                 var l = 0f; var r = 0f
                 for (ch in 0 until n) {
-                    val x = input.getShort() / 32768f
+                    var x = input.getShort() / 32768f
+                    if (rear[ch]) {
+                        val buf = rearBuf[ch]; val d = buf[rearPos % buf.size]; buf[rearPos % buf.size] = x
+                        rearLp[ch] += rearA * (d - rearLp[ch]); x = rearLp[ch]
+                    }
                     l += x * m[ch][0]; r += x * m[ch][1]
                 }
-                // Middle and sides.
-                var md = (l + r) * 0.5f; var sd = (l - r) * 0.5f
+                rearPos++
+                if (rearPos > 1_000_000_000) rearPos = 0
+                // Middle and sides (surround: the sides a little wider).
+                var md = (l + r) * 0.5f; var sd = (l - r) * (if (surround) 0.6f else 0.5f)
                 for (b in mid) md = b.run(md)
                 for (b in side) sd = b.run(sd)
                 l = md + sd; r = md - sd
@@ -164,17 +189,20 @@ object VirtualSurround {
                     val g = if (db > -24f) 10f.pow(-(db + 24f) * (1f - 1f / 3f) / 20f) else 1f
                     l *= g * makeup; r *= g * makeup
                 }
-                out.putShort(soft(l)); out.putShort(soft(r))
+                // Lookahead limiter, ceiling -0.7 dB.
+                val pk = maxOf(abs(l), abs(r))
+                hold = if (pk > hold) pk else hold * holdRel
+                val target = if (hold > 0.92f) 0.92f / hold else 1f
+                gain += (target - gain) * (if (target < gain) gainAtk else gainRel)
+                val dl = limL[limPos]; val dr = limR[limPos]
+                limL[limPos] = l; limR[limPos] = r
+                limPos = (limPos + 1) % la
+                out.putShort(clip(dl * gain)); out.putShort(clip(dr * gain))
             }
             input.position(input.limit())
             out.flip()
         }
 
-        /** Soft limiter: untouched up to 90%, then eased in so peaks never crackle. */
-        private fun soft(x: Float): Short {
-            val a = abs(x)
-            val y = if (a <= 0.9f) x else (if (x > 0) 1f else -1f) * (0.9f + 0.1f * tanh((a - 0.9f) / 0.1f))
-            return (y * 32767f).toInt().coerceIn(-32768, 32767).toShort()
-        }
+        private fun clip(x: Float): Short = (x * 32767f).toInt().coerceIn(-32768, 32767).toShort()
     }
 }
