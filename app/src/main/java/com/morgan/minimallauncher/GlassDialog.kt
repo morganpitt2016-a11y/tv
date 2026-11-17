@@ -103,7 +103,9 @@ class GlassDialog(private val context: Context) {
                     isVerticalScrollBarEnabled = true
                     addView(text)
                 }
-                card.addView(scroll, LinearLayout.LayoutParams(-1, dp(c, 260f)).apply { topMargin = dp(c, 12f) })
+                // Less room for the words when there are several buttons, so the card always fits on the screen.
+                val textH = if (choices.size >= 4) 140f else if (choices.size == 3) 200f else 260f
+                card.addView(scroll, LinearLayout.LayoutParams(-1, dp(c, textH)).apply { topMargin = dp(c, 12f) })
             } else {
                 card.addView(text, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(c, 10f) })
             }
@@ -157,7 +159,7 @@ class GlassDialog(private val context: Context) {
             buttons.addView(row, LinearLayout.LayoutParams(-1, dp(c, 44f)).apply { topMargin = dp(c, 8f) })
         }
         // A long list of choices scrolls instead of running off the screen.
-        val scrolls = scrollChoices || choices.size > 5
+        val scrolls = scrollChoices || choices.size > 5 || (choices.size > 3 && (message?.length ?: 0) > 280)
         val buttonsContainer: View = if (scrolls) {
             ScrollView(c).apply {
                 isVerticalScrollBarEnabled = false
@@ -169,7 +171,7 @@ class GlassDialog(private val context: Context) {
             }
         } else buttons
         card.addView(buttonsContainer, LinearLayout.LayoutParams(-1,
-            if (scrolls) minOf(dp(c, 300f), choices.size * dp(c, 52f) + dp(c, 12f)) else -2).apply {
+            if (scrolls) minOf(dp(c, if ((message?.length ?: 0) > 280) 230f else 300f), choices.size * dp(c, 52f) + dp(c, 12f)) else -2).apply {
             topMargin = dp(c, 14f)
             if (scrolls) { marginStart = -dp(c, 10f); marginEnd = -dp(c, 10f) }
         })
