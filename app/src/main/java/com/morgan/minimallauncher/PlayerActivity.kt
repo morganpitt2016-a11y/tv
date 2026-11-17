@@ -79,6 +79,12 @@ class PlayerActivity : Activity() {
     private var stalls = 0
     private var audioLoggedFor: String? = null
     private var usingResolved = false
+    // Next episode loading behind the credits: its address, whether that went wrong this episode, and whether we're paused at the end.
+    private var preloadFor: String? = null
+    private var preloadFailed = false
+    private var preloaded = false
+    private var movingOn = false
+    private var atItemEnd = false
     private var startedAt = 0L
     private var firstFrameLogged = false
     /** Netflix-style "You're watching" card shown while paused. */
@@ -321,9 +327,16 @@ class PlayerActivity : Activity() {
                 if (firstFrameLogged) return
                 firstFrameLogged = true
                 val ms = Perf.now() - startedAt
-                Perf.record("Player: first picture ${ms} ms" + (if (usingResolved) " (ready connection)" else "") + " · $titleText")
+                Perf.record("Player: first picture ${ms} ms" + (if (preloaded) " (loaded during credits)" else if (usingResolved) " (ready connection)" else "") + " · $titleText")
+                preloaded = false
             }
             override fun onPlayerError(error: PlaybackException) {
+                // Loading the next episode early went wrong: drop it and carry on with this one the usual way.
+                player?.let { q -> if (preloadFor != null && q.mediaItemCount > 1 && q.currentMediaItemIndex == 0) {
+                    Diag.send(this@PlayerActivity, "player", "next-episode preload failed (${error.errorCodeName}) - carrying on without it")
+                    preloadFailed = true; preloadFor = null
+                    q.removeMediaItem(1); q.prepare(); q.play(); return
+                } }
                 // The ready-made connection didn't work: try the normal address once.
                 if (usingResolved) { triedResolved = true; usingResolved = false; start(url, resume = true); return }
                 // Pause/rewind couldn't keep up with this channel: play it straight from the internet instead.
@@ -347,10 +360,11 @@ class PlayerActivity : Activity() {
                     Prefs.setInt(this@PlayerActivity, introKey(), (new.positionMs / 1000).toInt())
                 }
                 skippingIntro = false
+                if (reason == Player.DISCONTINUITY_REASON_SEEK && atItemEnd && player?.currentMediaItemIndex == 0) atItemEnd = false   // went back into it
             }
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 handler.removeCallbacks(showPause)
-                val pausedByYou = !isPlaying && player?.playWhenReady == false && player?.playbackState == Player.STATE_READY
+                val pausedByYou = !isPlaying && !atItemEnd && player?.playWhenReady == false && player?.playbackState == Player.STATE_READY
                 if (pausedByYou) handler.postDelayed(showPause, 1200) else hidePauseInfo()
                 // A new episode (or film) has started: clear any controls left over from the last one.
                 if (isPlaying && hideControlsOnStart) { hideControlsOnStart = false; view.hideController() }
@@ -363,17 +377,46 @@ class PlayerActivity : Activity() {
                 }
                 // Live pause buffer filled up (or the stream ended): start a fresh one from live.
                 if (state == Player.STATE_ENDED && live && ts != null) { ts?.stop(); ts = null; tsStart = 0L; start(url, resume = false); return }
-                if (state == Player.STATE_ENDED && !live) {
-                    Prefs.setInt(this@PlayerActivity, posKey(), 0)
-                    if (sleepAfterEpisode) goToSleep()
-                    else if (queue.isNotEmpty()) startCountdown() else askRating { finish() }
+                if (state == Player.STATE_ENDED && !live) episodeEnded()
+            }
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                // It moved on to the waiting episode by itself (e.g. Play pressed at the very end): catch up.
+                if (!live && !movingOn && preloadFor != null && player?.currentMediaItemIndex == 1) playNext()
+            }
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                // Paused at the end of the episode because the next one is waiting in the same player.
+                if (!playWhenReady && reason == Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM && !live) {
+                    handler.removeCallbacks(showPause)
+                    episodeEnded()
                 }
             }
         })
         return p
     }
 
+    private fun episodeEnded() {
+        if (atItemEnd) return
+        atItemEnd = true
+        Prefs.setInt(this, posKey(), 0)
+        if (sleepAfterEpisode) goToSleep()
+        else if (queue.isNotEmpty()) startCountdown() else askRating { finish() }
+    }
+
+    /** Near the end: get the next episode's address ready, then let the player load it once this one is fully loaded. */
+    private fun prepareNext(left: Long) {
+        val p = player ?: return
+        val n = queue.firstOrNull() ?: return
+        if (live || !n.url.startsWith("http")) return
+        if (left < 180_000) Xtream.preResolve(n.url)
+        if (left < 240_000 && preloadFor == null && !preloadFailed && p.mediaItemCount == 1) {
+            preloadFor = n.url
+            p.pauseAtEndOfMediaItems = true
+            p.addMediaItem(MediaItem.fromUri(n.url))
+        }
+    }
+
     private fun start(u: String, resume: Boolean) {
+        atItemEnd = false; preloadFor = null; preloadFailed = false
         liveChannel = if (live) titleText else null
         val p = player ?: newPlayer().also { player = it; view.player = it }   // changing channel reuses the player
         p.stop()
@@ -428,6 +471,7 @@ class PlayerActivity : Activity() {
             val p = player
             if (p != null && !live && queue.isNotEmpty() && !counting && p.duration > 0) {
                 val left = p.duration - p.currentPosition
+                prepareNext(left)
                 val window = creditsWindow()
                 if (left in 1..window && !nextDismissed && p.isPlaying) enterCredits(left)
                 else if (left > window) { nextDismissed = false; if (creditsMode) restoreFromCredits() }
@@ -590,7 +634,18 @@ class PlayerActivity : Activity() {
         nextDismissed = false
         WatchHistory.forget(applicationContext, n.url)
         showBanner(4500)
-        start(n.url, resume = false)
+        val p = player
+        if (p != null && preloadFor == n.url && p.mediaItemCount > 1) {
+            // Already loading behind the credits: just move on to it.
+            preloadFor = null; preloadFailed = false; atItemEnd = false
+            startedAt = Perf.now(); firstFrameLogged = false; usingResolved = false; preloaded = true
+            movingOn = true
+            try {
+                if (p.currentMediaItemIndex == 0) p.seekTo(1, 0)
+                p.removeMediaItem(0)
+                p.playWhenReady = true
+            } finally { movingOn = false }
+        } else start(n.url, resume = false)
         handler.removeCallbacks(progressTick); handler.postDelayed(progressTick, 1000)
         if (autoInARow >= 3) askStillWatching()
     }
