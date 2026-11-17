@@ -160,6 +160,9 @@ class EpisodesActivity : Activity() {
         }
     }
 
+    override fun onStart() { super.onStart(); SoundbarWake.hold(this, "episodes") }
+    override fun onStop() { super.onStop(); SoundbarWake.release("episodes") }
+
     override fun onResume() {
         super.onResume()
         if (all.isNotEmpty()) { refreshPlayButton(); adapter.notifyDataSetChanged() }

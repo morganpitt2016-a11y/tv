@@ -248,6 +248,9 @@ class WatchActivity : AppCompatActivity() {
 
     internal var builtFor: String? = null
 
+    override fun onStart() { super.onStart(); SoundbarWake.hold(this, "watch") }
+    override fun onStop() { super.onStop(); SoundbarWake.release("watch") }
+
     override fun onResume() {
         super.onResume()
         // Someone else picked their profile: rebuild everything for them.

@@ -309,8 +309,8 @@ class LiveGuideActivity : Activity() {
         p.prepare()
     }
 
-    override fun onStop() { super.onStop(); Updater.guideOpen = false; handler.removeCallbacks(pipJob); player?.release(); player = null; pipChannel = -1 }
-    override fun onStart() { super.onStart(); Updater.guideOpen = true; if (selected != null) handler.postDelayed(pipJob, 300) }
+    override fun onStop() { super.onStop(); SoundbarWake.release("guide"); Updater.guideOpen = false; handler.removeCallbacks(pipJob); player?.release(); player = null; pipChannel = -1 }
+    override fun onStart() { super.onStart(); SoundbarWake.hold(this, "guide"); Updater.guideOpen = true; if (selected != null) handler.postDelayed(pipJob, 300) }
     override fun onDestroy() { handler.removeCallbacksAndMessages(null); super.onDestroy() }
 
     // ---- actions ----
