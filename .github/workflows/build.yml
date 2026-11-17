@@ -39,7 +39,8 @@ jobs:
             -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
 
       - name: Build debug APKs
-        run: DEBUG_KEYSTORE=$HOME/signing/debug.keystore gradle assembleDebug --stacktrace
+        run: |
+          DEBUG_KEYSTORE=$HOME/signing/debug.keystore gradle assembleDebug > build.log 2>&1 || { tail -30 build.log; echo "----- compiler errors -----"; grep -E "^e: " build.log | head -80; exit 1; }
 
       - name: Diagnose APK (signing + manifest, as the installer sees them)
         run: |
