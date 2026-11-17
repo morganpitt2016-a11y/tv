@@ -289,6 +289,19 @@ class WatchActivity : AppCompatActivity() {
             }
             if (event.keyCode == KeyEvent.KEYCODE_BACK) return true
         }
+        // Down from the tabs: the first title of the first row, not whichever card happens to sit under the tab.
+        if (event.action == KeyEvent.ACTION_DOWN && event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN && rail == null && detail == null &&
+            currentFocus?.parent === nav && tab != "live" && tab != "search") {
+            val list = firstContentRow()?.let { rowList(it) }
+            val lm = list?.layoutManager as? LinearLayoutManager
+            if (list != null && lm != null && list.childCount > 0) {
+                val first = lm.findViewByPosition(0)
+                if (first != null && first.isFocusable) { first.requestFocus(); return true }
+                lm.scrollToPositionWithOffset(0, 0)
+                list.post { lm.findViewByPosition(0)?.requestFocus() }
+                return true
+            }
+        }
         // Up/Down between rows: land on the first card showing in the new row (like Apple TV), never a card half off screen.
         if (event.action == KeyEvent.ACTION_DOWN && rail == null && detail == null && (event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN || event.keyCode == KeyEvent.KEYCODE_DPAD_UP)) {
             val f = currentFocus
