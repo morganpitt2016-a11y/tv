@@ -472,7 +472,7 @@ class LiveGuideActivity : Activity() {
                 runOnUiThread { if (v != null) PlayerActivity.play(this, Xtream.vodUrl(app, v), item.name, live = false, eyebrow = "RECORDING", image = item.image) else GlassUi.toast(this, "${item.name} is no longer on Dodgy Box") }
                 return@run
             }
-            val eps = try { Xtream.findSeries(app, item.name, 0)?.let { Xtream.episodes(app, it) } } catch (e: Exception) { null }.orEmpty().sortedWith(compareBy({ it.season }, { it.number }))
+            val eps = try { Xtream.seriesEpisodes(app, item.name, 0)?.second } catch (e: Exception) { null }.orEmpty().sortedWith(compareBy({ it.season }, { it.number }))
             val e = eps.firstOrNull { it.season == item.season && it.number == item.episode }
             runOnUiThread {
                 if (e == null) { GlassUi.toast(this, "That episode is no longer on Dodgy Box"); return@runOnUiThread }

@@ -100,7 +100,7 @@ class EpisodesActivity : Activity() {
 
         val app = applicationContext
         Bg.run {
-            val eps = try { Xtream.findSeries(app, name, 0)?.let { Xtream.episodes(app, it) } } catch (e: Exception) { null }.orEmpty()
+            val eps = try { Xtream.seriesEpisodes(app, name, 0)?.second } catch (e: Exception) { null }.orEmpty()
             runOnUiThread { if (!isDestroyed) show(eps) }
         }
         // The show's story, cast and similar shows (from the film and TV guide).

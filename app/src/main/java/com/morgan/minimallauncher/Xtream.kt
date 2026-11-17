@@ -595,7 +595,7 @@ object Xtream {
 
     /** Look the series up and fetch its episodes in the background, ready for when Watch is pressed. */
     fun prefetchSeries(c: Context, title: String, year: Int) {
-        Thread { try { findSeries(c, title, year)?.let { episodes(c, it) } } catch (e: Exception) {} }.start()
+        Thread { try { seriesEpisodes(c, title, year) } catch (e: Exception) {} }.start()
     }
 
     fun episodes(c: Context, s: Series): List<Episode> {
@@ -720,9 +720,42 @@ object Xtream {
         return hits.firstOrNull { year > 0 && yearOf(it.name) == year } ?: hits.firstOrNull { yearOf(it.name) == null || year <= 0 } ?: hits.firstOrNull()
     }
 
-    fun findSeries(c: Context, title: String, year: Int): Series? {
+    fun findSeries(c: Context, title: String, year: Int): Series? = seriesCandidates(c, title, year).firstOrNull()
+
+    /**
+     * Every list entry that could be this show, best first. Providers often list a show several times
+     * (other languages, a 4K copy, an old empty entry), so the one that last had episodes comes first,
+     * then the right year, then the rest. Names like "EN: Black Mirror" or "Black Mirror 2011" count too.
+     */
+    fun seriesCandidates(c: Context, title: String, year: Int): List<Series> {
         val wanted = TiviTuner.vodKey(title)
-        val hits = seriesByKey(c)[wanted].orEmpty()
-        return hits.firstOrNull { year > 0 && yearOf(it.name) == year } ?: hits.firstOrNull()
+        if (wanted.isEmpty()) return emptyList()
+        val byKey = seriesByKey(c)
+        var hits = byKey[wanted].orEmpty()
+        if (hits.isEmpty()) hits = byKey.entries.filter { (k, _) ->
+            k.replace(trailingYear, "") == wanted || k.replace(leadingLang, "") == wanted || k.replace(leadingLang, "").replace(trailingYear, "") == wanted
+        }.flatMap { it.value }
+        if (hits.isEmpty()) return emptyList()
+        val picked = Prefs.int(c, "xpick_$wanted", -1)
+        return hits.sortedBy { s ->
+            when {
+                s.id == picked -> 0
+                year > 0 && yearOf(s.name) == year -> 1
+                yearOf(s.name) == null -> 2
+                else -> 3
+            }
+        }.distinctBy { it.id }
+    }
+    private val trailingYear = Regex(" (19|20)\\d{2}$")
+    private val leadingLang = Regex("^[a-z]{2,3} ")
+
+    /** The show and its episodes: tries each matching entry until one actually has episodes, and remembers it. */
+    fun seriesEpisodes(c: Context, title: String, year: Int): Pair<Series, List<Episode>>? {
+        val wanted = TiviTuner.vodKey(title)
+        for (s in seriesCandidates(c, title, year).take(6)) {
+            val eps = try { episodes(c, s) } catch (e: Exception) { try { episodes(c, s) } catch (e2: Exception) { emptyList() } }
+            if (eps.isNotEmpty()) { Prefs.setInt(c, "xpick_$wanted", s.id); return s to eps }
+        }
+        return null
     }
 }

@@ -2209,7 +2209,7 @@ class WatchActivity : AppCompatActivity() {
             var episodes: List<Xtream.Episode> = emptyList()
             val t0 = Perf.now()
             try {
-                if (show) { series = Xtream.findSeries(app, t.name, t.year); series?.let { episodes = Xtream.episodes(app, it) } }
+                if (show) { Xtream.seriesEpisodes(app, t.name, t.year)?.let { (sr, eps) -> series = sr; episodes = eps } }
                 else film = Xtream.findVod(app, t.name, t.year)
             } catch (e: Exception) {}
             Perf.note("Dodgy Box: found ${t.name}", t0)
@@ -2618,7 +2618,7 @@ class WatchActivity : AppCompatActivity() {
                 val name = it.series ?: it.title
                 // Rebuild the episode list so the next episode can follow on.
                 Bg.run {
-                    val eps = try { Xtream.findSeries(app, name, 0)?.let { s -> Xtream.episodes(app, s) } } catch (e: Exception) { null }.orEmpty()
+                    val eps = try { Xtream.seriesEpisodes(app, name, 0)?.second } catch (e: Exception) { null }.orEmpty()
                     val ep = eps.firstOrNull { e -> e.season == it.season && e.number == it.episode }
                     runOnUiThread {
                         if (isDestroyed) return@runOnUiThread

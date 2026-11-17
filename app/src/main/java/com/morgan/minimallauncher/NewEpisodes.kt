@@ -17,8 +17,7 @@ object NewEpisodes {
         val followed = ResumeStore.all(c).filter { it.kind == "episode" }.mapNotNull { it.series ?: it.title }.distinct().take(12)
         val found = mutableListOf<String>()
         for (name in followed) {
-            val s = try { Xtream.findSeries(c, name, 0) } catch (e: Exception) { null } ?: continue
-            val eps = try { Xtream.episodes(c, s) } catch (e: Exception) { emptyList() }
+            val (s, eps) = try { Xtream.seriesEpisodes(c, name, 0) } catch (e: Exception) { null } ?: continue
             val newest = eps.maxWithOrNull(compareBy({ it.season }, { it.number })) ?: continue
             val code = newest.season * 1000 + newest.number
             val known = Prefs.int(c, newestKey(c, name), 0)

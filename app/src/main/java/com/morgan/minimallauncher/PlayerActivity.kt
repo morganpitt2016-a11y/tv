@@ -219,7 +219,7 @@ class PlayerActivity : Activity() {
         if (!live && seriesTitle != null && queue.isEmpty() && curSeason > 0) {
             val app0 = applicationContext; val name = seriesTitle!!; val s0 = curSeason; val e0 = curEpisode
             Thread {
-                val eps = try { Xtream.findSeries(app0, name, 0)?.let { Xtream.episodes(app0, it) } } catch (e: Exception) { null }.orEmpty()
+                val eps = try { Xtream.seriesEpisodes(app0, name, 0)?.second } catch (e: Exception) { null }.orEmpty()
                 val i = eps.indexOfFirst { it.season == s0 && it.number == e0 }
                 if (i >= 0) runOnUiThread {
                     if (queue.isEmpty()) eps.drop(i + 1).forEach { queue.addLast(Queued(Xtream.episodeUrl(app0, it), it.season, it.number)) }
@@ -976,7 +976,7 @@ class PlayerActivity : Activity() {
             episodeListLoading = true
             val app = applicationContext; val name = seriesTitle!!
             Bg.run {
-                val eps = try { Xtream.findSeries(app, name, 0)?.let { Xtream.episodes(app, it) } } catch (e: Exception) { null }
+                val eps = try { Xtream.seriesEpisodes(app, name, 0)?.second } catch (e: Exception) { null }
                 runOnUiThread {
                     episodeListLoading = false
                     episodeList = eps.orEmpty()
@@ -1109,7 +1109,7 @@ class PlayerActivity : Activity() {
         episodeListLoading = true
         val app = applicationContext; val name = seriesTitle!!
         Bg.run {
-            val eps = try { Xtream.findSeries(app, name, 0)?.let { Xtream.episodes(app, it) } } catch (e: Exception) { null }
+            val eps = try { Xtream.seriesEpisodes(app, name, 0)?.second } catch (e: Exception) { null }
             runOnUiThread { episodeListLoading = false; episodeList = eps.orEmpty(); if (!isDestroyed) then?.invoke() }
         }
     }

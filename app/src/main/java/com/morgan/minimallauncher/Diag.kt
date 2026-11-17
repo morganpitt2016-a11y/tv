@@ -136,6 +136,21 @@ object Diag {
                     main.post { PlayerActivity.play(app, Xtream.vodUrl(app, v), title, live = false, eyebrow = "FILM") }
                 }
             }
+            cmd.startsWith("xshow:") -> thread(isDaemon = true) {
+                // Which provider entries match a show and how many episodes each has (names only - never links).
+                val title = cmd.removePrefix("xshow:").trim()
+                val out = StringBuilder("Matches for \"$title\":\n")
+                try {
+                    val list = Xtream.seriesCandidates(app, title, 0)
+                    if (list.isEmpty()) out.append("(none)\n")
+                    for (s in list.take(8)) {
+                        val n = try { Xtream.episodes(app, s).size.toString() } catch (e: Exception) { "error ${e.javaClass.simpleName}" }
+                        out.append("· ${s.name} [cat ${s.category}] → $n episodes\n")
+                    }
+                    out.append("Picked: ${Xtream.seriesEpisodes(app, title, 0)?.first?.name ?: "nothing with episodes"}")
+                } catch (e: Exception) { out.append("failed: ${e.javaClass.simpleName}") }
+                send(app, "xshow", out.toString())
+            }
             cmd == "update" -> Updater.maybeUpdate(app, force = true, asked = true) { send(app, "update", it) }
             cmd == "xcheck" -> thread(isDaemon = true) {
                 // The result only - never the server, username or password.
