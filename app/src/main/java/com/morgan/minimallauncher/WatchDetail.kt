@@ -131,7 +131,7 @@ internal fun WatchActivity.openDetail(t: WatchCatalog.Title, from: View?) {
     col.addView(more.view, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(c, 18f) })
     detailMore = more.view
 
-    (primary ?: listButton).requestFocus()
+    play.requestFocus()
     WatchCatalog.detail(this, t) { d ->
         if (detail !== page || d == null) return@detail
         meta.text = metaLine(t, d)
