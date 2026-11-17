@@ -277,6 +277,8 @@ class PlayerActivity : Activity() {
         super.onStart()
         current = java.lang.ref.WeakReference(this)
         watching = true
+        // Wake the soundbar while the stream loads, so it has locked on before the sound starts (PCM modes only).
+        if ((Prefs.string(this, "audio_format") ?: "auto") != "auto") SoundbarWake.start()
         start(url, resume = !live && !intent.getBooleanExtra(EXTRA_FROM_START, false))
         handler.removeCallbacks(progressTick); handler.postDelayed(progressTick, 1000)
     }
@@ -389,6 +391,7 @@ class PlayerActivity : Activity() {
                 if (reason == Player.DISCONTINUITY_REASON_SEEK && atItemEnd && player?.currentMediaItemIndex == 0) atItemEnd = false   // went back into it
             }
             override fun onIsPlayingChanged(isPlaying: Boolean) {
+                if (isPlaying) handler.postDelayed({ SoundbarWake.stop() }, 800)
                 // The sound has started: set the sound profile up now, when the real channel layout (stereo, 5.1…) is known.
                 if (isPlaying && fxFor != url) { fxFor = url; startSoundFx() }
                 handler.removeCallbacks(showPause)
@@ -554,6 +557,7 @@ class PlayerActivity : Activity() {
 
     override fun onStop() {
         super.onStop()
+        SoundbarWake.stop()
         liveChannel = null
         ts?.stop(); ts = null; tsStart = 0L
         watching = false
