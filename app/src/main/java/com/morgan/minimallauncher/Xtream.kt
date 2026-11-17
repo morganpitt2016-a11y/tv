@@ -698,7 +698,10 @@ object Xtream {
     private fun keysFor(c: Context, cacheName: String, n: Int, name: (Int) -> String): List<String> {
         val bin = File(dir(c), "$cacheName.bin")
         val f = File(dir(c), "$cacheName.keys")
-        val stamp = bin.length() xor n.toLong()
+        // Fingerprint of every name in order: the same size list in a new order must not reuse old keys.
+        var h = 1125899906842597L
+        for (i in 0 until n) h = 31 * h + name(i).hashCode()
+        val stamp = bin.length() xor n.toLong() xor h
         if (f.exists()) try {
             java.io.DataInputStream(java.io.BufferedInputStream(f.inputStream(), 64 * 1024)).use { i ->
                 if (i.readLong() == stamp && i.readInt() == n) return List(n) { i.readUTF() }
@@ -722,7 +725,7 @@ object Xtream {
 
     fun findVod(c: Context, title: String, year: Int): Vod? {
         val wanted = TiviTuner.vodKey(title)
-        val hits = vodByKey(c)[wanted].orEmpty()
+        val hits = vodByKey(c)[wanted].orEmpty().filter { TiviTuner.vodKey(it.name) == wanted }   // never trust a stale index
         return hits.firstOrNull { year > 0 && yearOf(it.name) == year } ?: hits.firstOrNull { yearOf(it.name) == null || year <= 0 } ?: hits.firstOrNull()
     }
 
@@ -737,10 +740,10 @@ object Xtream {
         val wanted = TiviTuner.vodKey(title)
         if (wanted.isEmpty()) return emptyList()
         val byKey = seriesByKey(c)
+        fun same(k: String) = k == wanted || k.replace(trailingYear, "") == wanted || k.replace(leadingLang, "") == wanted || k.replace(leadingLang, "").replace(trailingYear, "") == wanted
         var hits = byKey[wanted].orEmpty()
-        if (hits.isEmpty()) hits = byKey.entries.filter { (k, _) ->
-            k.replace(trailingYear, "") == wanted || k.replace(leadingLang, "") == wanted || k.replace(leadingLang, "").replace(trailingYear, "") == wanted
-        }.flatMap { it.value }
+        if (hits.isEmpty()) hits = byKey.entries.filter { (k, _) -> same(k) }.flatMap { it.value }
+        hits = hits.filter { same(TiviTuner.vodKey(it.name)) }                                          // never trust a stale index
         if (hits.isEmpty()) return emptyList()
         val picked = Prefs.int(c, "xpick_$wanted", -1)
         return hits.sortedBy { s ->
