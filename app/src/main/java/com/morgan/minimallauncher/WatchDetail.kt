@@ -85,29 +85,19 @@ internal fun WatchActivity.openDetail(t: WatchCatalog.Title, from: View?) {
     val people = GlassUi.text(c, "", 11.5f, R.font.inter_medium, 0x99FFFFFF.toInt()).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END }
     inset(people, 8f, dp(c, 540f))
 
-    // Buttons.
+    // Buttons: one Play (through Dodgy Box), and every other way to watch behind "More Ways to Watch".
     val buttons = LinearLayout(c).apply { gravity = Gravity.CENTER_VERTICAL; clipChildren = false }
-    val primary = if (main == null) null else {
-        val label = when {
-            main.provider.installed == null -> "Get ${main.provider.displayName}"
-            main.kind == "RENT" -> "Rent on ${main.provider.displayName}"
-            main.kind == "BUY" -> "Buy on ${main.provider.displayName}"
-            else -> "▶  Watch on ${main.provider.displayName}"
-        }
-        pillButton(label, primary = true) { useOffer(t, main) }
+    val dodgy = Xtream.isSetUp(c) && !Xtream.isExpired(c)
+    val play = when {
+        dodgy -> pillButton("▶  Play", primary = true) { watchOnDodgyBox(t) }
+        main != null && main.provider.installed != null && main.kind != "RENT" && main.kind != "BUY" ->
+            pillButton("▶  Play", primary = true) { useOffer(t, main) }
+        Xtream.isSetUp(c) -> pillButton("▶  Play", primary = true) { Xtream.showExpired(this) }
+        else -> pillButton("Ways to Watch", primary = true) { moreWays(t) }
     }
-    primary?.let { buttons.addView(it, LinearLayout.LayoutParams(-2, dp(c, 40f)).apply { marginEnd = dp(c, 10f) }) }
-    if (primary == null) {
-        buttons.addView(pillButton("Search Google TV", primary = true) { WatchCatalog.searchGoogleTv(this, t.name) },
-            LinearLayout.LayoutParams(-2, dp(c, 40f)).apply { marginEnd = dp(c, 10f) })
-    }
-    // TiviMate's own films and series (from the TV provider), played the same way as live TV.
-    if (LiveGuide.hasTiviMate(c) || Xtream.isSetUp(c)) {
-        val expired = Xtream.isExpired(c)
-        buttons.addView(pillButton(if (expired) "Dodgy Box · Expired" else "Watch on Dodgy Box") {
-            if (Xtream.isExpired(this)) Xtream.showExpired(this) else watchOnDodgyBox(t)
-        }.apply { if (expired) alpha = 0.55f },
-            LinearLayout.LayoutParams(-2, dp(c, 40f)).apply { marginEnd = dp(c, 10f) })
+    buttons.addView(play, LinearLayout.LayoutParams(-2, dp(c, 40f)).apply { marginEnd = dp(c, 10f) })
+    if (dodgy || (main != null && main.provider.installed != null)) {
+        buttons.addView(pillButton("More Ways to Watch") { moreWays(t) }, LinearLayout.LayoutParams(-2, dp(c, 40f)).apply { marginEnd = dp(c, 10f) })
     }
     val trailerButton = pillButton("Trailer") {}
     trailerButton.visibility = View.GONE
@@ -134,14 +124,6 @@ internal fun WatchActivity.openDetail(t: WatchCatalog.Title, from: View?) {
         }
     }
     inset(buttons, 20f)
-
-    // Where to watch: every service with this title.
-    if (t.offers.isNotEmpty()) {
-        inset(GlassUi.text(c, "WHERE TO WATCH", 10f, R.font.inter_semibold, 0x99FFFFFF.toInt()).apply { letterSpacing = 0.12f }, 24f)
-        val chips = LinearLayout(c).apply { gravity = Gravity.CENTER_VERTICAL; clipChildren = false }
-        for (o in t.offers.take(5)) chips.addView(offerChip(t, o), LinearLayout.LayoutParams(-2, dp(c, 44f)).apply { marginEnd = dp(c, 10f) })
-        inset(chips, 8f)
-    }
 
     // More Like This (filled in when the details arrive).
     val more = row("more", "More Like This", height = 196f)
@@ -268,10 +250,7 @@ internal fun WatchActivity.watchOnDodgyBox(t: WatchCatalog.Title) {
             when {
                 f != null -> playFilm(t, Xtream.vodUrl(app, f))
                 series != null && episodes.isNotEmpty() -> chooseEpisode(t, episodes)
-                else -> {
-                    GlassUi.toast(this, "${t.name} isn’t in your Dodgy Box library - trying TiviMate")
-                    TiviTuner.playVod(this, t.name, t.year, show)
-                }
+                else -> moreWays(t, "${t.name} isn’t on Dodgy Box.")
             }
         }
     }
@@ -355,6 +334,25 @@ internal fun WatchActivity.metaLine(t: WatchCatalog.Title, d: WatchCatalog.Detai
     t.imdb?.let { "IMDb %.1f".format(it) },
     t.genres.take(3).joinToString(", ").ifEmpty { null },
 ).joinToString("  ·  ")
+
+/** Every other way to watch: each service that has it (included, rent, buy or not installed), then Google TV. */
+internal fun WatchActivity.moreWays(t: WatchCatalog.Title, note: String? = null) {
+    val d = GlassDialog(this).title("Ways to Watch")
+    d.message((note?.let { "$it\n\n" } ?: "") + if (t.offers.isEmpty()) "No streaming service has ${t.name} in the UK right now." else "Pick where to watch ${t.name}.")
+    for (o in t.offers.distinctBy { it.provider.displayName }.take(6)) {
+        val how = when {
+            o.provider.installed == null -> "Get the app"
+            o.kind == "FLATRATE" -> "Included"
+            o.kind == "FREE" || o.kind == "ADS" -> "Free"
+            o.kind == "RENT" -> "Rent"
+            o.kind == "BUY" -> "Buy"
+            else -> "Available"
+        }
+        d.button("${o.provider.displayName}  ·  $how") { useOffer(t, o) }
+    }
+    d.button("Search Google TV") { WatchCatalog.searchGoogleTv(this, t.name) }
+    d.button("Cancel").show()
+}
 
 /** Watch / rent / buy, or offer to install the app. */
 internal fun WatchActivity.useOffer(t: WatchCatalog.Title, o: WatchCatalog.Offer) {
