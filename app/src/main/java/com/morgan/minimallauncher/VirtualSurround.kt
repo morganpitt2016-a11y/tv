@@ -105,8 +105,8 @@ object VirtualSurround {
         private var applied: SoundProfile.Settings? = null
         private var coeffs: Array<FloatArray> = emptyArray()
         // The middle of the mix (voices) and the sides (width) are shaped separately.
-        private val mid = Array(4) { Biquad() }
-        private val side = Array(3) { Biquad() }
+        private val mid = Array(7) { Biquad() }
+        private val side = Array(4) { Biquad() }
         private var env = 0f
         private var atk = 0f; private var rel = 0f
         // Rear channels arrive ~12 ms late and a touch softer on top - heard as around and behind, not from the bar.
@@ -115,6 +115,9 @@ object VirtualSurround {
         private var rearLp = FloatArray(0)
         private var rearPos = 0
         private var rearA = 0f
+        // Rear-channel bass kept in phase on both sides: in opposite phase it cancelled itself in the subwoofer (thin sound).
+        private var rearLow = FloatArray(0)
+        private var lowA = 0f
         // Lookahead limiter: sees peaks 4 ms early and eases the level down before they arrive (no crackle, no dulling).
         private var la = 1
         private var limL = FloatArray(1); private var limR = FloatArray(1); private var limPos = 0
@@ -128,6 +131,7 @@ object VirtualSurround {
             atk = exp(-1.0 / (0.008 * fs)).toFloat(); rel = exp(-1.0 / (0.25 * fs)).toFloat()
             rearBuf = Array(n) { FloatArray((0.012 * fs).toInt().coerceAtLeast(1)) }; rearLp = FloatArray(n); rearPos = 0
             rearA = (1 - exp(-2 * Math.PI * 7000.0 / fs)).toFloat()
+            rearLow = FloatArray(n); lowA = (1 - exp(-2 * Math.PI * 180.0 / fs)).toFloat()
             la = (0.004 * fs).toInt().coerceAtLeast(1); limL = FloatArray(la); limR = FloatArray(la); limPos = 0
             holdRel = exp(-1.0 / (0.08 * fs)).toFloat()
             gainAtk = (1 - exp(-1.0 / (0.0015 * fs))).toFloat(); gainRel = (1 - exp(-1.0 / (0.2 * fs))).toFloat()
@@ -136,7 +140,7 @@ object VirtualSurround {
 
         override fun onFlush() {
             mid.forEach { it.clear() }; side.forEach { it.clear() }; env = 0f
-            rearBuf.forEach { it.fill(0f) }; rearLp.fill(0f); limL.fill(0f); limR.fill(0f); hold = 0f; gain = 1f
+            rearBuf.forEach { it.fill(0f) }; rearLp.fill(0f); rearLow.fill(0f); limL.fill(0f); limR.fill(0f); hold = 0f; gain = 1f
         }
 
         private fun tune(s: SoundProfile.Settings) {
@@ -154,6 +158,14 @@ object VirtualSurround {
             side[0].lowShelf(fs, 150.0, s.bass.toDouble())
             side[1].peak(fs, 600.0, -(dlg * 0.2), 1.0)
             side[2].highShelf(fs, 8000.0, s.treble.toDouble())
+            // Cinema voicing (Virtual Surround): weight in the sub-bass, less boxiness, a little air on top.
+            if (surround) {
+                mid[4].lowShelf(fs, 80.0, 3.5); mid[5].peak(fs, 300.0, -1.5, 0.8); mid[6].highShelf(fs, 10_000.0, 2.0)
+                side[3].highShelf(fs, 10_000.0, 2.0)
+            } else {
+                mid[4].peak(fs, 1000.0, 0.0, 1.0); mid[5].peak(fs, 1000.0, 0.0, 1.0); mid[6].peak(fs, 1000.0, 0.0, 1.0)
+                side[3].peak(fs, 1000.0, 0.0, 1.0)
+            }
         }
 
         override fun queueInput(input: ByteBuffer) {
@@ -170,7 +182,12 @@ object VirtualSurround {
                     var x = input.getShort() / 32768f
                     if (rear[ch]) {
                         val buf = rearBuf[ch]; val d = buf[rearPos % buf.size]; buf[rearPos % buf.size] = x
-                        rearLp[ch] += rearA * (d - rearLp[ch]); x = rearLp[ch]
+                        rearLp[ch] += rearA * (d - rearLp[ch])
+                        // Lows in phase to both sides (for the subwoofer), the rest blended wide.
+                        rearLow[ch] += lowA * (rearLp[ch] - rearLow[ch])
+                        val lo = rearLow[ch]; val hi = rearLp[ch] - lo
+                        l += hi * m[ch][0] + lo * 0.5f * G; r += hi * m[ch][1] + lo * 0.5f * G
+                        continue
                     }
                     l += x * m[ch][0]; r += x * m[ch][1]
                 }
