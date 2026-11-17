@@ -136,6 +136,15 @@ object Diag {
                     main.post { PlayerActivity.play(app, Xtream.vodUrl(app, v), title, live = false, eyebrow = "FILM") }
                 }
             }
+            cmd.startsWith("xfind:") -> thread(isDaemon = true) {
+                // Which film each title matches - names only, nothing plays. Several titles split by "|".
+                val out = StringBuilder()
+                for (title in cmd.removePrefix("xfind:").split("|").map { it.trim() }.filter { it.isNotEmpty() }) {
+                    val v = try { Xtream.findVod(app, title, 0) } catch (e: Exception) { null }
+                    out.append("$title → ${v?.name ?: "NOT FOUND"}\n")
+                }
+                send(app, "xfind", out.toString())
+            }
             cmd.startsWith("xshow:") -> thread(isDaemon = true) {
                 // Which provider entries match a show and how many episodes each has (names only - never links).
                 val title = cmd.removePrefix("xshow:").trim()
