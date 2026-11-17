@@ -217,6 +217,23 @@ class PlayerActivity : Activity() {
 
         seriesTitle = intent.getStringExtra(EXTRA_SERIES)
         image = intent.getStringExtra(EXTRA_IMAGE)
+        // While it loads: the title's artwork (dimmed, with its name) instead of a black screen; fades into the picture.
+        curtain = FrameLayout(this).apply {
+            setBackgroundColor(0xFF000000.toInt())
+            val art = android.widget.ImageView(this@PlayerActivity).apply { scaleType = android.widget.ImageView.ScaleType.CENTER_CROP; alpha = 0.55f }
+            image?.let { ImageLoader.load(art, it, ImageLoader.HERO) }
+            addView(art, FrameLayout.LayoutParams(-1, -1))
+            addView(View(this@PlayerActivity).apply { background = android.graphics.drawable.GradientDrawable(
+                android.graphics.drawable.GradientDrawable.Orientation.BOTTOM_TOP, intArrayOf(0xE6000000.toInt(), 0x33000000)) }, FrameLayout.LayoutParams(-1, -1))
+            val words = LinearLayout(this@PlayerActivity).apply { orientation = LinearLayout.VERTICAL }
+            words.addView(GlassUi.text(this@PlayerActivity, (seriesTitle ?: titleText), 34f, R.font.inter_semibold).apply { maxLines = 2 })
+            intent.getStringExtra(EXTRA_SUBTITLE)?.takeIf { it.isNotBlank() }?.let {
+                words.addView(GlassUi.text(this@PlayerActivity, it, 16f, R.font.inter_medium, 0xCCFFFFFF.toInt()), LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(this@PlayerActivity, 6f) })
+            }
+            addView(words, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.START).apply { setMargins(dp(this@PlayerActivity, 64f), 0, 0, dp(this@PlayerActivity, 72f)) })
+        }
+        root.addView(curtain, 1, FrameLayout.LayoutParams(-1, -1))
+        handler.postDelayed({ curtain?.let { c -> curtain = null; (c.parent as? ViewGroup)?.removeView(c) } }, 20_000)   // never stuck over the screen
         curSeason = intent.getIntExtra(EXTRA_SEASON, 0); curEpisode = intent.getIntExtra(EXTRA_EPISODE, 0)
         val qu = intent.getStringArrayExtra(EXTRA_Q_URLS); val qs = intent.getIntArrayExtra(EXTRA_Q_S); val qe = intent.getIntArrayExtra(EXTRA_Q_E)
         if (qu != null && qs != null && qe != null) for (i in qu.indices) queue.addLast(Queued(qu[i], qs[i], qe[i]))
@@ -328,6 +345,7 @@ class PlayerActivity : Activity() {
                 if (passthroughNow) { soundFx?.release(); soundFx = null }
             }
             override fun onRenderedFirstFrame() {
+                curtain?.let { c -> curtain = null; c.animate().alpha(0f).setDuration(450).withEndAction { (c.parent as? ViewGroup)?.removeView(c) }.start() }
                 // How long from pressing play to the picture (in the TV's timing log).
                 if (firstFrameLogged) return
                 firstFrameLogged = true
@@ -365,6 +383,7 @@ class PlayerActivity : Activity() {
                     Prefs.setInt(this@PlayerActivity, introKey(), (new.positionMs / 1000).toInt())
                 }
                 skippingIntro = false
+                if (reason == Player.DISCONTINUITY_REASON_SEEK) startWatch?.let { handler.removeCallbacks(it) }
                 if (reason == Player.DISCONTINUITY_REASON_SEEK && atItemEnd && player?.currentMediaItemIndex == 0) atItemEnd = false   // went back into it
             }
             override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -458,9 +477,10 @@ class PlayerActivity : Activity() {
         p.prepare()
         // If it can't get going (often: it can't jump to where you left off), start from the beginning instead.
         val startedFor = u
-        handler.postDelayed({
-            val q = player ?: return@postDelayed
-            if (url != startedFor || isFinishing || q.isPlaying || q.playerError != null) return@postDelayed
+        startWatch?.let { handler.removeCallbacks(it) }
+        val watch = Runnable {
+            val q = player ?: return@Runnable
+            if (url != startedFor || isFinishing || q.isPlaying || q.playerError != null) return@Runnable
             if (q.playbackState == Player.STATE_BUFFERING || q.playbackState == Player.STATE_IDLE) {
                 Diag.send(this, "player", "stuck: state=${q.playbackState} pos=${q.currentPosition / 1000}s dur=${q.duration / 1000}s resumeAt=${resumeAt ?: 0}s for \"$titleText\"")
                 if (resumeAt != null && !live) {
@@ -469,7 +489,20 @@ class PlayerActivity : Activity() {
                     start(startedFor, resume = false)
                 }
             }
-        }, 15_000)
+        }
+        startWatch = watch
+        handler.postDelayed(watch, 15_000)
+    }
+
+    // The "did it get going?" check after starting. Rewinding or skipping cancels it: a seek that's still loading
+    // isn't a failed resume (it used to send you back to the beginning).
+    private var startWatch: Runnable? = null
+    private var curtain: FrameLayout? = null
+
+    /** Leaving the player shrinks it away, like closing an app. */
+    override fun finish() {
+        super.finish()
+        @Suppress("DEPRECATION") overridePendingTransition(R.anim.screen_back_in, R.anim.player_out)
     }
 
     // Near the end of an episode, offer the next one (rather than only when the picture stops).
@@ -1682,6 +1715,8 @@ class PlayerActivity : Activity() {
                 .putExtra(EXTRA_Q_S, queue.map { it.second }.toIntArray())
                 .putExtra(EXTRA_Q_E, queue.map { it.third }.toIntArray())
                 .addFlags(if (c is Activity) 0 else Intent.FLAG_ACTIVITY_NEW_TASK))
+            // Opens with the same zoom as an app.
+            @Suppress("DEPRECATION") (c as? Activity)?.overridePendingTransition(R.anim.player_in, R.anim.screen_dim)
         }
     }
 }
