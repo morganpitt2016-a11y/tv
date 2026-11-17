@@ -296,6 +296,8 @@ class PlayerActivity : Activity() {
         // Auto: Dolby goes straight to the soundbar (full surround - decoding it here gave stereo and the sound profile
         // can't attach to it anyway); everything else is decoded here, where the sound profile shapes it.
         decodingAudio = format != "auto"
+        virtualMode = format == "virtual"
+        VirtualSurround.settings = SoundProfile.get(this)
         val builder = ExoPlayer.Builder(this).setLoadControl(load).setMediaSourceFactory(sources)
         if (decodingAudio) builder.setRenderersFactory(object : androidx.media3.exoplayer.DefaultRenderersFactory(this) {
             override fun buildAudioSink(context: Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): androidx.media3.exoplayer.audio.AudioSink =
@@ -1115,6 +1117,7 @@ class PlayerActivity : Activity() {
         "passthrough=" + (names.joinToString("/").ifEmpty { "none" }) + " maxch=" + caps.maxChannelCount
     } catch (e: Throwable) { "passthrough=?" }
     private var passthroughNow = false
+    private var virtualMode = false
     private var fxFor: String? = null
     private var fxFailedFor: String? = null
 
@@ -1122,6 +1125,9 @@ class PlayerActivity : Activity() {
     private fun startSoundFx() {
         soundFx?.release(); soundFx = null
         val s = SoundProfile.get(this)
+        VirtualSurround.settings = s
+        // Virtual Surround does the sound profile itself (Android's effects won't attach to decoded Dolby here).
+        if (virtualMode) { Diag.send(this, "player", "sound processing in Virtual Surround · " + SoundProfile.describe(s).removePrefix("Your sound: ") + " · \"$titleText\""); return }
         if (audioSession == 0 || passthroughNow || fxFailedFor == url) {
             if (!s.flat && passthroughNow) Diag.send(this, "player", "sound settings not applied to \"$titleText\": Dolby goes straight to the soundbar")
             return
@@ -1132,6 +1138,8 @@ class PlayerActivity : Activity() {
     }
 
     private fun applySound(s: SoundProfile.Settings) {
+        VirtualSurround.settings = s
+        if (virtualMode) return
         // Dolby is going straight to the soundbar in full surround: nothing here can change it.
         if (!s.flat && passthroughNow) GlassUi.toast(this, "This programme’s Dolby sound goes straight to your soundbar, so these settings can’t change it - try your soundbar’s voice or night mode")
         if (soundFx == null && !s.flat) startSoundFx() else soundFx?.apply(s)
