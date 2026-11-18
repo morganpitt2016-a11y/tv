@@ -42,7 +42,7 @@ object VirtualSurround {
     /** Each input channel as (to left, to right), in Android's order: FL FR FC LFE BL BR SL SR. */
     private fun rows(n: Int, dlg: Float): Array<FloatArray> = when (n) {
         1 -> arrayOf(floatArrayOf(0.7f, 0.7f))
-        2 -> arrayOf(floatArrayOf(0.85f, 0f), floatArrayOf(0f, 0.85f))
+        2 -> arrayOf(floatArrayOf(0.8f, 0f), floatArrayOf(0f, 0.8f))
         3 -> arrayOf(FL, FR, centre(dlg))
         4 -> arrayOf(FL, FR, SL, SR)
         5 -> arrayOf(FL, FR, centre(dlg), SL, SR)
@@ -95,6 +95,14 @@ object VirtualSurround {
             set(a * ((a + 1) - (a - 1) * c + r), 2 * a * ((a - 1) - (a + 1) * c), a * ((a + 1) - (a - 1) * c - r),
                 (a + 1) + (a - 1) * c + r, -2 * ((a - 1) + (a + 1) * c), (a + 1) + (a - 1) * c - r)
         }
+        fun lowPass(fs: Int, f: Double, q: Double = 0.7071) {
+            val w = 2 * Math.PI * f / fs; val c = cos(w); val al = sin(w) / (2 * q)
+            set((1 - c) / 2, 1 - c, (1 - c) / 2, 1 + al, -2 * c, 1 - al)
+        }
+        fun highPass(fs: Int, f: Double, q: Double = 0.7071) {
+            val w = 2 * Math.PI * f / fs; val c = cos(w); val al = sin(w) / (2 * q)
+            set((1 + c) / 2, -(1 + c), (1 + c) / 2, 1 + al, -2 * c, 1 - al)
+        }
         fun highShelf(fs: Int, f: Double, db: Double) {
             val a = 10.0.pow(db / 40); val w = 2 * Math.PI * f / fs; val c = cos(w); val al = sin(w) / 2 * sqrt(2.0); val r = 2 * sqrt(a) * al
             set(a * ((a + 1) + (a - 1) * c + r), -2 * a * ((a - 1) + (a + 1) * c), a * ((a + 1) + (a - 1) * c - r),
@@ -108,9 +116,10 @@ object VirtualSurround {
         private var applied: SoundProfile.Settings? = null
         private var coeffs: Array<FloatArray> = emptyArray()
         // The middle of the mix (voices) and the sides (width) are shaped separately.
-        private val mid = Array(12) { Biquad() }
+        private val mid = Array(13) { Biquad() }
         private val side = Array(5) { Biquad() }
         private var env = 0f
+        private var envLow = 0f
         private var atk = 0f; private var rel = 0f
         // Rear channels arrive ~12 ms late and a touch softer on top - heard as around and behind, not from the bar.
         private var rear = BooleanArray(0)
@@ -129,6 +138,12 @@ object VirtualSurround {
         private var la = 1
         private var limL = FloatArray(1); private var limR = FloatArray(1); private var limPos = 0
         private var hold = 0f; private var gain = 1f
+        // Two bands at the end (Linkwitz-Riley at 120 Hz): the bass gets its own limiter, so a kick drum or a score hit
+        // only turns the bass down - never the voices and detail above it (that ducking was the "blanket over it").
+        private val xoL = arrayOf(Biquad(), Biquad()); private val xoR = arrayOf(Biquad(), Biquad())
+        private val xhL = arrayOf(Biquad(), Biquad()); private val xhR = arrayOf(Biquad(), Biquad())
+        private var lowEnv = 0f; private var lowGain = 1f
+        private var lowAtk = 0f; private var lowRel = 0f; private var lowGainAtk = 0f; private var lowGainRel = 0f
         private var holdRel = 0f; private var gainAtk = 0f; private var gainRel = 0f
 
         override fun onConfigure(f: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
@@ -143,6 +158,10 @@ object VirtualSurround {
             la = (0.004 * fs).toInt().coerceAtLeast(1); limL = FloatArray(la); limR = FloatArray(la); limPos = 0
             holdRel = exp(-1.0 / (0.08 * fs)).toFloat()
             gainAtk = (1 - exp(-1.0 / (0.0015 * fs))).toFloat(); gainRel = (1 - exp(-1.0 / (0.2 * fs))).toFloat()
+            for (b in xoL + xoR) b.lowPass(fs, 120.0)
+            for (b in xhL + xhR) b.highPass(fs, 120.0)
+            lowAtk = exp(-1.0 / (0.002 * fs)).toFloat(); lowRel = exp(-1.0 / (0.12 * fs)).toFloat()
+            lowGainAtk = (1 - exp(-1.0 / (0.008 * fs))).toFloat(); lowGainRel = (1 - exp(-1.0 / (0.15 * fs))).toFloat()
             return AudioProcessor.AudioFormat(f.sampleRate, 2, C.ENCODING_PCM_16BIT)
         }
 
@@ -151,8 +170,9 @@ object VirtualSurround {
 
         override fun onFlush() {
             framesSinceStart = 0L; heard = false
-            mid.forEach { it.clear() }; side.forEach { it.clear() }; env = 0f
+            mid.forEach { it.clear() }; side.forEach { it.clear() }; env = 0f; envLow = 0f
             rearBuf.forEach { it.fill(0f) }; rearLp.fill(0f); rearLow.fill(0f); limL.fill(0f); limR.fill(0f); hold = 0f; gain = 1f
+            (xoL + xoR + xhL + xhR).forEach { it.clear() }; lowEnv = 0f; lowGain = 1f
         }
 
         private fun tune(s: SoundProfile.Settings) {
@@ -178,7 +198,9 @@ object VirtualSurround {
                 // The boom stays; the low-mid "blanket" goes: a cut where mud builds up (250 Hz) and the boxy band (400 Hz),
                 // with the top lifted to match the bigger bass, so detail and sparkle sit above it (a "smile", not a hump).
                 mid[4].lowShelf(fs, 85.0, 5.5); mid[5].peak(fs, 400.0, -1.5, 0.9); mid[6].highShelf(fs, 8000.0, 3.0)
-                mid[10].peak(fs, 55.0, 2.5, 0.9); mid[11].peak(fs, 250.0, -2.0, 1.0)
+                mid[10].peak(fs, 60.0, 2.0, 1.0); mid[11].peak(fs, 250.0, -2.0, 1.0)
+                // Below ~28 Hz the soundbar's subwoofer can't play it - boosting it only used up loudness. Filtered out.
+                mid[12].highPass(fs, 28.0)
                 // Vocal presence, the way soundbars' "voice" modes do it: a lift where voices get their bite (2.8 kHz)
                 // and where consonants get crisp (5.5 kHz) - in the middle of the mix only, so effects stay wide and soft.
                 mid[8].peak(fs, 2800.0, 2.0, 1.1); mid[9].peak(fs, 5500.0, 1.2, 1.4)
@@ -188,6 +210,7 @@ object VirtualSurround {
                 mid[4].peak(fs, 1000.0, 0.0, 1.0); mid[5].peak(fs, 1000.0, 0.0, 1.0); mid[6].peak(fs, 1000.0, 0.0, 1.0)
                 mid[8].peak(fs, 1000.0, 0.0, 1.0); mid[9].peak(fs, 1000.0, 0.0, 1.0)
                 mid[10].peak(fs, 1000.0, 0.0, 1.0); mid[11].peak(fs, 1000.0, 0.0, 1.0)
+                mid[12].highPass(fs, 20.0)
                 side[3].peak(fs, 1000.0, 0.0, 1.0)
                 side[4].peak(fs, 1000.0, 0.0, 1.0)
             }
@@ -234,15 +257,31 @@ object VirtualSurround {
                 for (b in mid) md = b.run(md)
                 for (b in side) sd = b.run(sd)
                 l = md + sd; r = md - sd
+                // Split at 120 Hz with a Linkwitz-Riley crossover (as in speaker crossovers): the two bands add back flat.
+                var lowL = xoL[1].run(xoL[0].run(l)); var lowR = xoR[1].run(xoR[0].run(r))
+                val highL = xhL[1].run(xhL[0].run(l)); val highR = xhR[1].run(xhR[0].run(r))
                 // Reduce Loud Sounds: 2.5:1 above -22 dB. A 20 ms attack lets the start of each sound through (the punch
-                // of a consonant, a door, a drum) - the limiter below still catches real peaks.
+                // of a consonant, a door, a drum) - the limiter below still catches real peaks. It judges loudness the way
+                // the bass separately, so the boom doesn't turn the voices down.
                 if (level) {
-                    val peak = maxOf(abs(l), abs(r))
+                    // Two compressors, one per band: the bass never turns the voices down, and the voices never the bass.
+                    val peak = maxOf(abs(highL), abs(highR))
                     env = if (peak > env) atk * env + (1 - atk) * peak else rel * env + (1 - rel) * peak
                     val db = 20 * log10(env.coerceAtLeast(1e-6f))
                     val g = if (db > -22f) 10f.pow(-(db + 22f) * (1f - 1f / 2.5f) / 20f) else 1f
-                    l *= g * makeup; r *= g * makeup
-                }
+                    val lpk = maxOf(abs(lowL), abs(lowR))
+                    envLow = if (lpk > envLow) atk * envLow + (1 - atk) * lpk else rel * envLow + (1 - rel) * lpk
+                    val dbl = 20 * log10(envLow.coerceAtLeast(1e-6f))
+                    val gl = if (dbl > -16f) 10f.pow(-(dbl + 16f) * (1f - 1f / 2f) / 20f) else 1f   // gentler on the bass: it keeps its punch
+                    lowL *= gl * makeup; lowR *= gl * makeup
+                    l = highL * g * makeup; r = highR * g * makeup
+                } else { l = highL; r = highR }
+                // The bass band's own limiter: keeps the boom under -4.4 dBFS, so it never pushes the whole mix down.
+                val lp = maxOf(abs(lowL), abs(lowR))
+                lowEnv = if (lp > lowEnv) lowAtk * lowEnv + (1 - lowAtk) * lp else lowRel * lowEnv + (1 - lowRel) * lp
+                val lowTarget = if (lowEnv > 0.6f) 0.6f / lowEnv else 1f
+                lowGain += (lowTarget - lowGain) * (if (lowTarget < lowGain) lowGainAtk else lowGainRel)
+                l += lowL * lowGain; r += lowR * lowGain
                 // Lookahead limiter, ceiling -0.7 dB.
                 val pk = maxOf(abs(l), abs(r))
                 hold = if (pk > hold) pk else hold * holdRel
