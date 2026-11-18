@@ -202,6 +202,13 @@ class EpgView(context: Context) : View(context) {
         p.style = Paint.Style.FILL; p.color = 0x14FFFFFF
         c.drawRoundRect(0f, 0f, w, height.toFloat(), 16 * d, 16 * d, p)
 
+        // The red "now" line, drawn first so it runs behind the programme names (and under the selected programme).
+        val nowX = timeX(now)
+        if (nowX > chW && nowX < w) {
+            p.style = Paint.Style.FILL; p.color = 0xCCFF453A.toInt()
+            c.drawRect(nowX - 0.75f * d, headH, nowX + 0.75f * d, height.toFloat(), p)
+        }
+
         // Programmes (clipped to the grid)
         c.save()
         c.clipRect(chW, headH, w, height.toFloat())
@@ -262,10 +269,9 @@ class EpgView(context: Context) : View(context) {
         // "Now" marker
         val nx = timeX(now)
         if (nx > chW && nx < w) {
-            // A red line down the grid at the time now (over the programmes), with a dot on the time bar.
+            // The dot on the time bar (the line itself is behind the programmes, above).
             p.style = Paint.Style.FILL
-            p.color = 0xFFFF453A.toInt(); c.drawRect(nx - 1f * d, headH - 3 * d, nx + 1f * d, height.toFloat(), p)
-            c.drawCircle(nx, headH - 3 * d, 4 * d, p)
+            p.color = 0xFFFF453A.toInt(); c.drawCircle(nx, headH - 3 * d, 4 * d, p)
         }
         // Keep it moving with the clock.
         postInvalidateDelayed(30_000L)
@@ -289,7 +295,7 @@ class EpgView(context: Context) : View(context) {
         text.typeface = if (selected || live) fontBold else font
         text.textSize = 12.5f * d
         text.color = if (selected && focused) GlassUi.INK else if (live || selected) 0xFFFFFFFF.toInt() else 0xCCFFFFFF.toInt()
-        if (rect.width() > 64 * d) c.drawText(ellipsize(title, rect.width() - 28 * d, text), rect.left + 14 * d, rect.centerY() + 4.5f * d, text)
+        if (rect.width() > 40 * d) c.drawText(ellipsize(title, rect.width() - (if (rect.width() > 64 * d) 28 else 16) * d, text), rect.left + (if (rect.width() > 64 * d) 14 else 8) * d, rect.centerY() + 4.5f * d, text)
         if (progress != null) {
             p.color = if (selected && focused) 0x66000000 else 0xA6FFFFFF.toInt()
             c.drawRoundRect(rect.left + 8 * d, rect.bottom - 5 * d, rect.left + 8 * d + (rect.width() - 16 * d) * progress, rect.bottom - 3 * d, 2 * d, 2 * d, p)
