@@ -334,7 +334,14 @@ internal fun WatchActivity.manageFollows() {
     val d = GlassDialog(this).title("Following").message("Choose one to stop following it.").scrolling()
     for (f in list) d.button("${f.icon}  ${f.name}") {
         GlassDialog(this).title(f.name).button("Stop Following", GlassDialog.Style.DESTRUCTIVE) {
-            Sport.remove(this, f); showTab("sport", focusContent = true)
+            Sport.remove(this, f)
+            showTab("sport", focusContent = false)
+            GlassUi.toast(this, "Stopped following ${f.name}")
+            // Stay on Sport: the button you pressed is rebuilt, so focus would otherwise fall to the first tab (Home) and open it.
+            val keep = { nav.findViewWithTag<View>("sport")?.requestFocus() }
+            keep(); handler.post { keep() }; handler.postDelayed({ keep() }, 120)
+            // Back to the list, to stop following another (or Done).
+            if (Sport.follows(this).isNotEmpty()) handler.postDelayed({ if (tab == "sport" && !isFinishing) manageFollows() }, 250)
         }.button("Cancel").show()
     }
     d.button("Add a Team or Sport", GlassDialog.Style.BOLD) { addFollow() }
