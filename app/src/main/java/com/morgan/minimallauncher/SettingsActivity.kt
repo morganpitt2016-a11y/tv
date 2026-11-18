@@ -81,7 +81,11 @@ class SettingsActivity : AppCompatActivity() {
                 Prefs.setBool(this, "who_at_start", !Prefs.bool(this, "who_at_start", true)); refreshValues()
             }
             // A thick outline round whatever is selected, for anyone who finds it hard to see (per profile).
-            vrow("Focus Highlight", { when (FocusRing.mode(this)) { "white" -> "White"; "yellow" -> "Yellow"; else -> "Off" } }, chevron = true) { pickFocusRing() }
+            vrow("Focus Highlight", { if (FocusRing.mode(this) != "off") "On" else "Off" }) {
+                val on = FocusRing.mode(this) == "off"
+                FocusRing.setMode(this, if (on) "yellow" else "off"); refreshValues()
+                GlassUi.toast(this, if (on) "Focus Highlight on - a yellow outline shows where you are" else "Focus Highlight off")
+            }
             vrow("Who’s Watching on Wake", { if (Prefs.bool(this, "who_on_wake", true)) "On" else "Off" }) {
                 Prefs.setBool(this, "who_on_wake", !Prefs.bool(this, "who_on_wake", true)); refreshValues()
             }
@@ -684,19 +688,6 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun formatName(f: String) = when (f) { "decode" -> "Decode on TV"; "stereo" -> "Stereo Only"; "virtual" -> "Virtual Surround"; else -> "Auto" }
-
-    private fun pickFocusRing() {
-        val cur = FocusRing.mode(this)
-        val opts = listOf("off" to "Off", "white" to "White", "yellow" to "Yellow")
-        val d = GlassDialog(this).title("Focus Highlight")
-            .message("A thick, bright outline round whatever you're on, so it's easy to see where you are. Just for ${ProfileManager.getActiveProfile(this)}.")
-        for ((id, name) in opts) d.button(name + if (id == cur) "  ✓" else "") {
-            FocusRing.setMode(this, id); refreshValues()
-            GlassUi.toast(this, "Focus Highlight: $name")
-        }
-        d.focusButton(opts.indexOfFirst { it.first == cur }.coerceAtLeast(0))
-        d.button("Cancel").show()
-    }
 
     /** Soundbar (surround, deep bass for its subwoofer) or the TV's own speakers (bass where they can play it). */
     private fun pickSpeakers() {
