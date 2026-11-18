@@ -96,6 +96,7 @@ class WatchActivity : AppCompatActivity() {
         setPadding(0, 0, 0, dp(this@WatchActivity, 320f))
     }
     internal fun swapRows(c: LinearLayout) {
+        if (::heroA.isInitialized) setHeroBlur(false)        // only the Live TV tab blurs the picture
         (c.parent as? ViewGroup)?.removeView(c)
         scroll.removeAllViews()
         scroll.addView(c)

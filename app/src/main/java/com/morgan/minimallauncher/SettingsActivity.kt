@@ -217,6 +217,10 @@ class SettingsActivity : AppCompatActivity() {
 
         section("Video and Audio")
         group {
+            // Apple TV's Match Content: the TV switches to the film's frame rate (a second of black while it does).
+            vrow("Match Frame Rate", { if (Prefs.bool(this, "match_frame_rate", true)) "On" else "Off" }) {
+                Prefs.setBool(this, "match_frame_rate", !Prefs.bool(this, "match_frame_rate", true)); refreshValues()
+            }
             vrow("Audio Output", { audioOutput() }, chevron = true) { pickAudioOutput() }
             vrow("Audio Format", { formatName(Prefs.string(this, "audio_format") ?: "auto") }, chevron = true) { pickAudioFormat() }
             vrow("Enhance Dialogue", { dlgName(SoundProfile.dialogueLevel(this)) }, chevron = true) { pickDialogue() }
@@ -557,6 +561,7 @@ class SettingsActivity : AppCompatActivity() {
     /** Check GitHub now and install a newer version straight away (the automatic check waits until nobody is watching). */
     private fun checkForUpdates() {
         GlassUi.toast(this, "Checking for updates…")
+        Updater.forceNow = true                          // you asked for it here: install now
         Updater.maybeUpdate(this, force = true, asked = true) { msg ->
             runOnUiThread {
                 if (isDestroyed) return@runOnUiThread

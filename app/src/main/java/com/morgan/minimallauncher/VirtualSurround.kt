@@ -108,7 +108,7 @@ object VirtualSurround {
         private var applied: SoundProfile.Settings? = null
         private var coeffs: Array<FloatArray> = emptyArray()
         // The middle of the mix (voices) and the sides (width) are shaped separately.
-        private val mid = Array(8) { Biquad() }
+        private val mid = Array(10) { Biquad() }
         private val side = Array(4) { Biquad() }
         private var env = 0f
         private var atk = 0f; private var rel = 0f
@@ -135,7 +135,7 @@ object VirtualSurround {
             if (f.encoding != C.ENCODING_PCM_16BIT || f.channelCount < 1) return AudioProcessor.AudioFormat.NOT_SET
             n = f.channelCount; fs = f.sampleRate
             applied = null
-            atk = exp(-1.0 / (0.008 * fs)).toFloat(); rel = exp(-1.0 / (0.25 * fs)).toFloat()
+            atk = exp(-1.0 / (0.020 * fs)).toFloat(); rel = exp(-1.0 / (0.25 * fs)).toFloat()
             rearBuf = Array(n) { FloatArray((0.012 * fs).toInt().coerceAtLeast(1)) }; rearLp = FloatArray(n); rearPos = 0
             rearA = (1 - exp(-2 * Math.PI * 7000.0 / fs)).toFloat()
             rearLow = FloatArray(n); lowA = (1 - exp(-2 * Math.PI * 180.0 / fs)).toFloat()
@@ -173,10 +173,14 @@ object VirtualSurround {
             // Cinema voicing (Virtual Surround), after Harman's in-room preference research: a bass shelf, less
             // boxiness, and only a small lift on top (a big treble tilt either way sounds dull or harsh).
             if (surround) {
-                mid[4].lowShelf(fs, 105.0, 4.0); mid[5].peak(fs, 300.0, -1.5, 0.8); mid[6].highShelf(fs, 10_000.0, 1.0)
+                mid[4].lowShelf(fs, 105.0, 4.0); mid[5].peak(fs, 300.0, -2.0, 0.8); mid[6].highShelf(fs, 10_000.0, 1.0)
+                // Vocal presence, the way soundbars' "voice" modes do it: a lift where voices get their bite (2.8 kHz)
+                // and where consonants get crisp (5.5 kHz) - in the middle of the mix only, so effects stay wide and soft.
+                mid[8].peak(fs, 2800.0, 2.0, 1.1); mid[9].peak(fs, 5500.0, 1.2, 1.4)
                 side[3].highShelf(fs, 10_000.0, 1.0)
             } else {
                 mid[4].peak(fs, 1000.0, 0.0, 1.0); mid[5].peak(fs, 1000.0, 0.0, 1.0); mid[6].peak(fs, 1000.0, 0.0, 1.0)
+                mid[8].peak(fs, 1000.0, 0.0, 1.0); mid[9].peak(fs, 1000.0, 0.0, 1.0)
                 side[3].peak(fs, 1000.0, 0.0, 1.0)
             }
         }
@@ -188,7 +192,7 @@ object VirtualSurround {
             val out = replaceOutputBuffer(frames * 4)
             val m = coeffs
             val level = s.level
-            val makeup = if (level) 1.9f else 1f              // +5.5 dB back after the compressor
+            val makeup = if (level) 1.8f else 1f              // +5 dB back after the compressor
             for (f in 0 until frames) {
                 var l = 0f; var r = 0f
                 for (ch in 0 until n) {
@@ -222,12 +226,13 @@ object VirtualSurround {
                 for (b in mid) md = b.run(md)
                 for (b in side) sd = b.run(sd)
                 l = md + sd; r = md - sd
-                // Reduce Loud Sounds: 3:1 above -24 dB, quick to catch, slow to let go.
+                // Reduce Loud Sounds: 2.5:1 above -22 dB. A 20 ms attack lets the start of each sound through (the punch
+                // of a consonant, a door, a drum) - the limiter below still catches real peaks.
                 if (level) {
                     val peak = maxOf(abs(l), abs(r))
                     env = if (peak > env) atk * env + (1 - atk) * peak else rel * env + (1 - rel) * peak
                     val db = 20 * log10(env.coerceAtLeast(1e-6f))
-                    val g = if (db > -24f) 10f.pow(-(db + 24f) * (1f - 1f / 3f) / 20f) else 1f
+                    val g = if (db > -22f) 10f.pow(-(db + 22f) * (1f - 1f / 2.5f) / 20f) else 1f
                     l *= g * makeup; r *= g * makeup
                 }
                 // Lookahead limiter, ceiling -0.7 dB.

@@ -134,6 +134,21 @@ internal fun WatchActivity.bindTitle(h: Holder, t: WatchCatalog.Title, inDetail:
     val b = badgeFor(t)
     badge.text = b.orEmpty(); badge.visibility = if (b == null) View.GONE else View.VISIBLE
     (badge.background as? GradientDrawable)?.setColor(when (b) { "TOP 10" -> 0xE6E50914.toInt(); "ACCLAIMED" -> 0xE6B8860B.toInt(); else -> 0xE60A84FF.toInt() })
+    // 4K / Dolby in the bottom corner, small and quiet (Apple TV), once we know what the title comes in.
+    val avTag = (h.root.getTag(R.id.card_av) as? TextView) ?: GlassUi.text(c, "", 8f, R.font.inter_semibold).apply {
+        letterSpacing = 0.08f; setPadding(dp(c, 5f), dp(c, 2f), dp(c, 5f), dp(c, 2f))
+        background = GradientDrawable().apply { cornerRadius = dp(c, 4f).toFloat(); setColor(0xB3000000.toInt()); setStroke(dp(c, 1f), 0x66FFFFFF) }
+        h.root.addView(this, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, dp(c, 6f), dp(c, 6f)) })
+        h.root.setTag(R.id.card_av, this)
+    }
+    val av = AvBadges.get(c, t.name)
+    val avText = av?.let { a ->
+        listOfNotNull(
+            "4K".takeIf { a.height >= 1800 },
+            when { a.atmos -> "ATMOS"; a.audio in setOf("eac3", "ac3", "truehd") -> "DOLBY"; else -> null },
+        ).joinToString("  ").ifEmpty { null }
+    }
+    avTag.text = avText.orEmpty(); avTag.visibility = if (avText == null) View.GONE else View.VISIBLE
     val poster = h.root.getTag(R.id.card_poster) == true && !inDetail
     if (h.root.getTag(R.id.card_poster) == true) collapseCard(h, t, reload = false)
     h.root.setOnFocusChangeListener { v, has ->

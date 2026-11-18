@@ -41,6 +41,7 @@ class PlayerActivity : Activity() {
     private lateinit var skipView: android.widget.TextView
     private lateinit var jumpBadge: android.widget.TextView
     private var jumpTotal = 0L
+    private var skipKeyUp = 0
     private var jumpAt = 0L
     private val hideJump = Runnable { jumpBadge.animate().alpha(0f).setDuration(220).withEndAction { jumpBadge.visibility = View.GONE; jumpTotal = 0 }.start() }
     /** Live TV pause/rewind: the saved stream, and where in it the player started reading. */
@@ -855,6 +856,8 @@ class PlayerActivity : Activity() {
                 player?.play(); swallowOkUp = true; return true
             }
         }
+        // A quick skip's release: the player's own view would bring its controls up on any arrow key, so it never sees it.
+        if (skipKeyUp != 0 && event.keyCode == skipKeyUp && event.action == KeyEvent.ACTION_UP) { skipKeyUp = 0; return true }
         // The key that closed the channel strip: its release mustn't also leave the player.
         if (chStripClosedBy != 0 && event.keyCode == chStripClosedBy) { if (event.action == KeyEvent.ACTION_UP) chStripClosedBy = 0; return true }
         chStripClosedBy = 0
@@ -907,6 +910,7 @@ class PlayerActivity : Activity() {
                     val target = (p.currentPosition + step).coerceIn(0L, (p.duration - 1_000L).coerceAtLeast(0L))
                     p.seekTo(target)
                     showJump(step, target, p.duration)
+                    skipKeyUp = event.keyCode
                     return true
                 }
             }

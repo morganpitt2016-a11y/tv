@@ -262,9 +262,13 @@ class EpgView(context: Context) : View(context) {
         // "Now" marker
         val nx = timeX(now)
         if (nx > chW && nx < w) {
-            p.color = 0x40FFFFFF; c.drawRect(nx, headH, nx + 1f * d, height.toFloat(), p)          // a faint line down the grid
-            p.color = 0xFFFFFFFF.toInt(); c.drawCircle(nx + 0.5f * d, headH - 3 * d, 3 * d, p)      // and a marker on the time bar
+            // A red line down the grid at the time now (over the programmes), with a dot on the time bar.
+            p.style = Paint.Style.FILL
+            p.color = 0xFFFF453A.toInt(); c.drawRect(nx - 1f * d, headH - 3 * d, nx + 1f * d, height.toFloat(), p)
+            c.drawCircle(nx, headH - 3 * d, 4 * d, p)
         }
+        // Keep it moving with the clock.
+        postInvalidateDelayed(30_000L)
     }
 
     private val rect = RectF()

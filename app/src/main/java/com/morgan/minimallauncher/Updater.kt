@@ -24,6 +24,8 @@ object Updater {
     /** Android's "Install" confirmation, held until the home screen can ask first (so it never pops up over a film). */
     @Volatile var pendingConfirm: Intent? = null
     @Volatile var pendingBuild = 0
+    /** Set by the "update!" command: install even if something is playing. */
+    @Volatile var forceNow = false
 
     /** Someone is watching: the player or the guide is up, or sound is playing (from any app). */
     fun busy(c: Context): Boolean {
@@ -72,7 +74,8 @@ object Updater {
         if (!asked && pending != null && pending.size == 2 && pending[0].toIntOrNull() == latest && System.currentTimeMillis() - (pending[1].toLongOrNull() ?: 0L) < 3 * 60_000L)
             return "Build $latest was already sent to the installer - waiting for it to finish"
         // Never cut into what someone is watching: it installs when the screen goes off or the TV is idle.
-        if (!asked && busy(c)) return "Build $latest is downloaded - it will install when nobody is watching"
+        // Even when sent from the phone/Claude ("update"): only "update!" may interrupt.
+        if (!(asked && forceNow) && busy(c)) return "Build $latest is downloaded - it will install when nobody is watching"
         if (Build.VERSION.SDK_INT >= 26 && !c.packageManager.canRequestPackageInstalls())
             return "Build $latest is ready but this TV hasn't allowed the launcher to install updates yet"
         Prefs.setString(c, "upd_pending", "$latest:${System.currentTimeMillis()}")
