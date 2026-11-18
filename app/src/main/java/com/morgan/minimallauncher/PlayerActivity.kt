@@ -329,6 +329,14 @@ class PlayerActivity : Activity() {
             audioSession = sid
             fxFor = null
         } catch (e: Throwable) {}
+        // Timing of the sound starting (for the TV's log): which decoder, how long it took, and when real sound came out.
+        p.addAnalyticsListener(object : androidx.media3.exoplayer.analytics.AnalyticsListener {
+            override fun onAudioDecoderInitialized(eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, decoderName: String, initializedTimestampMs: Long, initializationDurationMs: Long) {
+                Diag.send(this@PlayerActivity, "player", "audio decoder $decoderName ready in ${initializationDurationMs} ms · \"$titleText\"")
+            }
+        })
+        val name0 = titleText
+        VirtualSurround.onFirstSound = { ms -> Diag.send(applicationContext, "player", "first sound after ${ms} ms of decoded audio · \"$name0\"") }
         p.addListener(object : Player.Listener {
             override fun onTracksChanged(tracks: Tracks) {
                 val audio = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
