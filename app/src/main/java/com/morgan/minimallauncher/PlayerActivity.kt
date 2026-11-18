@@ -1803,6 +1803,7 @@ class PlayerActivity : Activity() {
 
     /** Gets the preview stream connected as soon as the bar appears, so pictures are ready when you skip. */
     private var scrubWasPlaying: Boolean? = null
+    private var scrubDim: View? = null
     private var mainSeekPos = 0L
     private val mainSeek = Runnable { player?.seekTo(mainSeekPos) }
 
@@ -1840,7 +1841,7 @@ class PlayerActivity : Activity() {
         }
         val tex = android.view.TextureView(c)
         frame.addView(tex, FrameLayout.LayoutParams(-1, -1))
-        box.addView(frame, LinearLayout.LayoutParams(dp(c, 240f), dp(c, 135f)).apply { bottomMargin = dp(c, 6f) })
+        box.addView(frame, LinearLayout.LayoutParams(dp(c, 256f), dp(c, 144f)).apply { bottomMargin = dp(c, 6f) })
         previewFrame = frame; previewTex = tex
         box.addView(iv, LinearLayout.LayoutParams(dp(c, 240f), dp(c, 135f)).apply { bottomMargin = dp(c, 6f) })
         val time = GlassUi.text(c, "", 18f, R.font.inter_semibold).apply {
@@ -1848,7 +1849,12 @@ class PlayerActivity : Activity() {
             setPadding(dp(c, 14f), dp(c, 6f), dp(c, 14f), dp(c, 6f))
         }
         box.addView(time, LinearLayout.LayoutParams(-2, -2))
-        (view.parent as? FrameLayout)?.addView(box, FrameLayout.LayoutParams(dp(c, 240f), -2, Gravity.BOTTOM or Gravity.START))
+        // While the picture is in the box, the screen behind is dimmed (the full-size picture pauses there).
+        val dim = View(c).apply { setBackgroundColor(0xB3000000.toInt()); visibility = View.GONE }
+        // Inside the video area only (under the controls, so the bar stays bright).
+        view.findViewById<ViewGroup>(androidx.media3.ui.R.id.exo_content_frame)?.addView(dim, FrameLayout.LayoutParams(-1, -1))
+        scrubDim = dim
+        (view.parent as? FrameLayout)?.addView(box, FrameLayout.LayoutParams(dp(c, 256f), -2, Gravity.BOTTOM or Gravity.START))
         thumbView = iv; scrubBox = box; scrubTime = time
         bar.addListener(object : androidx.media3.ui.TimeBar.OnScrubListener {
             override fun onScrubStart(t: androidx.media3.ui.TimeBar, pos: Long) {
@@ -1860,6 +1866,8 @@ class PlayerActivity : Activity() {
                     scrubWasPlaying = p.playWhenReady
                     p.playWhenReady = false
                     p.setSeekParameters(androidx.media3.exoplayer.SeekParameters.CLOSEST_SYNC)
+                    // Netflix-style: the film's own picture goes into the small box above the bar while you scrub.
+                    previewTex?.let { tex -> p.setVideoTextureView(tex); previewFrame?.visibility = View.VISIBLE; scrubDim?.visibility = View.VISIBLE }
                 }
                 onScrub(bar, pos)
             }
@@ -1869,6 +1877,11 @@ class PlayerActivity : Activity() {
                     scrubWasPlaying = null
                     handler.removeCallbacks(mainSeek)
                     player?.let { p ->
+                        // Back to full screen.
+                        previewTex?.let { p.clearVideoTextureView(it) }
+                        (view.videoSurfaceView as? android.view.SurfaceView)?.let { p.setVideoSurfaceView(it) }
+                            ?: (view.videoSurfaceView as? android.view.TextureView)?.let { p.setVideoTextureView(it) }
+                        previewFrame?.visibility = View.GONE; scrubDim?.visibility = View.GONE
                         p.setSeekParameters(androidx.media3.exoplayer.SeekParameters.DEFAULT)
                         if (!canceled) p.seekTo(pos)                  // exactly where you stopped
                         p.playWhenReady = was
