@@ -28,6 +28,9 @@ object VirtualSurround {
     /** The listener's sound profile, read by the mixer as it plays (changes apply straight away). */
     @Volatile var settings: SoundProfile.Settings = SoundProfile.Settings(0, 0, 0, false, false)
 
+    /** Speakers: false = a soundbar with a subwoofer (deep bass, surround); true = a TV's own small speakers. */
+    @Volatile var tvSpeakers = false
+
     /** Told how long the decoder took to give real (not silent) sound after starting - for the TV's log. */
     @Volatile var onFirstSound: ((Long) -> Unit)? = null
 
@@ -144,6 +147,11 @@ object VirtualSurround {
         private var xtcBuf = FloatArray(1); private var xtcPos = 0; private var xtcLp = 0f; private var xtcA = 0f
         private var sideLow = 0f; private var sideLowA = 0f
         private val xtcTop = Biquad()   // gives the widened part its sparkle back (the cancellation tilts it dull)
+        private var appliedTv: Boolean? = null
+        // Virtual bass (TV speakers): the notes a small speaker can't play (40-100 Hz) are turned into their harmonics
+        // (100-400 Hz), which it can - your ear fills in the missing low note (the "missing fundamental").
+        private val vbHp = Biquad(); private val vbLp = Biquad(); private val vbOutHp = Biquad(); private val vbOutLp = Biquad()
+        private var vbEnv = 0f; private var vbAtk = 0f; private var vbRel = 0f
         // Rears made slightly different left to right (all-pass filters), so they feel diffuse and around you.
         private var apX = FloatArray(0); private var apY = FloatArray(0)
         // Two bands at the end (Linkwitz-Riley at 120 Hz): the bass gets its own limiter, so a kick drum or a score hit
@@ -165,6 +173,9 @@ object VirtualSurround {
             xtcBuf = FloatArray(Math.round(0.00007 * fs).toInt().coerceAtLeast(1)); xtcPos = 0; xtcLp = 0f
             xtcA = (1 - exp(-2 * Math.PI * 6000.0 / fs)).toFloat()
             xtcTop.highShelf(fs, 2500.0, 5.0)
+            vbHp.highPass(fs, 40.0); vbLp.lowPass(fs, 100.0); vbOutHp.highPass(fs, 110.0); vbOutLp.lowPass(fs, 400.0)
+            vbAtk = exp(-1.0 / (0.005 * fs)).toFloat(); vbRel = exp(-1.0 / (0.06 * fs)).toFloat(); vbEnv = 0f
+            appliedTv = null
             sideLowA = (1 - exp(-2 * Math.PI * 250.0 / fs)).toFloat(); sideLow = 0f
             apX = FloatArray(n); apY = FloatArray(n)
             rearA = (1 - exp(-2 * Math.PI * 11_000.0 / fs)).toFloat()   // rears keep their detail
@@ -189,10 +200,12 @@ object VirtualSurround {
             rearBuf.forEach { it.fill(0f) }; rearLp.fill(0f); rearLow.fill(0f); limL.fill(0f); limR.fill(0f); hold = 0f; gain = 1f
             (xoL + xoR + xhL + xhR).forEach { it.clear() }; lowEnv = 0f; lowGain = 1f
             xtcBuf.fill(0f); xtcLp = 0f; sideLow = 0f; apX.fill(0f); apY.fill(0f); xtcTop.clear()
+            listOf(vbHp, vbLp, vbOutHp, vbOutLp).forEach { it.clear() }; vbEnv = 0f
         }
 
         private fun tune(s: SoundProfile.Settings) {
             applied = s
+            appliedTv = tvSpeakers
             val dlg = if (!s.dialogue) 0.0 else if (s.more) 8.0 else 5.0
             val boost = 10f.pow((dlg * 0.8 / 20).toFloat())
             coeffs = if (surround) rows(n, boost) else plain(n, boost)
@@ -217,6 +230,11 @@ object VirtualSurround {
                 mid[10].peak(fs, 60.0, 2.0, 1.0); mid[11].peak(fs, 250.0, -2.0, 1.0)
                 // Below ~28 Hz the soundbar's subwoofer can't play it - boosting it only used up loudness. Filtered out.
                 mid[12].highPass(fs, 28.0)
+                if (tvSpeakers) {
+                    // TV speakers can't play deep bass: the punch goes where they can (130 Hz), nothing below ~65 Hz is
+                    // sent (it only makes them strain and distort), and virtual bass supplies the low notes' weight.
+                    mid[4].peak(fs, 130.0, 3.0, 0.8); mid[10].peak(fs, 1000.0, 0.0, 1.0); mid[12].highPass(fs, 65.0)
+                }
                 // Vocal presence, the way soundbars' "voice" modes do it: a lift where voices get their bite (2.8 kHz)
                 // and where consonants get crisp (5.5 kHz) - in the middle of the mix only, so effects stay wide and soft.
                 mid[8].peak(fs, 2800.0, 2.0, 1.1); mid[9].peak(fs, 5500.0, 1.2, 1.4)
@@ -234,7 +252,7 @@ object VirtualSurround {
 
         override fun queueInput(input: ByteBuffer) {
             val s = settings
-            if (s != applied) tune(s)
+            if (s != applied || tvSpeakers != appliedTv) tune(s)
             val frames = input.remaining() / (2 * n)
             val out = replaceOutputBuffer(frames * 4)
             val m = coeffs
@@ -273,7 +291,16 @@ object VirtualSurround {
                     dynGain += (target - dynGain) * 0.15f
                     if (abs(dynGain - dynApplied) > 0.25f) { mid[7].lowShelf(fs, 60.0, dynGain.toDouble()); dynApplied = dynGain }
                 }
+                val mdRaw = md
                 for (b in mid) md = b.run(md)
+                if (tvSpeakers && surround) {
+                    val low = vbLp.run(vbHp.run(mdRaw))
+                    val a = abs(low)
+                    vbEnv = if (a > vbEnv) vbAtk * vbEnv + (1 - vbAtk) * a else vbRel * vbEnv + (1 - vbRel) * a
+                    // x·|x| makes the harmonics; dividing by the level keeps it as loud as the bass it stands in for.
+                    val h = low * a / (vbEnv + 1e-4f)
+                    md += vbOutLp.run(vbOutHp.run(h)) * 0.9f
+                }
                 for (b in side) sd = b.run(sd)
                 if (surround) {
                     // Widening only above ~250 Hz (bass stays centred and solid for the subwoofer).

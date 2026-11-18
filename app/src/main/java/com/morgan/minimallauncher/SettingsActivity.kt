@@ -223,6 +223,7 @@ class SettingsActivity : AppCompatActivity() {
             }
             vrow("Audio Output", { audioOutput() }, chevron = true) { pickAudioOutput() }
             vrow("Audio Format", { formatName(Prefs.string(this, "audio_format") ?: "auto") }, chevron = true) { pickAudioFormat() }
+            vrow("Speakers", { if (Prefs.string(this, "speakers") == "tv") "TV Speakers" else "Soundbar (Surround)" }, chevron = true) { pickSpeakers() }
             vrow("Enhance Dialogue", { dlgName(SoundProfile.dialogueLevel(this)) }, chevron = true) { pickDialogue() }
             vrow("Reduce Loud Sounds", { onOff(SoundProfile.get(this).level) }) {
                 SoundProfile.save(this, SoundProfile.get(this).let { it.copy(level = !it.level) }); refreshValues()
@@ -681,6 +682,24 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun formatName(f: String) = when (f) { "decode" -> "Decode on TV"; "stereo" -> "Stereo Only"; "virtual" -> "Virtual Surround"; else -> "Auto" }
+
+    /** Soundbar (surround, deep bass for its subwoofer) or the TV's own speakers (bass where they can play it). */
+    private fun pickSpeakers() {
+        val cur = Prefs.string(this, "speakers") ?: "soundbar"
+        val d = GlassDialog(this).title("Speakers")
+            .message("Soundbar (Surround): wide virtual surround with deep bass for a soundbar's subwoofer.\n" +
+                "TV Speakers: tuned for a TV's own speakers - punchy bass they can play, virtual bass for the deep notes, clear voices.")
+        for ((id, name) in listOf("soundbar" to "Soundbar (Surround)", "tv" to "TV Speakers")) d.button(name + if (id == cur) "  ✓" else "") {
+            Prefs.setString(this, "speakers", id)
+            // The sound processing only runs when the TV decodes the sound: switch that on if it was off.
+            val wasAuto = (Prefs.string(this, "audio_format") ?: "auto") == "auto"
+            if (wasAuto) Prefs.setString(this, "audio_format", "virtual")
+            refreshValues()
+            GlassUi.toast(this, "Speakers: $name" + (if (wasAuto) " (Audio Format set to Virtual Surround)" else "") + " - from the next thing you play")
+        }
+        d.focusButton(if (cur == "tv") 1 else 0)
+        d.button("Cancel").show()
+    }
 
     private fun pickAudioFormat() {
         val cur = Prefs.string(this, "audio_format") ?: "auto"

@@ -332,6 +332,7 @@ class PlayerActivity : Activity() {
         decodingAudio = format != "auto"
         virtualMode = format != "auto"      // every decoded mode goes through our own mixer (it does the sound profile too)
         VirtualSurround.settings = SoundProfile.get(this)
+        VirtualSurround.tvSpeakers = Prefs.string(this, "speakers") == "tv"
         val builder = ExoPlayer.Builder(this).setLoadControl(load).setMediaSourceFactory(sources)
         if (decodingAudio) builder.setRenderersFactory(object : androidx.media3.exoplayer.DefaultRenderersFactory(this) {
             // The TV's own decoders first (they handle AAC, MPEG and live TV fine); the app's FFmpeg decoder takes
