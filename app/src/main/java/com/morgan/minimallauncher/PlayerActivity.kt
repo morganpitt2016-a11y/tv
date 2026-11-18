@@ -39,6 +39,10 @@ class PlayerActivity : Activity() {
     private lateinit var numberView: android.widget.TextView
     private lateinit var nextView: android.widget.TextView
     private lateinit var skipView: android.widget.TextView
+    private lateinit var jumpBadge: android.widget.TextView
+    private var jumpTotal = 0L
+    private var jumpAt = 0L
+    private val hideJump = Runnable { jumpBadge.animate().alpha(0f).setDuration(220).withEndAction { jumpBadge.visibility = View.GONE; jumpTotal = 0 }.start() }
     /** Live TV pause/rewind: the saved stream, and where in it the player started reading. */
     private var ts: Timeshift? = null
     private var tsStart = 0L
@@ -187,6 +191,14 @@ class PlayerActivity : Activity() {
             visibility = View.GONE
         }
         root.addView(tsView, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = dp(this@PlayerActivity, 56f) })
+        // Quick skip with the controls hidden: just a small glass badge at the side ("10s »"), no menu (Apple TV / YouTube).
+        jumpBadge = GlassUi.text(this, "", 20f, R.font.inter_semibold).apply {
+            background = GlassUi.panel(context, 22f, 0x50)
+            setPadding(dp(context, 22f), dp(context, 12f), dp(context, 22f), dp(context, 12f))
+            gravity = Gravity.CENTER
+            visibility = View.GONE
+        }
+        root.addView(jumpBadge, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER_VERTICAL or Gravity.END).apply { setMargins(dp(this@PlayerActivity, 64f), 0, dp(this@PlayerActivity, 64f), 0) })
         // "Skip Intro" (episodes): bottom-left, OK skips.
         skipView = GlassUi.text(this, "Skip Intro  ›", 15f, R.font.inter_semibold).apply {
             background = GlassUi.panel(context, 18f, 0x60)
@@ -772,17 +784,14 @@ class PlayerActivity : Activity() {
         if (!live && event.action == KeyEvent.ACTION_DOWN && !view.isControllerFullyVisible && !counting && !creditsMode) {
             // Up: the menu along the top (Info · Subtitles · Audio · Sound), like Apple TV's swipe down.
             if (event.keyCode == KeyEvent.KEYCODE_DPAD_UP) { showInfoPanel(); return true }
-            // Left / Right: straight back or forward 10 seconds, with the progress bar showing (Apple TV).
+            // Left / Right: straight back or forward 10 seconds - just a small badge at the side, no controls (Apple TV).
             if (event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT || event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
                 val p = player
                 if (p != null && p.duration > 0) {
                     val step = if (event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) 10_000L else -10_000L
                     val target = (p.currentPosition + step).coerceIn(0L, (p.duration - 1_000L).coerceAtLeast(0L))
                     p.seekTo(target)
-                    view.showController(); hideGear()
-                    // The preview picture above the bar for where you've jumped to.
-                    view.findViewById<View>(androidx.media3.ui.R.id.exo_progress)?.let { b -> b.post { onScrub(b, target); handler.removeCallbacks(hideScrub); handler.postDelayed(hideScrub, 1800) } }
-                    view.findViewById<View>(androidx.media3.ui.R.id.exo_progress)?.let { b -> b.post { b.requestFocus() } }
+                    showJump(step, target, p.duration)
                     return true
                 }
             }
@@ -1003,6 +1012,28 @@ class PlayerActivity : Activity() {
         val playing = player?.playWhenReady ?: true
         start(url, resume = false)
         player?.playWhenReady = playing
+    }
+
+    /** The skip badge: "« 10s" on the left going back, "10s »" on the right going forward; presses in a row add up. */
+    private fun showJump(step: Long, pos: Long, dur: Long) {
+        val now = android.os.SystemClock.uptimeMillis()
+        if (jumpBadge.visibility != View.VISIBLE || now - jumpAt > 1200 || (jumpTotal > 0) != (step > 0)) jumpTotal = 0
+        jumpAt = now
+        jumpTotal += step
+        val secs = kotlin.math.abs(jumpTotal) / 1000
+        val amount = if (secs >= 60) "${secs / 60}m ${(secs % 60).toString().padStart(2, '0')}s" else "${secs}s"
+        fun clock(ms: Long) = (ms / 1000).let { t -> if (t >= 3600) "%d:%02d:%02d".format(t / 3600, t / 60 % 60, t % 60) else "%d:%02d".format(t / 60, t % 60) }
+        jumpBadge.text = (if (step > 0) "$amount  »" else "«  $amount") + "\n" + clock(pos) + " / " + clock(dur)
+        jumpBadge.setLineSpacing(0f, 1.1f)
+        (jumpBadge.layoutParams as FrameLayout.LayoutParams).gravity = Gravity.CENTER_VERTICAL or (if (step > 0) Gravity.END else Gravity.START)
+        jumpBadge.requestLayout()
+        handler.removeCallbacks(hideJump)
+        if (jumpBadge.visibility != View.VISIBLE) { jumpBadge.alpha = 0f; jumpBadge.visibility = View.VISIBLE }
+        jumpBadge.animate().cancel()
+        jumpBadge.animate().alpha(1f).setDuration(120).start()
+        jumpBadge.scaleX = 1.06f; jumpBadge.scaleY = 1.06f
+        jumpBadge.animate().scaleX(1f).scaleY(1f).setDuration(180).start()
+        handler.postDelayed(hideJump, 1300)
     }
 
     private fun tsJump(secs: Int) {
