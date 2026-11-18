@@ -1072,10 +1072,13 @@ class PlayerActivity : Activity() {
         val season = curSeason; val number = curEpisode
         GlassUi.toast(this, "This copy won't play - trying another…")
         Bg.run {
+            var copyId = -1
+            var copyEps: List<Xtream.Episode> = emptyList()
             val next = try {
                 Xtream.seriesCandidates(app, name, 0).take(8).firstNotNullOfOrNull { cand ->
-                    val e = try { Xtream.episodes(app, cand) } catch (ex: Exception) { emptyList() }.firstOrNull { it.season == season && it.number == number }
-                    e?.let { Xtream.episodeUrl(app, it) }?.takeIf { it !in triedCopies }
+                    val eps = try { Xtream.episodes(app, cand) } catch (ex: Exception) { emptyList() }
+                    val e = eps.firstOrNull { it.season == season && it.number == number }
+                    e?.let { Xtream.episodeUrl(app, it) }?.takeIf { it !in triedCopies }?.also { copyId = cand.id; copyEps = eps }
                 }
             } catch (ex: Exception) { null }
             runOnUiThread {
@@ -1084,6 +1087,12 @@ class PlayerActivity : Activity() {
                 Diag.send(app, "player", "trying another copy of \"$name\" S${season}E${number} [.${next.substringAfterLast('.').take(5)}]")
                 triedCopies += next
                 url = next; triedResolved = true; usingResolved = false
+                // The rest of the series from this copy too (and next time), so each episode doesn't fail first.
+                if (copyId >= 0) {
+                    Prefs.setInt(app, "xpick2_" + TiviTuner.vodKey(name), copyId)
+                    val moved = queue.map { q -> copyEps.firstOrNull { it.season == q.season && it.number == q.episode }?.let { Queued(Xtream.episodeUrl(app, it), q.season, q.episode) } ?: q }
+                    queue.clear(); queue.addAll(moved)
+                }
                 start(next, resume = true)
             }
         }
