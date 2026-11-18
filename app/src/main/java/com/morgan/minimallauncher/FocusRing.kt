@@ -69,8 +69,11 @@ object FocusRing {
         if (v is androidx.recyclerview.widget.RecyclerView || v is android.widget.ScrollView || v is android.widget.HorizontalScrollView) return false
         if (v.javaClass.simpleName == "EpgView") return false
         // The video's own view (and its progress bar) inside the player.
-        var p = v.parent
-        while (p is View) { if (p is androidx.media3.ui.PlayerView && v.id != androidx.media3.ui.R.id.exo_progress && !v.isClickable) return false; p = p.parent }
+        var p: android.view.ViewParent? = v.parent
+        while (p != null) {
+            if (p is androidx.media3.ui.PlayerView && v.id != androidx.media3.ui.R.id.exo_progress && !v.isClickable) return false
+            p = p.getParent()
+        }
         return true
     }
 
