@@ -768,15 +768,18 @@ class PlayerActivity : Activity() {
                 val p = player
                 if (p != null && p.duration > 0) {
                     val step = if (event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) 10_000L else -10_000L
-                    p.seekTo((p.currentPosition + step).coerceIn(0L, (p.duration - 1_000L).coerceAtLeast(0L)))
+                    val target = (p.currentPosition + step).coerceIn(0L, (p.duration - 1_000L).coerceAtLeast(0L))
+                    p.seekTo(target)
                     view.showController(); hideGear()
+                    // The preview picture above the bar for where you've jumped to.
+                    view.findViewById<View>(androidx.media3.ui.R.id.exo_progress)?.let { b -> b.post { onScrub(b, target); handler.removeCallbacks(hideScrub); handler.postDelayed(hideScrub, 1800) } }
                     view.findViewById<View>(androidx.media3.ui.R.id.exo_progress)?.let { b -> b.post { b.requestFocus() } }
                     return true
                 }
             }
             if (event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
-                // Controls up, with the progress bar ready to skip along.
-                view.showController(); hideGear()
+                // Controls up, with the progress bar ready to skip along (and the preview pictures getting ready).
+                view.showController(); hideGear(); warmPreview()
                 view.findViewById<View>(androidx.media3.ui.R.id.exo_progress)?.let { b -> b.post { b.requestFocus() } }
                 return true
             }
@@ -1575,7 +1578,12 @@ class PlayerActivity : Activity() {
                 p.setSeekParameters(androidx.media3.exoplayer.SeekParameters.CLOSEST_SYNC)     // nearest keyframe: much quicker
                 p.setVideoTextureView(tex)
                 p.addListener(object : Player.Listener {
-                    override fun onRenderedFirstFrame() { previewFrame?.let { f -> if (scrubBox?.visibility == View.VISIBLE) f.visibility = View.VISIBLE } }
+                    override fun onRenderedFirstFrame() { previewReady = true; previewFrame?.let { f -> if (scrubBox?.visibility == View.VISIBLE) f.visibility = View.VISIBLE } }
+                    override fun onPlayerError(error: PlaybackException) {
+                        val http = (error.cause as? androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException)?.responseCode
+                        Diag.send(this@PlayerActivity, "player", "preview pictures failed: ${error.errorCodeName}${http?.let { " (HTTP $it)" }.orEmpty()}")
+                        previewPlayer?.release(); previewPlayer = null; previewFor = null; previewReady = false
+                    }
                 })
             }
         if (previewFor != url) {
@@ -1587,7 +1595,22 @@ class PlayerActivity : Activity() {
         pp.seekTo(previewWant)
     }
 
-    private val releasePreview = Runnable { previewPlayer?.release(); previewPlayer = null; previewFor = null }
+    private var previewReady = false
+    private val releasePreview = Runnable { previewPlayer?.release(); previewPlayer = null; previewFor = null; previewReady = false }
+
+    private val hideScrub = Runnable {
+        thumbWant = -1L; scrubBox?.visibility = View.GONE; thumbView?.visibility = View.GONE; previewFrame?.visibility = View.GONE
+        handler.removeCallbacks(previewSeek); handler.removeCallbacks(releasePreview); handler.postDelayed(releasePreview, 20_000)
+    }
+
+    /** Gets the preview stream connected as soon as the bar appears, so pictures are ready when you skip. */
+    private fun warmPreview() {
+        if (live || url.startsWith("file:") || previewFor == url) return
+        val p = player ?: return
+        handler.removeCallbacks(releasePreview)
+        previewWant = p.currentPosition
+        handler.removeCallbacks(previewSeek); handler.postDelayed(previewSeek, 300)
+    }
     private var scrubTime: android.widget.TextView? = null
 
     /**
@@ -1625,11 +1648,11 @@ class PlayerActivity : Activity() {
         (view.parent as? FrameLayout)?.addView(box, FrameLayout.LayoutParams(dp(c, 240f), -2, Gravity.BOTTOM or Gravity.START))
         thumbView = iv; scrubBox = box; scrubTime = time
         bar.addListener(object : androidx.media3.ui.TimeBar.OnScrubListener {
-            override fun onScrubStart(t: androidx.media3.ui.TimeBar, pos: Long) { onScrub(bar, pos) }
-            override fun onScrubMove(t: androidx.media3.ui.TimeBar, pos: Long) { onScrub(bar, pos) }
+            override fun onScrubStart(t: androidx.media3.ui.TimeBar, pos: Long) { handler.removeCallbacks(hideScrub); onScrub(bar, pos) }
+            override fun onScrubMove(t: androidx.media3.ui.TimeBar, pos: Long) { handler.removeCallbacks(hideScrub); onScrub(bar, pos) }
             override fun onScrubStop(t: androidx.media3.ui.TimeBar, pos: Long, canceled: Boolean) {
-                thumbWant = -1L; box.visibility = View.GONE; iv.visibility = View.GONE; previewFrame?.visibility = View.GONE
-                handler.removeCallbacks(previewSeek); handler.removeCallbacks(releasePreview); handler.postDelayed(releasePreview, 6000)
+                // Stays up a moment so you see where you landed (the picture often arrives just after you stop).
+                handler.removeCallbacks(hideScrub); handler.postDelayed(hideScrub, 1500)
             }
         })
     }
@@ -1652,6 +1675,7 @@ class PlayerActivity : Activity() {
         box.requestLayout()
         if (!url.startsWith("file:")) {
             // Streaming: the preview player jumps there (a moment after you stop moving, so it isn't asked for every step).
+            if (previewReady) previewFrame?.visibility = View.VISIBLE
             previewWant = pos
             handler.removeCallbacks(releasePreview)
             handler.removeCallbacks(previewSeek); handler.postDelayed(previewSeek, 180)
