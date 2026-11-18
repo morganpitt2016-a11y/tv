@@ -191,20 +191,28 @@ object GlassUi {
     fun toast(activity: Activity, message: String) {
         val content = activity.findViewById<ViewGroup>(android.R.id.content) ?: return
         val c = activity
+        // One message at a time: a new one replaces the last (they used to pile up on top of each other).
+        (content.getTag(R.id.toast) as? View)?.let { old -> old.animate().cancel(); content.removeView(old) }
         val banner = text(c, message, 14f, R.font.inter_medium).apply {
             gravity = Gravity.CENTER
+            maxLines = 2
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            // Never wider than most of the screen: long messages wrap onto a second line instead of running off.
+            maxWidth = (c.resources.displayMetrics.widthPixels * 0.7f).toInt()
             setPadding(dp(c, 22f), dp(c, 12f), dp(c, 22f), dp(c, 12f))
             background = LayerDrawable(arrayOf(ColorDrawable(0), panel(c, 22f, 0x40)))
             alpha = 0f
             translationY = -dp(c, 20f).toFloat()
             elevation = dp(c, 24f).toFloat()
         }
+        content.setTag(R.id.toast, banner)
         content.addView(banner, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply {
             topMargin = dp(c, 28f)
         })
         banner.animate().alpha(1f).translationY(0f).setDuration(220).withEndAction {
             banner.animate().alpha(0f).setStartDelay(2600).setDuration(300).withEndAction {
                 content.removeView(banner)
+                if (content.getTag(R.id.toast) === banner) content.setTag(R.id.toast, null)
             }.start()
         }.start()
     }

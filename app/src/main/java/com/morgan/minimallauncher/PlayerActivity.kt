@@ -1065,12 +1065,23 @@ class PlayerActivity : Activity() {
         else -> "Original shape"
     }
 
+    /** No copy of this episode plays: say so plainly and offer the way on (skip to the next one), not just a message. */
+    private fun cantPlayEpisode(season: Int, number: Int) {
+        val n = queue.firstOrNull()
+        val d = GlassDialog(this).title("S$season E$number won't play")
+            .message("Dodgy Box's copy of this episode is damaged or in a format the TV can't read, and there isn't another copy of this show that works.")
+        if (n != null) d.button("Skip to S${n.season} E${n.episode}", GlassDialog.Style.BOLD) { playNext() }
+        d.button("Try Again") { triedCopies.clear(); triedResolved = false; start(url, resume = true) }
+        d.button("Back to the Show") { finish() }
+        d.show()
+    }
+
     /** Same season and episode from another listing of this show on Dodgy Box. False if there's none left to try. */
     private fun tryOtherCopy(): Boolean {
         val name = seriesTitle ?: return false
         val app = applicationContext
         val season = curSeason; val number = curEpisode
-        GlassUi.toast(this, "This copy won't play - trying another…")
+        GlassUi.toast(this, "Trying another copy of this episode…")
         Bg.run {
             var copyId = -1
             var copyEps: List<Xtream.Episode> = emptyList()
@@ -1100,7 +1111,7 @@ class PlayerActivity : Activity() {
             } catch (ex: Exception) { null }
             runOnUiThread {
                 if (isDestroyed) return@runOnUiThread
-                if (next == null) { GlassUi.toast(this, "No other copy of S${season} E${number} on Dodgy Box plays - try the next episode"); return@runOnUiThread }
+                if (next == null) { cantPlayEpisode(season, number); return@runOnUiThread }
                 Diag.send(app, "player", "trying another copy of \"$name\" S${season}E${number} [.${next.substringAfterLast('.').take(5)}]")
                 triedCopies += next
                 url = next; triedResolved = true; usingResolved = false
