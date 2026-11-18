@@ -143,6 +143,7 @@ object VirtualSurround {
         // ear, so sound seems to come from well beyond the ends of the soundbar. Only the side (not the voices).
         private var xtcBuf = FloatArray(1); private var xtcPos = 0; private var xtcLp = 0f; private var xtcA = 0f
         private var sideLow = 0f; private var sideLowA = 0f
+        private val xtcTop = Biquad()   // gives the widened part its sparkle back (the cancellation tilts it dull)
         // Rears made slightly different left to right (all-pass filters), so they feel diffuse and around you.
         private var apX = FloatArray(0); private var apY = FloatArray(0)
         // Two bands at the end (Linkwitz-Riley at 120 Hz): the bass gets its own limiter, so a kick drum or a score hit
@@ -159,8 +160,11 @@ object VirtualSurround {
             applied = null
             atk = exp(-1.0 / (0.020 * fs)).toFloat(); rel = exp(-1.0 / (0.25 * fs)).toFloat()
             rearBuf = Array(n) { FloatArray((0.015 * fs).toInt().coerceAtLeast(1)) }; rearLp = FloatArray(n); rearPos = 0
-            xtcBuf = FloatArray((0.00025 * fs).toInt().coerceAtLeast(1)); xtcPos = 0; xtcLp = 0f
-            xtcA = (1 - exp(-2 * Math.PI * 3000.0 / fs)).toFloat()
+            // ~70 µs: the extra distance from one end of a soundbar to your far ear (speakers close together). A longer
+            // delay made a comb of dips through the voice range - hollow and echoey.
+            xtcBuf = FloatArray(Math.round(0.00007 * fs).toInt().coerceAtLeast(1)); xtcPos = 0; xtcLp = 0f
+            xtcA = (1 - exp(-2 * Math.PI * 6000.0 / fs)).toFloat()
+            xtcTop.highShelf(fs, 2500.0, 5.0)
             sideLowA = (1 - exp(-2 * Math.PI * 250.0 / fs)).toFloat(); sideLow = 0f
             apX = FloatArray(n); apY = FloatArray(n)
             rearA = (1 - exp(-2 * Math.PI * 11_000.0 / fs)).toFloat()   // rears keep their detail
@@ -184,7 +188,7 @@ object VirtualSurround {
             mid.forEach { it.clear() }; side.forEach { it.clear() }; env = 0f; envLow = 0f
             rearBuf.forEach { it.fill(0f) }; rearLp.fill(0f); rearLow.fill(0f); limL.fill(0f); limR.fill(0f); hold = 0f; gain = 1f
             (xoL + xoR + xhL + xhR).forEach { it.clear() }; lowEnv = 0f; lowGain = 1f
-            xtcBuf.fill(0f); xtcLp = 0f; sideLow = 0f; apX.fill(0f); apY.fill(0f)
+            xtcBuf.fill(0f); xtcLp = 0f; sideLow = 0f; apX.fill(0f); apY.fill(0f); xtcTop.clear()
         }
 
         private fun tune(s: SoundProfile.Settings) {
@@ -216,7 +220,7 @@ object VirtualSurround {
                 // Vocal presence, the way soundbars' "voice" modes do it: a lift where voices get their bite (2.8 kHz)
                 // and where consonants get crisp (5.5 kHz) - in the middle of the mix only, so effects stay wide and soft.
                 mid[8].peak(fs, 2800.0, 2.0, 1.1); mid[9].peak(fs, 5500.0, 1.2, 1.4)
-                side[3].highShelf(fs, 7000.0, 3.5)            // air and sparkle out at the sides (music, ambience)
+                side[3].highShelf(fs, 7000.0, 2.0)            // air and sparkle out at the sides (music, ambience)
                 side[4].peak(fs, 3000.0, 2.0, 1.0)              // and presence there too: instruments come forward, not just voices
             } else {
                 mid[4].peak(fs, 1000.0, 0.0, 1.0); mid[5].peak(fs, 1000.0, 0.0, 1.0); mid[6].peak(fs, 1000.0, 0.0, 1.0)
@@ -277,9 +281,10 @@ object VirtualSurround {
                     val hi = sd - sideLow
                     val fb = xtcBuf[xtcPos]
                     xtcLp += xtcA * (fb - xtcLp)
-                    val wide = hi + 0.42f * xtcLp
+                    val wide = hi + 0.6f * xtcLp
                     xtcBuf[xtcPos] = wide; xtcPos = (xtcPos + 1) % xtcBuf.size
-                    sd = sideLow + wide * 0.85f
+                    // Net: about +5 dB of width through the lows and mids, smooth and flat through the voice range.
+                    sd = sideLow + xtcTop.run(wide) * 0.75f
                 }
                 l = md + sd; r = md - sd
                 // Split at 120 Hz with a Linkwitz-Riley crossover (as in speaker crossovers): the two bands add back flat.
