@@ -230,7 +230,9 @@ class EpisodesActivity : Activity() {
                 setOnFocusChangeListener { v, has ->
                     Motion.spring(v, if (has) 1.08f else 1f)
                     v.background = if (has) GradientDrawable().apply { cornerRadius = dp(context, 18f).toFloat(); setColor(0xFFFFFFFF.toInt()) } else null
-                    if (has) selectSeason(s) else (v as TextView).setTextColor(if (season == s) 0xFFFFFFFF.toInt() else 0x99FFFFFF.toInt())
+                    // Rest on a tab to switch season (passing over them doesn't flick through every season).
+                    if (has) v.postDelayed({ if (v.isFocused) selectSeason(s) }, 300)
+                    else (v as TextView).setTextColor(if (season == s) 0xFFFFFFFF.toInt() else 0x99FFFFFF.toInt())
                     if (has) (v as TextView).setTextColor(0xFF000000.toInt())
                 }
             }
@@ -259,10 +261,17 @@ class EpisodesActivity : Activity() {
                     val pos = lm?.findFirstCompletelyVisibleItemPosition()?.takeIf { it >= 0 } ?: lm?.findFirstVisibleItemPosition() ?: 0
                     (lm?.findViewByPosition(pos) ?: list.getChildAt(0))?.let { it.requestFocus(); return true }
                 }
-                // Holding Left/Right: stop at the first and last episode instead of slipping off the row.
+                // Left/Right along the episodes: always the next / previous episode, brought into view first. Left to
+                // Android, a card not laid out yet made focus jump up to a season tab - which switched season ("skipping").
                 KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> if (inList) {
                     val pos = list.getChildAdapterPosition(f!!)
-                    if ((event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT && pos == 0) || (event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && pos == adapter.itemCount - 1)) return true
+                    val target = pos + if (event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) 1 else -1
+                    if (pos < 0 || target !in 0 until adapter.itemCount) return true   // ends of the row: stay put
+                    val lm = list.layoutManager as? LinearLayoutManager
+                    val v = lm?.findViewByPosition(target)
+                    if (v != null) v.requestFocus()
+                    else { list.scrollToPosition(target); list.post { lm?.findViewByPosition(target)?.requestFocus() } }
+                    return true
                 }
             }
         }
