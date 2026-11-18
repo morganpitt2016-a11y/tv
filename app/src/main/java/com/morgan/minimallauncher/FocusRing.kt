@@ -59,13 +59,30 @@ object FocusRing {
         @Deprecated("Deprecated in Java") override fun getOpacity() = android.graphics.PixelFormat.TRANSLUCENT
     }
 
+    private fun tooBig(v: View): Boolean {
+        val dm = v.resources.displayMetrics
+        return v.width > dm.widthPixels * 0.7f && v.height > dm.heightPixels * 0.5f
+    }
+
+    private fun selectable(v: View): Boolean {
+        if (v is androidx.media3.ui.PlayerView || v is android.view.SurfaceView || v is android.view.TextureView) return false
+        if (v is androidx.recyclerview.widget.RecyclerView || v is android.widget.ScrollView || v is android.widget.HorizontalScrollView) return false
+        if (v.javaClass.simpleName == "EpgView") return false
+        // The video's own view (and its progress bar) inside the player.
+        var p = v.parent
+        while (p is View) { if (p is androidx.media3.ui.PlayerView && v.id != androidx.media3.ui.R.id.exo_progress && !v.isClickable) return false; p = p.parent }
+        return true
+    }
+
     private fun show(c: Context, v: View?) {
         on?.let { old -> ring?.let { old.overlay.remove(it) } }
         on = null
         if (mode(c) == "off" || v == null) return
-        // Not round whole screens or the TV guide grid (that marks its own programme in white).
+        // Only things you pick (tiles, posters, buttons, rows) - never the video, the TV guide grid (it marks its own
+        // programme) or a whole scrolling list.
+        if (!selectable(v)) return
         val dm = v.resources.displayMetrics
-        if (v.width > dm.widthPixels * 0.7f && v.height > dm.heightPixels * 0.5f) return
+        if (tooBig(v)) return
         val rim = Rim(dm.density)
         fun place() {
             rim.setBounds(0, 0, v.width, v.height)
@@ -84,6 +101,8 @@ object FocusRing {
         v.addOnLayoutChangeListener(object : View.OnLayoutChangeListener {
             override fun onLayoutChange(x: View, l: Int, t: Int, r: Int, b: Int, ol: Int, ot: Int, or: Int, ob: Int) {
                 if (on !== x) { x.removeOnLayoutChangeListener(this); return }
+                // Focus can arrive before the first layout (size 0 then) - if it turns out to be the whole screen, no rim.
+                if (tooBig(x)) { x.overlay.remove(rim); on = null; ring = null; x.removeOnLayoutChangeListener(this); return }
                 place(); x.invalidate()
             }
         })
