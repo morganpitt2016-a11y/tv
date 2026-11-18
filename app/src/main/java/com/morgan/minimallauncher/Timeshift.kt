@@ -41,8 +41,12 @@ class Timeshift(context: Context, val url: String) {
         thread = Thread({ download() }, "timeshift").apply { isDaemon = true; start() }
     }
 
+    @Volatile private var live: HttpURLConnection? = null
+
     fun stop() {
         stopped = true
+        // Close the connection now (not after the next read), so Dodgy Box sees it free straight away.
+        live?.let { c -> Thread { try { c.disconnect() } catch (_: Exception) {} }.start() }
         thread?.interrupt()
         synchronized(lock) { lock.notifyAll() }
         file.delete()
@@ -59,7 +63,7 @@ class Timeshift(context: Context, val url: String) {
                 c.setRequestProperty("User-Agent", Xtream.PLAYER_AGENT)
                 val code = c.responseCode
                 if (code in 300..399) { target = URL(target, c.getHeaderField("Location") ?: return@repeat); c.disconnect() }
-                else { conn = c; if (code !in 200..299) { failed = "HTTP $code"; return }; return@repeat }
+                else { conn = c; live = c; if (code !in 200..299) { failed = "HTTP $code"; return }; return@repeat }
             }
             val input = conn?.inputStream ?: run { failed = "no stream"; return }
             RandomAccessFile(file, "rw").use { out ->

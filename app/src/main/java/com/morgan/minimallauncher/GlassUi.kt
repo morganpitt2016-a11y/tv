@@ -86,7 +86,11 @@ object GlassUi {
      * tvOS 26 "Liquid Glass": a frosted fill, a specular rim that catches the light along the top and fades
      * down the sides, and a soft sheen across the top - drawn in one pass, so it stays smooth on TV hardware.
      */
-    fun panel(c: Context, radiusDp: Float, fillAlpha: Int = 0x24): Drawable = LiquidGlass(dp(c, radiusDp).toFloat(), fillAlpha, dp(c, 1f).toFloat() * 1.2f)
+    fun panel(c: Context, radiusDp: Float, fillAlpha: Int = 0x24): Drawable =
+        // Reduce Transparency: solid dark panels instead of see-through glass (easier to read over busy pictures).
+        if (solidPanels(c)) GradientDrawable().apply {
+            cornerRadius = dp(c, radiusDp).toFloat(); setColor(0xF2242428.toInt()); setStroke(dp(c, 1f), 0x40FFFFFF)
+        } else LiquidGlass(dp(c, radiusDp).toFloat(), fillAlpha, dp(c, 1f).toFloat() * 1.2f)
 
     class LiquidGlass(private val r: Float, private val fillAlpha: Int, private val rim: Float) : Drawable() {
         private val fill = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
@@ -141,10 +145,24 @@ object GlassUi {
 
     fun secondaryText() = primaryText(SECONDARY_ON_WHITE, SECONDARY)
 
+    // ---------- Accessibility (Settings, per profile - like Apple TV's) ----------
+
+    fun boldText(c: Context) = Prefs.bool(c, ProfileManager.scope(c, "a11y_bold"), false)
+    fun largerText(c: Context) = Prefs.bool(c, ProfileManager.scope(c, "a11y_large"), false)
+    fun solidPanels(c: Context) = Prefs.bool(c, ProfileManager.scope(c, "a11y_solid"), false)
+
     fun text(c: Context, value: CharSequence, sizeDp: Float, fontRes: Int, color: Int = WHITE) = TextView(c).apply {
         text = value
-        typeface = font(c, fontRes)
-        setTextSize(TypedValue.COMPLEX_UNIT_DIP, sizeDp)
+        // Bold Text: each weight one step heavier (the heaviest gets a touch more on top).
+        val bold = boldText(c)
+        val res = if (!bold) fontRes else when (fontRes) {
+            R.font.inter_regular -> R.font.inter_medium
+            R.font.inter_medium -> R.font.inter_semibold
+            else -> fontRes
+        }
+        typeface = font(c, res)
+        if (bold && fontRes == R.font.inter_semibold) paint.isFakeBoldText = true
+        setTextSize(TypedValue.COMPLEX_UNIT_DIP, sizeDp * if (largerText(c)) 1.15f else 1f)
         setTextColor(color)
         includeFontPadding = false
     }

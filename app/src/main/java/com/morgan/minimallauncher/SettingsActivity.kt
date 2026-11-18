@@ -86,6 +86,21 @@ class SettingsActivity : AppCompatActivity() {
                 FocusRing.setMode(this, if (on) "on" else "off"); refreshValues()
                 GlassUi.toast(this, if (on) "Focus Highlight on - a white rim shows where you are" else "Focus Highlight off")
             }
+            // Apple TV's Accessibility options, for whoever's profile is in use.
+            fun a11y(label: String, key: String, note: String) = vrow(label, { if (Prefs.bool(this, ProfileManager.scope(this, key), false)) "On" else "Off" }) {
+                val now = !Prefs.bool(this, ProfileManager.scope(this, key), false)
+                Prefs.setBool(this, ProfileManager.scope(this, key), now)
+                GlassUi.toast(this, "$label ${if (now) "on" else "off"} - $note")
+                recreate()        // this screen redraws in the new style straight away
+            }
+            a11y("Bold Text", "a11y_bold", "heavier writing everywhere")
+            a11y("Larger Text", "a11y_large", "bigger writing everywhere")
+            a11y("Reduce Transparency", "a11y_solid", "solid panels instead of see-through glass")
+            vrow("Subtitle Style", { when (Prefs.string(this, ProfileManager.scope(this, "sub_style"))) { "large" -> "Large"; "box" -> "Large on a Dark Box"; else -> "Standard" } }) {
+                val k = ProfileManager.scope(this, "sub_style")
+                val next = when (Prefs.string(this, k)) { "large" -> "box"; "box" -> "standard"; else -> "large" }
+                Prefs.setString(this, k, next); refreshValues()
+            }
             vrow("Who’s Watching on Wake", { if (Prefs.bool(this, "who_on_wake", true)) "On" else "Off" }) {
                 Prefs.setBool(this, "who_on_wake", !Prefs.bool(this, "who_on_wake", true)); refreshValues()
             }

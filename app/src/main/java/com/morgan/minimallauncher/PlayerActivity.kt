@@ -98,6 +98,9 @@ class PlayerActivity : Activity() {
     private lateinit var pauseTitle: android.widget.TextView
     private lateinit var pauseEp: android.widget.TextView
     private lateinit var pausePlot: android.widget.TextView
+    // InSight (Apple TV): who's in it, under the story when you pause.
+    private lateinit var pauseCast: android.widget.TextView
+    private var castFor: String? = null
     private var episodeList: List<Xtream.Episode>? = null
     private var episodeListLoading = false
     private val showPause = Runnable { showPauseInfo() }
@@ -223,9 +226,12 @@ class PlayerActivity : Activity() {
         pauseInfo.addView(pauseTitle, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(this@PlayerActivity, 6f) })
         pauseInfo.addView(pauseEp, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(this@PlayerActivity, 12f) })
         pauseInfo.addView(pausePlot, LinearLayout.LayoutParams(dp(this@PlayerActivity, 520f), -2).apply { topMargin = dp(this@PlayerActivity, 10f) })
+        pauseCast = GlassUi.text(this, "", 14f, R.font.inter_medium, 0xB3FFFFFF.toInt()).apply { maxLines = 3; setLineSpacing(0f, 1.2f); visibility = View.GONE }
+        pauseInfo.addView(pauseCast, LinearLayout.LayoutParams(dp(this@PlayerActivity, 520f), -2).apply { topMargin = dp(this@PlayerActivity, 14f) })
         root.addView(pauseInfo, 1, FrameLayout.LayoutParams(dp(this, 900f), -1, Gravity.START))
         setContentView(root)
         if (!live) view.post { setUpScrubPreview(); styleControls() }
+        applySubtitleStyle()
         handler.postDelayed({ banner.animate().alpha(0f).setDuration(600).start() }, 4500)
 
         seriesTitle = intent.getStringExtra(EXTRA_SERIES)
@@ -542,7 +548,14 @@ class PlayerActivity : Activity() {
             val q = player ?: return@Runnable
             if (url != startedFor || isFinishing || q.isPlaying || q.playerError != null) return@Runnable
             if (q.playbackState == Player.STATE_BUFFERING || q.playbackState == Player.STATE_IDLE) {
-                Diag.send(this, "player", "stuck: state=${q.playbackState} pos=${q.currentPosition / 1000}s dur=${q.duration / 1000}s resumeAt=${resumeAt ?: 0}s for \"$titleText\"")
+                Diag.send(this, "player", "stuck: state=${q.playbackState} pos=${q.currentPosition / 1000}s dur=${q.duration / 1000}s resumeAt=${resumeAt ?: 0}s retried=$startRetried for \"$titleText\"")
+                // First time: often Dodgy Box still counting the last connection - one quiet fresh try usually gets it going.
+                if (!startRetried && !firstFrameLogged) {
+                    startRetried = true
+                    q.stop(); q.prepare(); q.playWhenReady = true
+                    handler.postDelayed(this@PlayerActivity.startWatch ?: return@Runnable, 9_000)
+                    return@Runnable
+                }
                 if (resumeAt != null && !live) {
                     GlassUi.toast(this, "Couldn’t pick up where you left off - starting from the beginning")
                     Prefs.setInt(this, posKey(), 0)
@@ -551,16 +564,21 @@ class PlayerActivity : Activity() {
             }
         }
         startWatch = watch
-        handler.postDelayed(watch, 15_000)
+        startRetried = false
+        handler.postDelayed(watch, 8_000)
     }
 
     // The "did it get going?" check after starting. Rewinding or skipping cancels it: a seek that's still loading
     // isn't a failed resume (it used to send you back to the beginning).
     private var startWatch: Runnable? = null
+    private var startRetried = false
     private var curtain: FrameLayout? = null
 
     /** Leaving the player shrinks it away, like closing an app. */
     override fun finish() {
+        // Let go of Dodgy Box at once (it allows one connection): what you open next mustn't wait for this to close.
+        ts?.stop(); ts = null
+        try { player?.stop() } catch (_: Throwable) {}
         super.finish()
         @Suppress("DEPRECATION") overridePendingTransition(R.anim.screen_back_in, R.anim.player_out)
     }
@@ -1298,6 +1316,7 @@ class PlayerActivity : Activity() {
         pausePlot.text = ep?.plot.orEmpty()
         pausePlot.visibility = if (pausePlot.text.isNullOrBlank()) View.GONE else View.VISIBLE
         pauseEyebrow.text = if (live) "You’re watching live" else "You’re watching"
+        loadCast()
         if (pauseInfo.visibility != View.VISIBLE) {
             // Like Netflix: the picture with the title card, without the buttons on top; any press brings them back.
             view.hideController()
@@ -1486,6 +1505,45 @@ class PlayerActivity : Activity() {
     }
 
     /** Fetches the episode names and stories (for the credits card and the episodes strip). */
+    /** Subtitle Style (Settings, per profile): the film's own look, bigger, or bigger on a dark box (Apple TV's). */
+    private fun applySubtitleStyle() {
+        val sv = view.subtitleView ?: return
+        when (Prefs.string(this, ProfileManager.scope(this, "sub_style")) ?: "standard") {
+            "large" -> {
+                sv.setApplyEmbeddedStyles(false)
+                sv.setStyle(androidx.media3.ui.CaptionStyleCompat(0xFFFFFFFF.toInt(), 0, 0, androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW, 0xE6000000.toInt(), null))
+                sv.setFractionalTextSize(androidx.media3.ui.SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * 1.3f)
+            }
+            "box" -> {
+                sv.setApplyEmbeddedStyles(false)
+                sv.setStyle(androidx.media3.ui.CaptionStyleCompat(0xFFFFFFFF.toInt(), 0xCC000000.toInt(), 0, androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_NONE, 0, null))
+                sv.setFractionalTextSize(androidx.media3.ui.SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * 1.3f)
+            }
+            else -> { sv.setApplyEmbeddedStyles(true); sv.setUserDefaultStyle(); sv.setUserDefaultTextSize() }
+        }
+    }
+
+    /** InSight: the cast (from the film and TV guide), fetched once per title the first time you pause. */
+    private fun loadCast() {
+        if (live) { pauseCast.visibility = View.GONE; return }
+        val name = seriesTitle ?: titleText
+        if (castFor == name) return
+        castFor = name
+        pauseCast.visibility = View.GONE
+        WatchCatalog.titles(this, search = name, first = 1, types = listOf(if (seriesTitle != null) "SHOW" else "MOVIE")) { l ->
+            val t = l?.firstOrNull() ?: return@titles
+            WatchCatalog.detail(this, t) { d ->
+                if (d == null || isDestroyed || castFor != name) return@detail
+                val lines = listOfNotNull(
+                    d.cast.takeIf { it.isNotEmpty() }?.let { "Starring  " + it.joinToString("  ·  ") },
+                    d.directors.takeIf { it.isNotEmpty() }?.let { "Directed by  " + it.joinToString(", ") },
+                )
+                pauseCast.text = lines.joinToString("\n")
+                pauseCast.visibility = if (lines.isEmpty()) View.GONE else View.VISIBLE
+            }
+        }
+    }
+
     private fun showPauseInfoFetchOnly(then: (() -> Unit)? = null) {
         if (episodeList != null) { then?.invoke(); return }
         if (episodeListLoading || seriesTitle == null) return
@@ -1805,7 +1863,13 @@ class PlayerActivity : Activity() {
     private var scrubWasPlaying: Boolean? = null
     private var scrubDim: View? = null
     private var mainSeekPos = 0L
-    private val mainSeek = Runnable { player?.seekTo(mainSeekPos) }
+    private val mainSeek: Runnable = object : Runnable {
+        override fun run() {
+            val p = player ?: return
+            if (p.playbackState == Player.STATE_BUFFERING) { handler.postDelayed(this, 200); return }
+            if (kotlin.math.abs(p.currentPosition - mainSeekPos) > 1500) p.seekTo(mainSeekPos)
+        }
+    }
 
     private fun warmPreview() {
         // Streams no longer use a second connection for pictures (Dodgy Box allows one) - the film itself shows them.
@@ -1911,7 +1975,9 @@ class PlayerActivity : Activity() {
         box.requestLayout()
         if (!url.startsWith("file:")) {
             // Streaming: the film jumps there on screen, a moment after you stop moving (not asked for every step).
-            if (scrubWasPlaying != null) { mainSeekPos = pos; handler.removeCallbacks(mainSeek); handler.postDelayed(mainSeek, 200) }
+            // Only once you pause on a spot (not every step), and never while the last jump is still loading - each jump
+            // asks Dodgy Box for that part of the film again (holding the button made 15 of them in 10 seconds).
+            if (scrubWasPlaying != null) { mainSeekPos = pos; handler.removeCallbacks(mainSeek); handler.postDelayed(mainSeek, 450) }
             return
         }
         val want = pos
