@@ -233,8 +233,16 @@ class PlayerActivity : Activity() {
                 background = android.graphics.drawable.GradientDrawable().apply { cornerRadius = dp(c, 16f).toFloat(); setColor(0xFF1C1C1E.toInt()) }
                 clipToOutline = true; outlineProvider = android.view.ViewOutlineProvider.BACKGROUND
             }
-            image?.let { ImageLoader.load(back, it, ImageLoader.HERO); ImageLoader.load(card, it, ImageLoader.HERO) }
-            if (image != null) col.addView(card, LinearLayout.LayoutParams(dp(c, 400f), dp(c, 225f)))
+            // The show's wide artwork when we have it (a tall cover cropped into a wide card cut the faces off);
+            // with only a tall poster, the card becomes poster-shaped instead.
+            val art = Prefs.string(c, "rart_" + (seriesTitle ?: titleText)) ?: image
+            art?.let { a ->
+                ImageLoader.load(back, a, ImageLoader.HERO)
+                ImageLoader.load(card, a, ImageLoader.HERO) { bmp ->
+                    if (bmp != null && bmp.height > bmp.width) card.layoutParams = LinearLayout.LayoutParams(dp(c, 170f), dp(c, 255f))
+                }
+            }
+            if (art != null) col.addView(card, LinearLayout.LayoutParams(dp(c, 400f), dp(c, 225f)))
             col.addView(GlassUi.text(c, (seriesTitle ?: titleText), 24f, R.font.inter_semibold).apply { maxLines = 2; gravity = Gravity.CENTER },
                 LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(c, 18f) })
             intent.getStringExtra(EXTRA_SUBTITLE)?.takeIf { it.isNotBlank() }?.let {
@@ -313,8 +321,9 @@ class PlayerActivity : Activity() {
         VirtualSurround.settings = SoundProfile.get(this)
         val builder = ExoPlayer.Builder(this).setLoadControl(load).setMediaSourceFactory(sources)
         if (decodingAudio) builder.setRenderersFactory(object : androidx.media3.exoplayer.DefaultRenderersFactory(this) {
-            // The app's own FFmpeg decoder first: Dolby Digital Plus is decoded here, into our mixer.
-            init { setExtensionRendererMode(EXTENSION_RENDERER_MODE_PREFER) }
+            // The TV's own decoders first (they handle AAC, MPEG and live TV fine); the app's FFmpeg decoder takes
+            // over for what they can't - Dolby Digital Plus - so it's decoded here, into our mixer.
+            init { setExtensionRendererMode(EXTENSION_RENDERER_MODE_ON) }
             @Suppress("DEPRECATION")
             override fun buildAudioSink(context: Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): androidx.media3.exoplayer.audio.AudioSink =
                 // No Context: with one, the sink reads the TV's real abilities and quietly passes Dolby through
