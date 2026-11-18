@@ -132,9 +132,14 @@ internal fun WatchActivity.openDetail(t: WatchCatalog.Title, from: View?) {
     detailMore = more.view
 
     play.requestFocus()
+    meta.text = AvBadges.withBadges(this, metaLine(t, null), t.name)
+    // 4K / Dolby / 5.1 from the server, if we don't know them yet.
+    var detailNow: WatchCatalog.Detail? = null
+    AvBadges.fetch(this, t.name, t.year, t.type == "SHOW") { if (detail === page) meta.text = AvBadges.withBadges(this, metaLine(t, detailNow), t.name) }
     WatchCatalog.detail(this, t) { d ->
+        detailNow = d
         if (detail !== page || d == null) return@detail
-        meta.text = metaLine(t, d)
+        meta.text = AvBadges.withBadges(this, metaLine(t, d), t.name)
         people.text = listOfNotNull(
             d.cast.takeIf { it.isNotEmpty() }?.let { "Starring " + it.joinToString(", ") },
             d.directors.takeIf { it.isNotEmpty() }?.let { "Directed by " + it.joinToString(", ") },

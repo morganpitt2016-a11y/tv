@@ -160,7 +160,7 @@ internal fun WatchActivity.showTitleHero(t: WatchCatalog.Title, now: Boolean = f
     val on = t.offers.filter { it.provider.installed != null }.map { it.provider.displayName }.distinct()
     eyebrow.text = listOfNotNull(on.firstOrNull()?.uppercase(), if (t.type == "SHOW") "SERIES" else "FILM").joinToString("  ·  ")
     heroTitle.text = t.name
-    heroMeta.text = metaLine(t, null)
+    heroMeta.text = AvBadges.withBadges(this, metaLine(t, null), t.name)
     heroText.text = t.description
     heroWhere.text = when {
         on.isNotEmpty() -> "On " + on.joinToString(", ")

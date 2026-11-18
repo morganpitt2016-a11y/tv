@@ -170,11 +170,13 @@ internal fun WatchActivity.resumeTitle(name: String, kind: String, done: (WatchC
 internal fun WatchActivity.showResumeHero(item: ResumeStore.Item, line: String) {
     val name = item.series ?: item.title
     val t = resumeTitles[name]
+    if (item.kind != "live" && AvBadges.get(this, name) == null)
+        AvBadges.fetch(this, name, t?.year ?: 0, item.series != null) { if (heroTitle.text.toString() == name) heroMeta.text = AvBadges.withBadges(this, line, name) }
     setHero(false) {
         queueTrailer(null)
         eyebrow.text = if (item.kind == "live") "WATCH AGAIN" else "CONTINUE WATCHING"
         heroTitle.text = name
-        heroMeta.text = line
+        heroMeta.text = if (item.kind == "live") line else AvBadges.withBadges(this, line, name)
         heroText.text = t?.description.orEmpty()
         heroWhere.text = "Press OK to carry on"
         setHeroImage(t?.backdrop ?: Prefs.string(this, "rart_$name") ?: item.image ?: t?.poster)

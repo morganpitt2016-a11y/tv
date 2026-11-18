@@ -729,6 +729,22 @@ object Xtream {
         return hits.firstOrNull { year > 0 && yearOf(it.name) == year } ?: hits.firstOrNull { yearOf(it.name) == null || year <= 0 } ?: hits.firstOrNull()
     }
 
+    /** The picture and sound of a film (its file info) or a show (its first episode with file info), from the server. */
+    fun avInfo(c: Context, title: String, year: Int, show: Boolean): AvBadges.Av? {
+        if (!show) {
+            val v = findVod(c, title, year) ?: return null
+            return AvBadges.parse(org.json.JSONObject(apiGet(c, "get_vod_info", "&vod_id=${v.id}", 15_000)).optJSONObject("info"))
+        }
+        val picked = Prefs.int(c, "xpick2_" + TiviTuner.vodKey(title), -1)
+        val s = seriesCandidates(c, title, year).let { l -> l.firstOrNull { it.id == picked } ?: l.firstOrNull() } ?: return null
+        val o = org.json.JSONObject(apiGet(c, "get_series_info", "&series_id=${s.id}", 20_000))
+        val eps = mutableListOf<org.json.JSONObject>()
+        o.optJSONObject("episodes")?.let { e -> for (k in e.keys()) e.optJSONArray(k)?.let { a -> for (i in 0 until a.length()) a.optJSONObject(i)?.let { eps += it } } }
+        o.optJSONArray("episodes")?.let { e -> for (i in 0 until e.length()) { e.optJSONObject(i)?.let { eps += it }; e.optJSONArray(i)?.let { a -> for (j in 0 until a.length()) a.optJSONObject(j)?.let { eps += it } } } }
+        // The newest episode's file is the best guess for what you'll watch.
+        return eps.asReversed().firstNotNullOfOrNull { AvBadges.parse(it.optJSONObject("info")) }
+    }
+
     fun findSeries(c: Context, title: String, year: Int): Series? = seriesCandidates(c, title, year).firstOrNull()
 
     /**

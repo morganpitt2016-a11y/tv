@@ -372,6 +372,11 @@ class PlayerActivity : Activity() {
                 val audio = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
                 if (audio.isEmpty()) return
                 val selected = audio.firstOrNull { it.isSelected }?.let { g -> (0 until g.length).firstOrNull { g.isTrackSelected(it) }?.let { g.getTrackFormat(it) } }
+                // Remember what this title actually came in (4K / HDR / Dolby / 5.1) for its badges in Watch.
+                if (!live) {
+                    val vf = tracks.groups.firstOrNull { it.type == C.TRACK_TYPE_VIDEO && it.isSelected }?.let { g -> (0 until g.length).firstOrNull { g.isTrackSelected(it) }?.let { g.getTrackFormat(it) } }
+                    AvBadges.fromPlayer(vf, selected)?.let { AvBadges.save(applicationContext, seriesTitle ?: titleText, it) }
+                }
                 val anyPlayable = audio.any { g -> (0 until g.length).any { g.isTrackSupported(it) } }
                 // What this programme's sound is (in the TV's log), once per programme.
                 if (audioLoggedFor != url) {
@@ -672,19 +677,19 @@ class PlayerActivity : Activity() {
 
     // ---------- Live: the channel strip ----------
 
-    private var strip: View? = null
-    private var stripClosedBy = 0
-    private val hideStripLater = Runnable { hideStrip() }
+    private var chStrip: View? = null
+    private var chStripClosedBy = 0
+    private val hideChStripLater = Runnable { hideChannelStrip() }
 
-    private fun hideStrip() {
-        val s = strip ?: return
-        strip = null
-        handler.removeCallbacks(hideStripLater)
+    private fun hideChannelStrip() {
+        val s = chStrip ?: return
+        chStrip = null
+        handler.removeCallbacks(hideChStripLater)
         s.animate().alpha(0f).translationY(dp(this, 40f).toFloat()).setDuration(220).withEndAction { (s.parent as? ViewGroup)?.removeView(s) }.start()
     }
 
-    private fun showStrip() {
-        if (strip != null) return
+    private fun showChannelStrip() {
+        if (chStrip != null) return
         val c = this
         val list = zapList
         val now = System.currentTimeMillis()
@@ -741,23 +746,23 @@ class PlayerActivity : Activity() {
                 (h.bar.layoutParams as FrameLayout.LayoutParams).width = ((dp(c, 250f) - dp(c, 28f)) * (frac ?: 0f)).toInt()
                 h.bar.requestLayout()
                 h.root.setOnClickListener {
-                    hideStrip()
+                    hideChannelStrip()
                     if (pos != zapIndex) { zapIndex = pos; tuneTo(list[pos]) }
                 }
             }
         }
-        if (LiveGuide.cached() == null) LiveGuide.load(applicationContext) { runOnUiThread { if (strip === rv.parent) rv.adapter?.let { a -> a.notifyItemRangeChanged(0, a.itemCount) } } }
+        if (LiveGuide.cached() == null) LiveGuide.load(applicationContext) { runOnUiThread { if (chStrip === rv.parent) rv.adapter?.let { a -> a.notifyItemRangeChanged(0, a.itemCount) } } }
         box.addView(rv, LinearLayout.LayoutParams(-1, dp(c, 156f)))
         val content = findViewById<ViewGroup>(android.R.id.content)
         content.addView(box, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
-        strip = box
+        chStrip = box
         view.hideController()
         box.alpha = 0f; box.translationY = dp(c, 40f).toFloat()
         box.animate().alpha(1f).translationY(0f).setDuration(260).setInterpolator(Motion.enter).start()
         // Start on the channel you're watching, a little in from the left.
         (rv.layoutManager as androidx.recyclerview.widget.LinearLayoutManager).scrollToPositionWithOffset(zapIndex, dp(c, 0f))
         rv.post { rv.findViewHolderForAdapterPosition(zapIndex)?.itemView?.requestFocus() ?: rv.getChildAt(0)?.requestFocus() }
-        handler.postDelayed(hideStripLater, 10_000)
+        handler.postDelayed(hideChStripLater, 10_000)
     }
 
     private fun timeRange(p: LiveGuide.Programme): String {
@@ -851,15 +856,15 @@ class PlayerActivity : Activity() {
             }
         }
         // The key that closed the channel strip: its release mustn't also leave the player.
-        if (stripClosedBy != 0 && event.keyCode == stripClosedBy) { if (event.action == KeyEvent.ACTION_UP) stripClosedBy = 0; return true }
-        stripClosedBy = 0
+        if (chStripClosedBy != 0 && event.keyCode == chStripClosedBy) { if (event.action == KeyEvent.ACTION_UP) chStripClosedBy = 0; return true }
+        chStripClosedBy = 0
         if (event.action == KeyEvent.ACTION_DOWN) pressedThisEpisode = true
         // The live channel strip along the bottom: Left / Right browse, OK changes channel, Back / Up closes it.
-        strip?.let {
+        chStrip?.let {
             val k = event.keyCode
-            if (k == KeyEvent.KEYCODE_BACK || k == KeyEvent.KEYCODE_DPAD_UP) { if (event.action == KeyEvent.ACTION_DOWN) { hideStrip(); stripClosedBy = k }; return true }
+            if (k == KeyEvent.KEYCODE_BACK || k == KeyEvent.KEYCODE_DPAD_UP) { if (event.action == KeyEvent.ACTION_DOWN) { hideChannelStrip(); chStripClosedBy = k }; return true }
             if (k == KeyEvent.KEYCODE_DPAD_DOWN) return true
-            if (event.action == KeyEvent.ACTION_DOWN) { handler.removeCallbacks(hideStripLater); handler.postDelayed(hideStripLater, 10_000) }
+            if (event.action == KeyEvent.ACTION_DOWN) { handler.removeCallbacks(hideChStripLater); handler.postDelayed(hideChStripLater, 10_000) }
             return super.dispatchKeyEvent(event)
         }
         infoPanel?.let {
@@ -959,7 +964,7 @@ class PlayerActivity : Activity() {
                 k == KeyEvent.KEYCODE_DPAD_UP || k == KeyEvent.KEYCODE_CHANNEL_UP -> { zap(1); return true }
                 k == KeyEvent.KEYCODE_CHANNEL_DOWN -> { zap(-1); return true }
                 // Down: the channel strip along the bottom, the channel still playing above it (Apple TV live).
-                k == KeyEvent.KEYCODE_DPAD_DOWN -> { if (zapList.size > 1) showStrip() else zap(-1); return true }
+                k == KeyEvent.KEYCODE_DPAD_DOWN -> { if (zapList.size > 1) showChannelStrip() else zap(-1); return true }
                 k in KeyEvent.KEYCODE_0..KeyEvent.KEYCODE_9 -> { typeDigit(k - KeyEvent.KEYCODE_0); return true }
                 (k == KeyEvent.KEYCODE_DPAD_CENTER || k == KeyEvent.KEYCODE_ENTER) && numberBuf.isNotEmpty() -> { commitNumberNow(); return true }
                 ts != null && (k == KeyEvent.KEYCODE_DPAD_LEFT || k == KeyEvent.KEYCODE_MEDIA_REWIND) -> { tsJump(-30); return true }
