@@ -313,8 +313,13 @@ class PlayerActivity : Activity() {
         VirtualSurround.settings = SoundProfile.get(this)
         val builder = ExoPlayer.Builder(this).setLoadControl(load).setMediaSourceFactory(sources)
         if (decodingAudio) builder.setRenderersFactory(object : androidx.media3.exoplayer.DefaultRenderersFactory(this) {
+            // The app's own FFmpeg decoder first: Dolby Digital Plus is decoded here, into our mixer.
+            init { setExtensionRendererMode(EXTENSION_RENDERER_MODE_PREFER) }
+            @Suppress("DEPRECATION")
             override fun buildAudioSink(context: Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): androidx.media3.exoplayer.audio.AudioSink =
-                androidx.media3.exoplayer.audio.DefaultAudioSink.Builder(context)
+                // No Context: with one, the sink reads the TV's real abilities and quietly passes Dolby through
+                // (bypassing the mixer, and making the soundbar switch modes and swallow the start).
+                androidx.media3.exoplayer.audio.DefaultAudioSink.Builder()
                     .setAudioCapabilities(androidx.media3.exoplayer.audio.AudioCapabilities.DEFAULT_AUDIO_CAPABILITIES)
                     .apply { setAudioProcessors(arrayOf(if (format == "virtual") VirtualSurround.mixer() else VirtualSurround.stereo())) }
                     .build()

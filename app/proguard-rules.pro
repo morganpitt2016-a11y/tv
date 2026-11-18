@@ -25,3 +25,6 @@
 -dontwarn jakarta.**
 -dontwarn org.jetbrains.annotations.**
 -dontwarn edu.umd.cs.findbugs.annotations.**
+
+# The FFmpeg audio renderer is found by name (reflection) by DefaultRenderersFactory.
+-keep class androidx.media3.decoder.ffmpeg.** { *; }
