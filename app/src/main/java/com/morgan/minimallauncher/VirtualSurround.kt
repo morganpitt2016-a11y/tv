@@ -31,7 +31,7 @@ object VirtualSurround {
     /** Told how long the decoder took to give real (not silent) sound after starting - for the TV's log. */
     @Volatile var onFirstSound: ((Long) -> Unit)? = null
 
-    private const val G = 0.64f            // level for surround mixes: room for the extra bass without the limiter pumping
+    private const val G = 0.68f            // level for surround mixes: room for the bass without the limiter pumping
     private val FL = floatArrayOf(G, 0f)
     private val FR = floatArrayOf(0f, G)
     private val LFE = floatArrayOf(1.0f * G, 1.0f * G)   // the film's bass channel, at full weight into the subwoofer
@@ -109,7 +109,7 @@ object VirtualSurround {
         private var coeffs: Array<FloatArray> = emptyArray()
         // The middle of the mix (voices) and the sides (width) are shaped separately.
         private val mid = Array(12) { Biquad() }
-        private val side = Array(4) { Biquad() }
+        private val side = Array(5) { Biquad() }
         private var env = 0f
         private var atk = 0f; private var rel = 0f
         // Rear channels arrive ~12 ms late and a touch softer on top - heard as around and behind, not from the bar.
@@ -137,7 +137,7 @@ object VirtualSurround {
             applied = null
             atk = exp(-1.0 / (0.020 * fs)).toFloat(); rel = exp(-1.0 / (0.25 * fs)).toFloat()
             rearBuf = Array(n) { FloatArray((0.012 * fs).toInt().coerceAtLeast(1)) }; rearLp = FloatArray(n); rearPos = 0
-            rearA = (1 - exp(-2 * Math.PI * 7000.0 / fs)).toFloat()
+            rearA = (1 - exp(-2 * Math.PI * 11_000.0 / fs)).toFloat()   // rears keep their detail
             rearLow = FloatArray(n); lowA = (1 - exp(-2 * Math.PI * 180.0 / fs)).toFloat()
             msA = (1 - exp(-1.0 / (0.4 * fs))).toFloat(); dynApplied = -99f
             la = (0.004 * fs).toInt().coerceAtLeast(1); limL = FloatArray(la); limR = FloatArray(la); limPos = 0
@@ -175,17 +175,21 @@ object VirtualSurround {
             if (surround) {
                 // Rich and boomy: a deeper bass shelf, a low "boom" bump where film scores and kick drums live (55 Hz),
                 // warmth at 180 Hz (body in strings and voices), and the boxy band moved up out of its way (400 Hz).
-                mid[4].lowShelf(fs, 85.0, 5.5); mid[5].peak(fs, 400.0, -1.8, 0.9); mid[6].highShelf(fs, 10_000.0, 1.5)
-                mid[10].peak(fs, 55.0, 2.5, 0.9); mid[11].peak(fs, 180.0, 1.5, 0.7)
+                // The boom stays; the low-mid "blanket" goes: a cut where mud builds up (250 Hz) and the boxy band (400 Hz),
+                // with the top lifted to match the bigger bass, so detail and sparkle sit above it (a "smile", not a hump).
+                mid[4].lowShelf(fs, 85.0, 5.5); mid[5].peak(fs, 400.0, -1.5, 0.9); mid[6].highShelf(fs, 8000.0, 3.0)
+                mid[10].peak(fs, 55.0, 2.5, 0.9); mid[11].peak(fs, 250.0, -2.0, 1.0)
                 // Vocal presence, the way soundbars' "voice" modes do it: a lift where voices get their bite (2.8 kHz)
                 // and where consonants get crisp (5.5 kHz) - in the middle of the mix only, so effects stay wide and soft.
                 mid[8].peak(fs, 2800.0, 2.0, 1.1); mid[9].peak(fs, 5500.0, 1.2, 1.4)
-                side[3].highShelf(fs, 10_000.0, 2.0)          // air and sparkle out at the sides
+                side[3].highShelf(fs, 7000.0, 3.5)            // air and sparkle out at the sides (music, ambience)
+                side[4].peak(fs, 3000.0, 2.0, 1.0)              // and presence there too: instruments come forward, not just voices
             } else {
                 mid[4].peak(fs, 1000.0, 0.0, 1.0); mid[5].peak(fs, 1000.0, 0.0, 1.0); mid[6].peak(fs, 1000.0, 0.0, 1.0)
                 mid[8].peak(fs, 1000.0, 0.0, 1.0); mid[9].peak(fs, 1000.0, 0.0, 1.0)
                 mid[10].peak(fs, 1000.0, 0.0, 1.0); mid[11].peak(fs, 1000.0, 0.0, 1.0)
                 side[3].peak(fs, 1000.0, 0.0, 1.0)
+                side[4].peak(fs, 1000.0, 0.0, 1.0)
             }
         }
 
