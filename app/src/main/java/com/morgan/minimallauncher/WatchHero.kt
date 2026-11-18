@@ -59,12 +59,40 @@ internal fun WatchActivity.showLiveTab() {
     hideSearchBar()
     tab = "live"
     for (i in 0 until nav.childCount) nav.getChildAt(i).isSelected = nav.getChildAt(i).tag == "live"
-    ++buildToken
+    val token = ++buildToken
     freshRows()
-    setHeroImage(null)
-    val now = LiveGuide.nowNext(this, "BBC One")
-    showPlainHero("LIVE TV", "TV Guide", "Press OK or ↓ to open the guide - every channel, what’s on now and next, pause and rewind." +
-        (now?.let { "\n\nBBC One: $it" } ?: ""))
+    // What's on now on the channel you last watched (BBC One to start with), full screen behind the tabs.
+    val last = ResumeStore.all(this).filter { it.kind == "live" }.maxByOrNull { it.at }?.title ?: "BBC One"
+    val fill = { list: List<LiveGuide.Channel>? ->
+        val ch = list?.let { liveChannelFor(it, last) ?: liveChannelFor(it, "BBC One") }
+        val p = ch?.now()
+        if (ch != null && p != null) showLiveNowHero(ch, p)
+        else {
+            setHeroImage(null)
+            showPlainHero("LIVE TV", "TV Guide", "Press OK or ↓ to open the guide - every channel, what’s on now and next, pause and rewind.")
+        }
+    }
+    val ready = LiveGuide.cached()
+    fill(ready)
+    if (ready == null) LiveGuide.load(this) { list -> runOnUiThread { if (token == buildToken && tab == "live" && !isFinishing) fill(list) } }
+}
+
+private fun liveChannelFor(list: List<LiveGuide.Channel>, name: String): LiveGuide.Channel? {
+    val k = TextMatch.normalise(name)
+    return list.firstOrNull { TextMatch.normalise(it.name) == k }
+        ?: list.firstOrNull { TextMatch.normalise(it.name).let { n -> n.isNotEmpty() && TextMatch.matches(k, n) } }
+}
+
+/** The Live TV tab's hero: the programme on now, its picture behind, then what's next. */
+private fun WatchActivity.showLiveNowHero(ch: LiveGuide.Channel, p: LiveGuide.Programme) = setHero(true) {
+    queueTrailer(null)
+    eyebrow.text = "ON NOW  ·  " + ch.name.uppercase()
+    heroTitle.text = p.title
+    val next = ch.upcoming().firstOrNull { it.start >= p.stop }
+    heroMeta.text = listOfNotNull(timeRange(p), p.episode.takeIf { it.isNotBlank() }, next?.let { "Next: " + it.title }).joinToString("  ·  ")
+    heroText.text = p.desc
+    heroWhere.text = "Press OK or ↓ to open the guide"
+    setHeroImage(p.image ?: ch.logo)
 }
 
 internal fun WatchActivity.openGuide() = startActivity(Intent(this, LiveGuideActivity::class.java))
