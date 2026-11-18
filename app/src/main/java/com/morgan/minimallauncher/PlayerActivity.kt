@@ -429,7 +429,7 @@ class PlayerActivity : Activity() {
                 // The ready-made connection didn't work: try the normal address once.
                 if (usingResolved) { triedResolved = true; usingResolved = false; start(url, resume = true); return }
                 // Pause/rewind couldn't keep up with this channel: play it straight from the internet instead.
-                if (live && ts != null) { tsOffFor = url; ts?.stop(); ts = null; tsView.visibility = View.GONE; start(url, resume = false); return }
+                if (live && ts != null) { stopLiveRecording(); tsOffFor = url; ts?.stop(); ts = null; tsView.visibility = View.GONE; start(url, resume = false); return }
                 // Some providers only serve live TV one way: try the other before giving up.
                 val alt = altUrl
                 if (!triedAlt && alt != null) { triedAlt = true; url = alt; start(alt, resume = false); return }
@@ -577,6 +577,7 @@ class PlayerActivity : Activity() {
     /** Leaving the player shrinks it away, like closing an app. */
     override fun finish() {
         // Let go of Dodgy Box at once (it allows one connection): what you open next mustn't wait for this to close.
+        handOffRecording()
         ts?.stop(); ts = null
         try { player?.stop() } catch (_: Throwable) {}
         super.finish()
@@ -632,6 +633,7 @@ class PlayerActivity : Activity() {
         super.onStop()
         SoundbarWake.release("player")
         liveChannel = null
+        handOffRecording()
         ts?.stop(); ts = null; tsStart = 0L
         watching = false
         handler.removeCallbacks(progressTick)
@@ -684,6 +686,7 @@ class PlayerActivity : Activity() {
     // ---------- Live: channel up / down / number ----------
 
     private fun tuneTo(ch: Xtream.Live) {
+        if (liveRec != null) { stopLiveRecording(); GlassUi.toast(this, "Recording saved (changed channel) - it's in Live TV ▸ Recordings") }
         val app = applicationContext
         liveId = ch.id
         url = Xtream.liveUrl(app, ch.id); altUrl = Xtream.liveUrl(app, ch.id, hls = true); triedAlt = false
@@ -1057,6 +1060,53 @@ class PlayerActivity : Activity() {
         else -> "Original shape"
     }
 
+    // ---------- Live: recording what you're watching ----------
+
+    private var liveRec: Recordings.Rec? = null
+    private var liveRecOut: java.io.OutputStream? = null
+    private val liveRecEnd = Runnable { stopLiveRecording(); GlassUi.toast(this, "Recording finished - it's in Live TV ▸ Recordings") }
+
+    private fun startLiveRecording() {
+        val prog = LiveGuide.guideFor(titleText)?.now()
+        val title = prog?.title ?: titleText
+        val stop = prog?.stop ?: (System.currentTimeMillis() + 3_600_000L)
+        val t = ts
+        if (t == null) {
+            // No pause-and-rewind on this channel: the background recorder (needs Dodgy Box to allow it alongside).
+            Recordings.start(this, titleText, title, stop, prog?.image)
+            GlassUi.toast(this, "Recording $title - it'll be in Live TV ▸ Recordings")
+            return
+        }
+        val rec = Recordings.begin(this, titleText, title, stop, prog?.image)
+        val out = try { java.io.FileOutputStream(rec.file, true) } catch (e: Exception) { GlassUi.toast(this, "Couldn't start recording"); return }
+        liveRec = rec; liveRecOut = out; t.recordTo = out
+        handler.removeCallbacks(liveRecEnd); handler.postDelayed(liveRecEnd, (rec.stop - System.currentTimeMillis()).coerceAtLeast(10_000))
+        Diag.send(this, "record", "recording from the live stream: \"$title\" on $titleText until ${java.text.SimpleDateFormat("HH:mm", java.util.Locale.UK).format(java.util.Date(rec.stop))}")
+        GlassUi.toast(this, "● Recording $title - it'll be in Live TV ▸ Recordings")
+    }
+
+    private fun stopLiveRecording() {
+        val rec = liveRec ?: return
+        handler.removeCallbacks(liveRecEnd)
+        ts?.recordTo = null
+        try { liveRecOut?.close() } catch (_: Exception) {}
+        liveRec = null; liveRecOut = null
+        Recordings.finished(applicationContext, rec.id)
+    }
+
+    /** Leaving the player with a recording still going: it carries on in the background once this connection is free. */
+    private fun handOffRecording() {
+        val rec = liveRec ?: return
+        handler.removeCallbacks(liveRecEnd)
+        ts?.recordTo = null
+        try { liveRecOut?.close() } catch (_: Exception) {}
+        liveRec = null; liveRecOut = null
+        if (System.currentTimeMillis() >= rec.stop) { Recordings.finished(applicationContext, rec.id); return }
+        val app = applicationContext
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ Recordings.continueInBackground(app, rec) }, 2000)
+        GlassUi.toast(this, "Still recording ${rec.title} in the background")
+    }
+
     private fun options() {
         val p = player ?: return
         val d0 = GlassDialog(this).title("Playback").scrolling()
@@ -1064,6 +1114,12 @@ class PlayerActivity : Activity() {
         // Live: Start Over - back to the beginning of the programme that's on.
         if (live) LiveGuide.guideFor(titleText)?.programmes?.firstOrNull { it.isOn() }?.let { prog ->
             if (System.currentTimeMillis() - prog.start > 2 * 60_000L) d0.button("Start Over · ${prog.title}", GlassDialog.Style.BOLD) { startOver(prog) }
+        }
+        // Live: record what's on, from the stream you're watching (Dodgy Box allows one connection).
+        if (live) {
+            val rec = liveRec
+            if (rec != null) d0.button("Stop Recording · ${rec.title}", GlassDialog.Style.DESTRUCTIVE) { stopLiveRecording(); GlassUi.toast(this, "Recording saved - it's in Live TV ▸ Recordings") }
+            else d0.button("Record · ${LiveGuide.guideFor(titleText)?.now()?.title ?: titleText}") { startLiveRecording() }
         }
         d0
             .button("Subtitles · ${selectedLabel(C.TRACK_TYPE_TEXT, "Off")}") { pickTrack(C.TRACK_TYPE_TEXT, "Subtitles") }

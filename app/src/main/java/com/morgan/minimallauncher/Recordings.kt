@@ -89,6 +89,23 @@ object Recordings {
         }
     }
 
+    /** A recording fed by something else (the live player's own stream) - listed straight away, no second connection. */
+    fun begin(c: Context, channel: String, title: String, stop: Long, image: String?): Rec {
+        val app = c.applicationContext
+        val id = (channel + title + System.currentTimeMillis() / 60_000).hashCode().toUInt().toString(16)
+        val safe = title.replace(Regex("[^A-Za-z0-9 ]"), "").trim().take(40).ifBlank { "Recording" }
+        val r = Rec(id, title, channel, System.currentTimeMillis(), stop + 2 * 60_000, File(dir(app), "$safe-$id.ts").path, image, false, ProfileManager.activeKey(app))
+        upsert(app, r)
+        return r
+    }
+
+    /** Carry on a recording in the background (the player has let go of the connection): the file is added to. */
+    fun continueInBackground(c: Context, r: Rec) {
+        val app = c.applicationContext
+        try { ContextCompat.startForegroundService(app, Intent(app, RecordService::class.java).putExtra("id", r.id).putExtra("channel", r.channel)) }
+        catch (e: Exception) { finished(app, r.id) }
+    }
+
     internal fun finished(c: Context, id: String) {
         list(c).firstOrNull { it.id == id }?.let { r ->
             val f = File(r.file)
@@ -189,7 +206,7 @@ class RecordService : Service() {
         val app = applicationContext
         try {
             val rec = Recordings.list(app).firstOrNull { it.id == id } ?: return
-            val live = Xtream.findLive(app, channel) ?: return
+            val live = Xtream.findLive(app, channel) ?: run { Diag.send(app, "record", "recording \"${rec.title}\": no Dodgy Box channel matches \"$channel\""); return }
             val out = FileOutputStream(File(rec.file), true)
             val buf = ByteArray(64 * 1024)
             out.use {
@@ -200,7 +217,9 @@ class RecordService : Service() {
                     try {
                         conn = URL(Xtream.liveUrl(app, live.id)).openConnection() as HttpURLConnection
                         conn.connectTimeout = 15_000; conn.readTimeout = 20_000
-                        conn.setRequestProperty("User-Agent", Net.USER_AGENT)
+                        // The same player name as watching uses: servers often refuse anything that isn't a video player.
+                        conn.setRequestProperty("User-Agent", Xtream.PLAYER_AGENT)
+                        if (conn.responseCode !in 200..299) { Diag.send(app, "record", "recording \"${rec.title}\": HTTP ${conn.responseCode} (often: Dodgy Box allows one connection and something else is playing)"); throw java.io.IOException("HTTP ${conn.responseCode}") }
                         conn.inputStream.use { input ->
                             while (System.currentTimeMillis() < rec.stop && !Thread.currentThread().isInterrupted) {
                                 val n = input.read(buf)

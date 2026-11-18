@@ -42,6 +42,7 @@ class Timeshift(context: Context, val url: String) {
     }
 
     @Volatile private var live: HttpURLConnection? = null
+    @Volatile var recordTo: java.io.OutputStream? = null
 
     fun stop() {
         stopped = true
@@ -79,6 +80,8 @@ class Timeshift(context: Context, val url: String) {
                         out.seek(phys); out.write(buf, off, len); off += len
                     }
                     synchronized(lock) { written += n; lock.notifyAll() }
+                    // Recording while you watch: the same bytes go to the recording too (no second connection).
+                    recordTo?.let { r -> try { r.write(buf, 0, n) } catch (_: Exception) { recordTo = null } }
                 }
             }
         } catch (e: Exception) {
