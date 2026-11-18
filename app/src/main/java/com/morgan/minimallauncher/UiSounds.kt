@@ -65,6 +65,7 @@ object UiSounds {
     }
 
     private fun hook(c: Context, window: Window) {
+        FocusRing.install(c.applicationContext, window)     // pop-ups too
         val decor: View = window.decorView
         decor.viewTreeObserver.addOnGlobalFocusChangeListener { old, new ->
             if (old != null && new != null) move(c)

@@ -6,4 +6,5 @@
     <item name="card_info" type="id" />
     <item name="card_poster" type="id" />
     <item name="card_av" type="id" />
+    <item name="focus_ring" type="id" />
 </resources>

@@ -369,6 +369,16 @@ class LauncherApp : Application() {
             previous?.uncaughtException(t, e)
         }
         registerActivityLifecycleCallbacks(Foreground)
+        // Focus Highlight follows focus in every screen.
+        registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
+            override fun onActivityCreated(a: android.app.Activity, b: android.os.Bundle?) { FocusRing.install(applicationContext, a.window) }
+            override fun onActivityStarted(a: android.app.Activity) {}
+            override fun onActivityResumed(a: android.app.Activity) {}
+            override fun onActivityPaused(a: android.app.Activity) {}
+            override fun onActivityStopped(a: android.app.Activity) {}
+            override fun onActivitySaveInstanceState(a: android.app.Activity, b: android.os.Bundle) {}
+            override fun onActivityDestroyed(a: android.app.Activity) {}
+        })
         // Keep the cached app list in step with installs, removals and updates.
         val filter = android.content.IntentFilter().apply {
             addAction(Intent.ACTION_PACKAGE_ADDED); addAction(Intent.ACTION_PACKAGE_REMOVED)
