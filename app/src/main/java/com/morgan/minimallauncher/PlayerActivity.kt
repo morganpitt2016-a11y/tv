@@ -365,6 +365,10 @@ class PlayerActivity : Activity() {
         VirtualSurround.onFirstSound = { ms -> Diag.send(applicationContext, "player", "first sound after ${ms} ms of decoded audio · \"$name0\"") }
         p.addListener(object : Player.Listener {
             override fun onTracksChanged(tracks: Tracks) {
+                // Match the TV's refresh rate to the film's frame rate (Apple TV's "Match Content"): smooth pans, no judder.
+                tracks.groups.firstOrNull { it.type == C.TRACK_TYPE_VIDEO && it.isSelected }?.let { g ->
+                    (0 until g.length).firstOrNull { g.isTrackSelected(it) }?.let { matchFrameRate(g.getTrackFormat(it).frameRate) }
+                }
                 val audio = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
                 if (audio.isEmpty()) return
                 val selected = audio.firstOrNull { it.isSelected }?.let { g -> (0 until g.length).firstOrNull { g.isTrackSelected(it) }?.let { g.getTrackFormat(it) } }
@@ -666,6 +670,101 @@ class PlayerActivity : Activity() {
         start(url, resume = false)
     }
 
+    // ---------- Live: the channel strip ----------
+
+    private var strip: View? = null
+    private var stripClosedBy = 0
+    private val hideStripLater = Runnable { hideStrip() }
+
+    private fun hideStrip() {
+        val s = strip ?: return
+        strip = null
+        handler.removeCallbacks(hideStripLater)
+        s.animate().alpha(0f).translationY(dp(this, 40f).toFloat()).setDuration(220).withEndAction { (s.parent as? ViewGroup)?.removeView(s) }.start()
+    }
+
+    private fun showStrip() {
+        if (strip != null) return
+        val c = this
+        val list = zapList
+        val now = System.currentTimeMillis()
+        val box = LinearLayout(c).apply {
+            orientation = LinearLayout.VERTICAL
+            background = android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.BOTTOM_TOP, intArrayOf(0xE6000000.toInt(), 0x99000000.toInt(), 0x00000000))
+            setPadding(0, dp(c, 60f), 0, dp(c, 34f))
+        }
+        box.addView(GlassUi.text(c, "Channels", 15f, R.font.inter_semibold).apply { setPadding(dp(c, 56f), 0, 0, dp(c, 12f)) })
+        val rv = androidx.recyclerview.widget.RecyclerView(c).apply {
+            layoutManager = androidx.recyclerview.widget.LinearLayoutManager(c, androidx.recyclerview.widget.LinearLayoutManager.HORIZONTAL, false)
+            clipToPadding = false; clipChildren = false
+            setPadding(dp(c, 56f), dp(c, 14f), dp(c, 56f), dp(c, 14f))
+            itemAnimator = null
+        }
+        class VH(val root: FrameLayout, val logo: android.widget.ImageView, val name: android.widget.TextView, val show: android.widget.TextView,
+                 val next: android.widget.TextView, val bar: View, val barBack: View) : androidx.recyclerview.widget.RecyclerView.ViewHolder(root)
+        rv.adapter = object : androidx.recyclerview.widget.RecyclerView.Adapter<VH>() {
+            override fun getItemCount() = list.size
+            override fun onCreateViewHolder(parent: ViewGroup, type: Int): VH {
+                val root = FrameLayout(c).apply {
+                    background = GlassUi.panel(c, 16f, 0x40)
+                    clipToOutline = true
+                    isFocusable = true; isClickable = true
+                    layoutParams = ViewGroup.MarginLayoutParams(dp(c, 250f), dp(c, 128f)).apply { marginEnd = dp(c, 16f) }
+                }
+                val logo = android.widget.ImageView(c).apply { scaleType = android.widget.ImageView.ScaleType.FIT_CENTER }
+                root.addView(logo, FrameLayout.LayoutParams(dp(c, 54f), dp(c, 30f)).apply { setMargins(dp(c, 14f), dp(c, 12f), 0, 0) })
+                val name = GlassUi.text(c, "", 12f, R.font.inter_medium).apply { alpha = 0.75f; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
+                root.addView(name, FrameLayout.LayoutParams(-1, -2).apply { setMargins(dp(c, 78f), dp(c, 18f), dp(c, 12f), 0) })
+                val show = GlassUi.text(c, "", 15f, R.font.inter_semibold).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
+                root.addView(show, FrameLayout.LayoutParams(-1, -2).apply { setMargins(dp(c, 14f), dp(c, 52f), dp(c, 14f), 0) })
+                val next = GlassUi.text(c, "", 11.5f, R.font.inter_medium).apply { alpha = 0.6f; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
+                root.addView(next, FrameLayout.LayoutParams(-1, -2).apply { setMargins(dp(c, 14f), dp(c, 76f), dp(c, 14f), 0) })
+                val barBack = View(c).apply { setBackgroundColor(0x33FFFFFF) }
+                root.addView(barBack, FrameLayout.LayoutParams(-1, dp(c, 3f), Gravity.BOTTOM).apply { setMargins(dp(c, 14f), 0, dp(c, 14f), dp(c, 14f)) })
+                val bar = View(c).apply { setBackgroundColor(0xE6FFFFFF.toInt()) }
+                root.addView(bar, FrameLayout.LayoutParams(0, dp(c, 3f), Gravity.BOTTOM).apply { setMargins(dp(c, 14f), 0, 0, dp(c, 14f)) })
+                root.setOnFocusChangeListener { v, has -> Motion.focus(v, has, 1.08f, 10f) }
+                return VH(root, logo, name, show, next, bar, barBack)
+            }
+            override fun onBindViewHolder(h: VH, pos: Int) {
+                val ch = list[pos]
+                val g = LiveGuide.channelFor(ch.name)
+                val p = g?.now(now)
+                val nx = g?.upcoming(now)?.firstOrNull { p == null || it.start >= p.stop }
+                h.name.text = (if (ch.num > 0) "${ch.num}  " else "") + ch.name + if (pos == zapIndex) "  ·  Watching" else ""
+                h.show.text = p?.title ?: ch.name
+                h.next.text = when { p != null -> timeRange(p) + (nx?.let { "  ·  Next: " + it.title } ?: ""); nx != null -> "Next: " + nx.title; else -> "" }
+                ImageLoader.load(h.logo, ch.icon ?: g?.logo, ImageLoader.ICON)
+                val frac = p?.let { ((now - it.start).toFloat() / (it.stop - it.start).coerceAtLeast(1)).coerceIn(0f, 1f) }
+                h.bar.visibility = if (frac == null) View.GONE else View.VISIBLE
+                h.barBack.visibility = h.bar.visibility
+                (h.bar.layoutParams as FrameLayout.LayoutParams).width = ((dp(c, 250f) - dp(c, 28f)) * (frac ?: 0f)).toInt()
+                h.bar.requestLayout()
+                h.root.setOnClickListener {
+                    hideStrip()
+                    if (pos != zapIndex) { zapIndex = pos; tuneTo(list[pos]) }
+                }
+            }
+        }
+        if (LiveGuide.cached() == null) LiveGuide.load(applicationContext) { runOnUiThread { if (strip === rv.parent) rv.adapter?.let { a -> a.notifyItemRangeChanged(0, a.itemCount) } } }
+        box.addView(rv, LinearLayout.LayoutParams(-1, dp(c, 156f)))
+        val content = findViewById<ViewGroup>(android.R.id.content)
+        content.addView(box, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
+        strip = box
+        view.hideController()
+        box.alpha = 0f; box.translationY = dp(c, 40f).toFloat()
+        box.animate().alpha(1f).translationY(0f).setDuration(260).setInterpolator(Motion.enter).start()
+        // Start on the channel you're watching, a little in from the left.
+        (rv.layoutManager as androidx.recyclerview.widget.LinearLayoutManager).scrollToPositionWithOffset(zapIndex, dp(c, 0f))
+        rv.post { rv.findViewHolderForAdapterPosition(zapIndex)?.itemView?.requestFocus() ?: rv.getChildAt(0)?.requestFocus() }
+        handler.postDelayed(hideStripLater, 10_000)
+    }
+
+    private fun timeRange(p: LiveGuide.Programme): String {
+        val f = java.text.SimpleDateFormat("HH:mm", java.util.Locale.UK)
+        return f.format(java.util.Date(p.start)) + " – " + f.format(java.util.Date(p.stop))
+    }
+
     private fun zap(delta: Int) {
         if (zapList.isEmpty()) return
         zapIndex = (zapIndex + delta + zapList.size) % zapList.size
@@ -751,7 +850,18 @@ class PlayerActivity : Activity() {
                 player?.play(); swallowOkUp = true; return true
             }
         }
+        // The key that closed the channel strip: its release mustn't also leave the player.
+        if (stripClosedBy != 0 && event.keyCode == stripClosedBy) { if (event.action == KeyEvent.ACTION_UP) stripClosedBy = 0; return true }
+        stripClosedBy = 0
         if (event.action == KeyEvent.ACTION_DOWN) pressedThisEpisode = true
+        // The live channel strip along the bottom: Left / Right browse, OK changes channel, Back / Up closes it.
+        strip?.let {
+            val k = event.keyCode
+            if (k == KeyEvent.KEYCODE_BACK || k == KeyEvent.KEYCODE_DPAD_UP) { if (event.action == KeyEvent.ACTION_DOWN) { hideStrip(); stripClosedBy = k }; return true }
+            if (k == KeyEvent.KEYCODE_DPAD_DOWN) return true
+            if (event.action == KeyEvent.ACTION_DOWN) { handler.removeCallbacks(hideStripLater); handler.postDelayed(hideStripLater, 10_000) }
+            return super.dispatchKeyEvent(event)
+        }
         infoPanel?.let {
             if (event.keyCode == KeyEvent.KEYCODE_BACK) { if (event.action == KeyEvent.ACTION_DOWN) hideInfoPanel(); return true }
             if (event.keyCode == KeyEvent.KEYCODE_DPAD_UP) {
@@ -847,7 +957,9 @@ class PlayerActivity : Activity() {
             val k = event.keyCode
             when {
                 k == KeyEvent.KEYCODE_DPAD_UP || k == KeyEvent.KEYCODE_CHANNEL_UP -> { zap(1); return true }
-                k == KeyEvent.KEYCODE_DPAD_DOWN || k == KeyEvent.KEYCODE_CHANNEL_DOWN -> { zap(-1); return true }
+                k == KeyEvent.KEYCODE_CHANNEL_DOWN -> { zap(-1); return true }
+                // Down: the channel strip along the bottom, the channel still playing above it (Apple TV live).
+                k == KeyEvent.KEYCODE_DPAD_DOWN -> { if (zapList.size > 1) showStrip() else zap(-1); return true }
                 k in KeyEvent.KEYCODE_0..KeyEvent.KEYCODE_9 -> { typeDigit(k - KeyEvent.KEYCODE_0); return true }
                 (k == KeyEvent.KEYCODE_DPAD_CENTER || k == KeyEvent.KEYCODE_ENTER) && numberBuf.isNotEmpty() -> { commitNumberNow(); return true }
                 ts != null && (k == KeyEvent.KEYCODE_DPAD_LEFT || k == KeyEvent.KEYCODE_MEDIA_REWIND) -> { tsJump(-30); return true }
@@ -1034,6 +1146,32 @@ class PlayerActivity : Activity() {
         jumpBadge.scaleX = 1.06f; jumpBadge.scaleY = 1.06f
         jumpBadge.animate().scaleX(1f).scaleY(1f).setDuration(180).start()
         handler.postDelayed(hideJump, 1300)
+    }
+
+    /**
+     * Apple TV's Match Frame Rate: films are mostly 24 (23.976) frames a second, but the TV is fed 60 - so every
+     * other frame is held a little longer and slow pans judder. Switch the HDMI output to a refresh rate the frame
+     * rate divides into exactly (24 → 24 Hz, 25 → 50 Hz, 30 → 60 Hz), same resolution. The TV blanks for a moment
+     * while it switches, as on Apple TV; Back to the menus puts it back to the usual rate.
+     */
+    private var matchedFps = 0f
+    private fun matchFrameRate(fps: Float) {
+        if (fps <= 0f || fps == matchedFps || !Prefs.bool(this, "match_frame_rate", true)) return
+        matchedFps = fps
+        try {
+            @Suppress("DEPRECATION")
+            val d = (if (android.os.Build.VERSION.SDK_INT >= 30) display else windowManager.defaultDisplay) ?: return
+            val cur = d.mode
+            fun fits(r: Float): Int? { val k = Math.round(r / fps); return if (k in 1..2 && kotlin.math.abs(r - k * fps) < 0.06f) k else null }
+            val same = d.supportedModes.filter { it.physicalWidth == cur.physicalWidth && it.physicalHeight == cur.physicalHeight && fits(it.refreshRate) != null }
+            val best = same.filter { it.refreshRate >= 47f }.minByOrNull { it.refreshRate } ?: same.minByOrNull { it.refreshRate }
+            if (best == null) {
+                Diag.send(this, "player", "frame rate %.3f: no matching TV mode (TV at %.2f Hz) · \"%s\"".format(fps, cur.refreshRate, titleText)); return
+            }
+            if (best.modeId == cur.modeId) return
+            window.attributes = window.attributes.apply { preferredDisplayModeId = best.modeId }
+            Diag.send(this, "player", "frame rate %.3f → TV %.3f Hz (was %.2f) · \"%s\"".format(fps, best.refreshRate, cur.refreshRate, titleText))
+        } catch (e: Throwable) { Diag.send(this, "player", "frame rate match failed: ${e.message}") }
     }
 
     private fun tsJump(secs: Int) {

@@ -72,6 +72,7 @@ object UiSounds {
         val original = window.callback ?: return
         window.callback = object : Window.Callback by original {
             override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+                if (event.action == KeyEvent.ACTION_DOWN) Motion.lastKey = event.keyCode
                 if (event.action == KeyEvent.ACTION_UP && !event.isCanceled) {
                     when (event.keyCode) {
                         KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER,

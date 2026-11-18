@@ -374,6 +374,14 @@ object LiveGuide {
     }
 
     /** "Now  ·  Next: …" for a channel (by its provider name), from the guide already in memory. */
+    /** The guide's channel for a provider channel name (from what's already loaded), or null. */
+    fun channelFor(providerName: String): Channel? {
+        val list = shown ?: memory ?: return null
+        val k = TextMatch.normalise(providerName)
+        return list.firstOrNull { TextMatch.normalise(it.name) == k }
+            ?: list.firstOrNull { TextMatch.normalise(it.name).let { n -> n.isNotEmpty() && TextMatch.matches(k, n) } }
+    }
+
     fun nowNext(c: Context, providerName: String): String? {
         val list = shown ?: memory ?: return null
         val k = TextMatch.normalise(providerName)

@@ -56,20 +56,53 @@ object Motion {
 
     // ---------- tvOS touches: a tilt that settles, and a sheen sweeping across ----------
 
-    /** The card leans in as focus arrives and settles flat - the "parallax" feel of tvOS on a D-pad. */
-    fun tilt(v: View, focused: Boolean) {
-        if (!focused) { v.rotationX = 0f; v.rotationY = 0f; return }
-        v.cameraDistance = 12_000f * v.resources.displayMetrics.density
-        v.rotationX = 6f; v.rotationY = -4f
-        SpringAnimation(v, DynamicAnimation.ROTATION_X).setSpring(SpringForce(0f).setStiffness(260f).setDampingRatio(0.55f)).start()
-        SpringAnimation(v, DynamicAnimation.ROTATION_Y).setSpring(SpringForce(0f).setStiffness(260f).setDampingRatio(0.55f)).start()
+    /** The last D-pad direction pressed (set for every screen by UiSounds' key hook): which way focus is travelling. */
+    @Volatile var lastKey = 0
+    private fun dir(): Pair<Float, Float> = when (lastKey) {
+        android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> 1f to 0f
+        android.view.KeyEvent.KEYCODE_DPAD_LEFT -> -1f to 0f
+        android.view.KeyEvent.KEYCODE_DPAD_DOWN -> 0f to 1f
+        android.view.KeyEvent.KEYCODE_DPAD_UP -> 0f to -1f
+        else -> 0.6f to 0.6f
     }
 
-    /** A soft diagonal light that sweeps across a focused card once. */
+    private fun settle(v: View, prop: DynamicAnimation.ViewProperty, stiffness: Float = 240f, damping: Float = 0.5f) =
+        SpringAnimation(v, prop).setSpring(SpringForce(0f).setStiffness(stiffness).setDampingRatio(damping)).start()
+
+    /**
+     * tvOS parallax on a D-pad: the card arrives leaning the way you moved and settles flat with a little bounce,
+     * while the picture inside slides the other way and back - the layered "depth" of an Apple TV poster.
+     */
+    fun tilt(v: View, focused: Boolean) {
+        // Only pictures inside a clipped card (posters, tiles) - not icons in buttons.
+        val pic = (v as? android.view.ViewGroup)?.takeIf { it.clipToOutline }?.let { g -> (0 until g.childCount).map { g.getChildAt(it) }.firstOrNull { it is android.widget.ImageView } }
+        if (!focused) {
+            v.rotationX = 0f; v.rotationY = 0f
+            pic?.animate()?.scaleX(1f)?.scaleY(1f)?.translationX(0f)?.translationY(0f)?.setDuration(200)?.start()
+            return
+        }
+        val d = v.resources.displayMetrics.density
+        val (dx, dy) = dir()
+        v.cameraDistance = 12_000f * d
+        // Lean with the movement: moving right, the right edge dips away first.
+        v.rotationY = 7f * dx
+        v.rotationX = -6f * dy
+        settle(v, DynamicAnimation.ROTATION_X); settle(v, DynamicAnimation.ROTATION_Y)
+        if (pic != null && pic.width > 0) {
+            pic.animate().cancel()
+            // Slightly larger so the slide never shows an edge; it stays at this size while focused, as on tvOS.
+            pic.scaleX = 1.06f; pic.scaleY = 1.06f
+            pic.translationX = -6f * d * dx; pic.translationY = -5f * d * dy
+            settle(pic, DynamicAnimation.TRANSLATION_X, 200f, 0.6f); settle(pic, DynamicAnimation.TRANSLATION_Y, 200f, 0.6f)
+        }
+    }
+
+    /** A soft diagonal light that sweeps across a focused card once, in the direction you moved. */
     fun gleam(v: View) {
         if (v.width <= 0 || v.height <= 0) return
         val g = (v.foreground as? Gleam) ?: Gleam().also { v.foreground = it }
-        android.animation.ValueAnimator.ofFloat(-0.4f, 1.4f).apply {
+        val back = dir().first < 0f || dir().second < 0f
+        android.animation.ValueAnimator.ofFloat(if (back) 1.4f else -0.4f, if (back) -0.4f else 1.4f).apply {
             duration = 750; interpolator = standard
             addUpdateListener { g.t = it.animatedValue as Float; g.invalidateSelf() }
             start()
