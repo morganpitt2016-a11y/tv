@@ -28,6 +28,9 @@ object VirtualSurround {
     /** The listener's sound profile, read by the mixer as it plays (changes apply straight away). */
     @Volatile var settings: SoundProfile.Settings = SoundProfile.Settings(0, 0, 0, false, false)
 
+    /** Told how long the decoder took to give real (not silent) sound after starting - for the TV's log. */
+    @Volatile var onFirstSound: ((Long) -> Unit)? = null
+
     private const val G = 0.72f            // level for surround mixes (the lookahead limiter catches the peaks)
     private val FL = floatArrayOf(G, 0f)
     private val FR = floatArrayOf(0f, G)
@@ -143,7 +146,11 @@ object VirtualSurround {
             return AudioProcessor.AudioFormat(f.sampleRate, 2, C.ENCODING_PCM_16BIT)
         }
 
+        private var framesSinceStart = 0L
+        private var heard = false
+
         override fun onFlush() {
+            framesSinceStart = 0L; heard = false
             mid.forEach { it.clear() }; side.forEach { it.clear() }; env = 0f
             rearBuf.forEach { it.fill(0f) }; rearLp.fill(0f); rearLow.fill(0f); limL.fill(0f); limR.fill(0f); hold = 0f; gain = 1f
         }
@@ -186,6 +193,7 @@ object VirtualSurround {
                 var l = 0f; var r = 0f
                 for (ch in 0 until n) {
                     var x = input.getShort() / 32768f
+                    if (!heard && abs(x) > 0.0005f) { heard = true; val ms = framesSinceStart * 1000 / fs; onFirstSound?.invoke(ms) }
                     if (rear[ch]) {
                         val buf = rearBuf[ch]; val d = buf[rearPos % buf.size]; buf[rearPos % buf.size] = x
                         rearLp[ch] += rearA * (d - rearLp[ch])
@@ -198,6 +206,7 @@ object VirtualSurround {
                     l += x * m[ch][0]; r += x * m[ch][1]
                 }
                 rearPos++
+                framesSinceStart++
                 if (rearPos > 1_000_000_000) rearPos = 0
                 // Middle and sides (surround: the sides a little wider).
                 var md = (l + r) * 0.5f; var sd = (l - r) * (if (surround) 0.6f else 0.5f)

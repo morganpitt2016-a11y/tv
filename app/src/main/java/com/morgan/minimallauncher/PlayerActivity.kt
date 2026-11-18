@@ -217,20 +217,31 @@ class PlayerActivity : Activity() {
 
         seriesTitle = intent.getStringExtra(EXTRA_SERIES)
         image = intent.getStringExtra(EXTRA_IMAGE)
-        // While it loads: the title's artwork (dimmed, with its name) instead of a black screen; fades into the picture.
+        // While it loads: the title's artwork as a card in the middle (over a dark, blurred copy), with its name
+        // underneath - instead of a black screen. Fades into the picture.
         curtain = FrameLayout(this).apply {
+            val c = this@PlayerActivity
             setBackgroundColor(0xFF000000.toInt())
-            val art = android.widget.ImageView(this@PlayerActivity).apply { scaleType = android.widget.ImageView.ScaleType.CENTER_CROP; alpha = 0.55f }
-            image?.let { ImageLoader.load(art, it, ImageLoader.HERO) }
-            addView(art, FrameLayout.LayoutParams(-1, -1))
-            addView(View(this@PlayerActivity).apply { background = android.graphics.drawable.GradientDrawable(
-                android.graphics.drawable.GradientDrawable.Orientation.BOTTOM_TOP, intArrayOf(0xE6000000.toInt(), 0x33000000)) }, FrameLayout.LayoutParams(-1, -1))
-            val words = LinearLayout(this@PlayerActivity).apply { orientation = LinearLayout.VERTICAL }
-            words.addView(GlassUi.text(this@PlayerActivity, (seriesTitle ?: titleText), 34f, R.font.inter_semibold).apply { maxLines = 2 })
-            intent.getStringExtra(EXTRA_SUBTITLE)?.takeIf { it.isNotBlank() }?.let {
-                words.addView(GlassUi.text(this@PlayerActivity, it, 16f, R.font.inter_medium, 0xCCFFFFFF.toInt()), LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(this@PlayerActivity, 6f) })
+            val back = android.widget.ImageView(c).apply {
+                scaleType = android.widget.ImageView.ScaleType.CENTER_CROP; alpha = 0.3f
+                if (android.os.Build.VERSION.SDK_INT >= 31) setRenderEffect(android.graphics.RenderEffect.createBlurEffect(60f, 60f, android.graphics.Shader.TileMode.CLAMP))
             }
-            addView(words, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.START).apply { setMargins(dp(this@PlayerActivity, 64f), 0, 0, dp(this@PlayerActivity, 72f)) })
+            addView(back, FrameLayout.LayoutParams(-1, -1))
+            val col = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
+            val card = android.widget.ImageView(c).apply {
+                scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+                background = android.graphics.drawable.GradientDrawable().apply { cornerRadius = dp(c, 16f).toFloat(); setColor(0xFF1C1C1E.toInt()) }
+                clipToOutline = true; outlineProvider = android.view.ViewOutlineProvider.BACKGROUND
+            }
+            image?.let { ImageLoader.load(back, it, ImageLoader.HERO); ImageLoader.load(card, it, ImageLoader.HERO) }
+            if (image != null) col.addView(card, LinearLayout.LayoutParams(dp(c, 400f), dp(c, 225f)))
+            col.addView(GlassUi.text(c, (seriesTitle ?: titleText), 24f, R.font.inter_semibold).apply { maxLines = 2; gravity = Gravity.CENTER },
+                LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(c, 18f) })
+            intent.getStringExtra(EXTRA_SUBTITLE)?.takeIf { it.isNotBlank() }?.let {
+                col.addView(GlassUi.text(c, it, 14f, R.font.inter_medium, 0xB3FFFFFF.toInt()).apply { gravity = Gravity.CENTER },
+                    LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(c, 4f) })
+            }
+            addView(col, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
         }
         root.addView(curtain, 1, FrameLayout.LayoutParams(-1, -1))
         handler.postDelayed({ curtain?.let { c -> curtain = null; (c.parent as? ViewGroup)?.removeView(c) } }, 20_000)   // never stuck over the screen

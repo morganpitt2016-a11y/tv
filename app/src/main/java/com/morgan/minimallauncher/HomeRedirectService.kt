@@ -296,8 +296,9 @@ class HomeRedirectService : AccessibilityService() {
         // Already on: just glide to the new darkness.
         if (on && dimView != null) { dimView?.animate()?.alpha(target)?.setDuration(250)?.start(); return }
         if (on && dimView == null) {
-            // A very dark warm tone rather than plain black: dims without turning the picture grey, and takes the edge off the blue.
-            val v = View(this).apply { setBackgroundColor(0xFF120A02.toInt()); alpha = 0f }
+            // Near-neutral dark with only a whisper of warmth: dims without turning the picture orange (the old amber
+            // tint did, at the darker levels).
+            val v = View(this).apply { setBackgroundColor(0xFF060403.toInt()); alpha = 0f }
             val params = WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
                 WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
