@@ -41,16 +41,25 @@ internal fun WatchActivity.startSaver() {
     if (saver != null || isFinishing || detail != null) return
     // Typing on the keyboard or a pop-up open: those keys never reach this screen, so wait rather than cover them.
     if (currentFocus is android.widget.EditText || !hasWindowFocus()) { armSaver(); return }
-    // What you're watching first, then your list, then what's featured.
-    val slides = ResumeStore.forTab(this, "home").filter { it.image != null }.map { Triple(it.image!!, it.title, it as Any) } +
-        WatchCatalog.myList(this).mapNotNull { t -> (t.backdrop ?: t.poster)?.let { Triple(it, t.name, t as Any) } } +
+    // What you're watching first, then your list, then what's featured - always the wide artwork when there is one.
+    val slides = ResumeStore.forTab(this, "home").mapNotNull { r ->
+        val name = r.series ?: r.title
+        (resumeTitles[name]?.backdrop ?: Prefs.string(this, "rart_$name") ?: r.image)?.let { Triple(it, name, r as Any) }
+    } + WatchCatalog.myList(this).mapNotNull { t -> (t.backdrop ?: t.poster)?.let { Triple(it, t.name, t as Any) } } +
         featured.mapNotNull { t -> t.backdrop?.let { Triple(it, t.name, t as Any) } }
     if (slides.isEmpty()) return
     stopTrailer()
     val c = this
     val sv = FrameLayout(c).apply { setBackgroundColor(0xFF000000.toInt()); alpha = 0f }
-    val a = ImageView(c).apply { scaleType = ImageView.ScaleType.CENTER_CROP }
-    val b = ImageView(c).apply { scaleType = ImageView.ScaleType.CENTER_CROP; alpha = 0f }
+    // Two slots to cross-fade between. Each: a blurred, dimmed fill behind, and the picture itself.
+    fun slot() = FrameLayout(c).apply {
+        addView(ImageView(c).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP; alpha = 0.55f
+            if (android.os.Build.VERSION.SDK_INT >= 31) setRenderEffect(android.graphics.RenderEffect.createBlurEffect(60f, 60f, android.graphics.Shader.TileMode.CLAMP))
+        }, FrameLayout.LayoutParams(-1, -1))
+        addView(ImageView(c).apply { scaleType = ImageView.ScaleType.MATRIX }, FrameLayout.LayoutParams(-1, -1))
+    }
+    val a = slot(); val b = slot().apply { alpha = 0f }
     sv.addView(a, FrameLayout.LayoutParams(-1, -1)); sv.addView(b, FrameLayout.LayoutParams(-1, -1))
     sv.addView(View(c).apply { background = GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP, intArrayOf(0xCC000000.toInt(), 0x00000000)) },
         FrameLayout.LayoutParams(-1, dp(c, 220f), Gravity.BOTTOM))
@@ -66,10 +75,14 @@ internal fun WatchActivity.startSaver() {
         if (saver !== sv) return
         val (img, name, what) = slides[i % slides.size]; i++
         val into = if (useA) a else b; val out = if (useA) b else a; useA = !useA
-        ImageLoader.load(into, img, ImageLoader.HERO, fade = false) {
-            into.scaleX = 1f; into.scaleY = 1f
+        val back = into.getChildAt(0) as ImageView; val pic = into.getChildAt(1) as ImageView
+        ImageLoader.load(back, img, ImageLoader.HERO, fade = false)
+        ImageLoader.load(pic, img, ImageLoader.HERO, fade = false) { bmp ->
+            if (bmp != null) frameArt(pic, bmp.width, bmp.height, sv.width, sv.height)
             into.animate().alpha(1f).setDuration(1500).start(); out.animate().alpha(0f).setDuration(1500).start()
-            into.animate().scaleX(1.08f).scaleY(1.08f).setDuration(9000).start()          // slow drift, like Apple's screensavers
+            // Slow drift, like Apple's screensavers - zooming from the upper third, where the faces are.
+            pic.scaleX = 1f; pic.scaleY = 1f; pic.pivotX = sv.width / 2f; pic.pivotY = sv.height * 0.3f
+            pic.animate().scaleX(1.05f).scaleY(1.05f).setDuration(9000).start()
         }
         title.text = name
         hint.text = if (what is ResumeStore.Item) "Press OK to carry on watching" else "Press any button to come back"
@@ -77,6 +90,27 @@ internal fun WatchActivity.startSaver() {
         handler.postDelayed({ next() }, 9000)
     }
     next()
+}
+
+/**
+ * Places artwork on the full screen without cutting heads off: wide pictures fill the screen with the crop kept to the
+ * upper third (where faces are); tall posters are shown whole, centred, over their own blurred fill.
+ */
+private fun frameArt(iv: ImageView, bw: Int, bh: Int, vw: Int, vh: Int) {
+    if (bw <= 0 || bh <= 0 || vw <= 0 || vh <= 0) return
+    val m = android.graphics.Matrix()
+    val wide = bw.toFloat() / bh >= 1.3f
+    if (wide) {
+        val s = maxOf(vw.toFloat() / bw, vh.toFloat() / bh)
+        val extraY = bh * s - vh
+        m.setScale(s, s)
+        m.postTranslate((vw - bw * s) / 2f, -extraY * 0.25f)      // keep more of the top than the bottom
+    } else {
+        val s = minOf(vw.toFloat() / bw, vh.toFloat() / bh) * 0.92f
+        m.setScale(s, s)
+        m.postTranslate((vw - bw * s) / 2f, (vh - bh * s) / 2f)
+    }
+    iv.imageMatrix = m
 }
 
 internal fun WatchActivity.hideSaver() {

@@ -152,7 +152,7 @@ internal fun WatchActivity.bindResume(h: Holder, item: ResumeStore.Item) {
 }
 
 /** The film or show behind a Continue Watching card (for its artwork and story), looked up once. */
-private val resumeTitles = HashMap<String, WatchCatalog.Title?>()
+internal val resumeTitles = HashMap<String, WatchCatalog.Title?>()
 internal fun WatchActivity.resumeTitle(name: String, kind: String, done: (WatchCatalog.Title?) -> Unit) {
     if (resumeTitles.containsKey(name)) return done(resumeTitles[name])
     // "A Christmas Carol (1951)": search the plain name, and prefer that year when there are several.
