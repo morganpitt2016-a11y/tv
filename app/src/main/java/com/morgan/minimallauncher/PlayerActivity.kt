@@ -450,7 +450,7 @@ class PlayerActivity : Activity() {
                 // The sound has started: set the sound profile up now, when the real channel layout (stereo, 5.1…) is known.
                 if (isPlaying && fxFor != url) { fxFor = url; startSoundFx() }
                 handler.removeCallbacks(showPause)
-                val pausedByYou = !isPlaying && !atItemEnd && player?.playWhenReady == false && player?.playbackState == Player.STATE_READY
+                val pausedByYou = !isPlaying && !atItemEnd && scrubWasPlaying == null && player?.playWhenReady == false && player?.playbackState == Player.STATE_READY
                 if (pausedByYou) handler.postDelayed(showPause, 1200) else hidePauseInfo()
                 // A new episode (or film) has started: clear any controls left over from the last one.
                 if (isPlaying && hideControlsOnStart) { hideControlsOnStart = false; view.hideController() }
@@ -708,7 +708,7 @@ class PlayerActivity : Activity() {
             itemAnimator = null
         }
         class VH(val root: FrameLayout, val logo: android.widget.ImageView, val name: android.widget.TextView, val show: android.widget.TextView,
-                 val next: android.widget.TextView, val bar: View, val barBack: View) : androidx.recyclerview.widget.RecyclerView.ViewHolder(root)
+                 val next: android.widget.TextView, val bar: View, val barBack: View, val art: android.widget.ImageView) : androidx.recyclerview.widget.RecyclerView.ViewHolder(root)
         rv.adapter = object : androidx.recyclerview.widget.RecyclerView.Adapter<VH>() {
             override fun getItemCount() = list.size
             override fun onCreateViewHolder(parent: ViewGroup, type: Int): VH {
@@ -718,6 +718,13 @@ class PlayerActivity : Activity() {
                     isFocusable = true; isClickable = true
                     layoutParams = ViewGroup.MarginLayoutParams(dp(c, 250f), dp(c, 128f)).apply { marginEnd = dp(c, 16f) }
                 }
+                // A picture of what's on now behind the card, faded at the bottom so the words read (Apple TV).
+                val art = android.widget.ImageView(c).apply { scaleType = android.widget.ImageView.ScaleType.CENTER_CROP; alpha = 0.6f }
+                root.addView(art, FrameLayout.LayoutParams(-1, -1))
+                root.addView(View(c).apply {
+                    background = android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
+                        intArrayOf(0x33000000, 0x99000000.toInt(), 0xE6000000.toInt()))
+                }, FrameLayout.LayoutParams(-1, -1))
                 val logo = android.widget.ImageView(c).apply { scaleType = android.widget.ImageView.ScaleType.FIT_CENTER }
                 root.addView(logo, FrameLayout.LayoutParams(dp(c, 54f), dp(c, 30f)).apply { setMargins(dp(c, 14f), dp(c, 12f), 0, 0) })
                 val name = GlassUi.text(c, "", 12f, R.font.inter_medium).apply { alpha = 0.75f; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
@@ -731,7 +738,7 @@ class PlayerActivity : Activity() {
                 val bar = View(c).apply { setBackgroundColor(0xE6FFFFFF.toInt()) }
                 root.addView(bar, FrameLayout.LayoutParams(0, dp(c, 3f), Gravity.BOTTOM).apply { setMargins(dp(c, 14f), 0, 0, dp(c, 14f)) })
                 root.setOnFocusChangeListener { v, has -> Motion.focus(v, has, 1.08f, 10f) }
-                return VH(root, logo, name, show, next, bar, barBack)
+                return VH(root, logo, name, show, next, bar, barBack, art)
             }
             override fun onBindViewHolder(h: VH, pos: Int) {
                 val ch = list[pos]
@@ -742,6 +749,9 @@ class PlayerActivity : Activity() {
                 h.show.text = p?.title ?: ch.name
                 h.next.text = when { p != null -> timeRange(p) + (nx?.let { "  ·  Next: " + it.title } ?: ""); nx != null -> "Next: " + nx.title; else -> "" }
                 ImageLoader.load(h.logo, ch.icon ?: g?.logo, ImageLoader.ICON)
+                h.art.setImageDrawable(null)
+                h.art.visibility = if (p?.image != null) View.VISIBLE else View.GONE
+                p?.image?.let { ImageLoader.load(h.art, it, ImageLoader.CARD) }
                 val frac = p?.let { ((now - it.start).toFloat() / (it.stop - it.start).coerceAtLeast(1)).coerceIn(0f, 1f) }
                 h.bar.visibility = if (frac == null) View.GONE else View.VISIBLE
                 h.barBack.visibility = h.bar.visibility
@@ -1792,8 +1802,13 @@ class PlayerActivity : Activity() {
     }
 
     /** Gets the preview stream connected as soon as the bar appears, so pictures are ready when you skip. */
+    private var scrubWasPlaying: Boolean? = null
+    private var mainSeekPos = 0L
+    private val mainSeek = Runnable { player?.seekTo(mainSeekPos) }
+
     private fun warmPreview() {
-        if (live || url.startsWith("file:") || previewFor == url) return
+        // Streams no longer use a second connection for pictures (Dodgy Box allows one) - the film itself shows them.
+        if (live || !url.startsWith("file:") || previewFor == url) return
         val p = player ?: return
         handler.removeCallbacks(releasePreview)
         previewWant = p.currentPosition
@@ -1836,9 +1851,29 @@ class PlayerActivity : Activity() {
         (view.parent as? FrameLayout)?.addView(box, FrameLayout.LayoutParams(dp(c, 240f), -2, Gravity.BOTTOM or Gravity.START))
         thumbView = iv; scrubBox = box; scrubTime = time
         bar.addListener(object : androidx.media3.ui.TimeBar.OnScrubListener {
-            override fun onScrubStart(t: androidx.media3.ui.TimeBar, pos: Long) { handler.removeCallbacks(hideScrub); onScrub(bar, pos) }
+            override fun onScrubStart(t: androidx.media3.ui.TimeBar, pos: Long) {
+                handler.removeCallbacks(hideScrub)
+                // Streaming: the film itself shows where you're skipping to (paused, jumping to the nearest keyframe) -
+                // one connection to Dodgy Box, so nothing gets refused or cut off.
+                val p = player
+                if (p != null && !live && !url.startsWith("file:") && scrubWasPlaying == null) {
+                    scrubWasPlaying = p.playWhenReady
+                    p.playWhenReady = false
+                    p.setSeekParameters(androidx.media3.exoplayer.SeekParameters.CLOSEST_SYNC)
+                }
+                onScrub(bar, pos)
+            }
             override fun onScrubMove(t: androidx.media3.ui.TimeBar, pos: Long) { handler.removeCallbacks(hideScrub); onScrub(bar, pos) }
             override fun onScrubStop(t: androidx.media3.ui.TimeBar, pos: Long, canceled: Boolean) {
+                scrubWasPlaying?.let { was ->
+                    scrubWasPlaying = null
+                    handler.removeCallbacks(mainSeek)
+                    player?.let { p ->
+                        p.setSeekParameters(androidx.media3.exoplayer.SeekParameters.DEFAULT)
+                        if (!canceled) p.seekTo(pos)                  // exactly where you stopped
+                        p.playWhenReady = was
+                    }
+                }
                 // Stays up a moment so you see where you landed (the picture often arrives just after you stop).
                 handler.removeCallbacks(hideScrub); handler.postDelayed(hideScrub, 1500)
             }
@@ -1862,11 +1897,8 @@ class PlayerActivity : Activity() {
         box.visibility = View.VISIBLE
         box.requestLayout()
         if (!url.startsWith("file:")) {
-            // Streaming: the preview player jumps there (a moment after you stop moving, so it isn't asked for every step).
-            if (previewReady) previewFrame?.visibility = View.VISIBLE
-            previewWant = pos
-            handler.removeCallbacks(releasePreview)
-            handler.removeCallbacks(previewSeek); handler.postDelayed(previewSeek, 180)
+            // Streaming: the film jumps there on screen, a moment after you stop moving (not asked for every step).
+            if (scrubWasPlaying != null) { mainSeekPos = pos; handler.removeCallbacks(mainSeek); handler.postDelayed(mainSeek, 200) }
             return
         }
         val want = pos
