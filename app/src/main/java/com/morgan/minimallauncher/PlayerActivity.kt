@@ -1074,9 +1074,26 @@ class PlayerActivity : Activity() {
         Bg.run {
             var copyId = -1
             var copyEps: List<Xtream.Episode> = emptyList()
+            val remaining = queue.size
             val next = try {
-                Xtream.seriesCandidates(app, name, 0).take(8).firstNotNullOfOrNull { cand ->
-                    val eps = try { Xtream.episodes(app, cand) } catch (ex: Exception) { emptyList() }
+                val all = Xtream.seriesCandidates(app, name, 0).take(8).map { cand -> cand to (try { Xtream.episodes(app, cand) } catch (ex: Exception) { emptyList() }) }
+                // The copy you were watching (the one the failed episode came from), to compare the others with.
+                val orig = all.firstOrNull { (_, eps) -> eps.any { Xtream.episodeUrl(app, it) in triedCopies } }
+                val origYear = orig?.first?.let { Xtream.yearOf(it.name) }
+                val origSize = orig?.second?.size ?: 0
+                val origSeasons = orig?.second?.maxOfOrNull { it.season } ?: 0
+                // Only the SAME show: same year when both say one, and about the same size - so The Office (US, 9 seasons)
+                // never falls back to The Office (UK, 2 seasons) or a different show with the same name.
+                fun sameShow(cand: Xtream.Series, eps: List<Xtream.Episode>): Boolean {
+                    val y = Xtream.yearOf(cand.name)
+                    if (origYear != null && y != null && y != origYear) return false
+                    if (orig != null) {
+                        if (eps.size < origSize * 0.6) return false
+                        if ((eps.maxOfOrNull { it.season } ?: 0) < origSeasons - 1) return false
+                    } else if (eps.size <= remaining) return false        // can't hold the rest of what you're watching
+                    return true
+                }
+                all.filter { it !== orig && sameShow(it.first, it.second) }.firstNotNullOfOrNull { (cand, eps) ->
                     val e = eps.firstOrNull { it.season == season && it.number == number }
                     e?.let { Xtream.episodeUrl(app, it) }?.takeIf { it !in triedCopies }?.also { copyId = cand.id; copyEps = eps }
                 }

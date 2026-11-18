@@ -669,7 +669,7 @@ object Xtream {
         return when { "uhd" in s || "4k" in s -> 2; "fhd" in s -> 4; "hd" in s -> 3; "sd" in s -> 0; else -> 1 }
     }
 
-    private fun yearOf(n: String) = Regex("\\b(19|20)\\d{2}\\b").find(n)?.value?.toIntOrNull()
+    internal fun yearOf(n: String) = Regex("\\b(19|20)\\d{2}\\b").find(n)?.value?.toIntOrNull()
 
     // Name → titles, built once per list (scanning tens of thousands of names on every press took seconds).
     @Volatile private var vodIndex: Pair<List<Vod>, Map<String, List<Vod>>>? = null
