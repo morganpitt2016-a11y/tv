@@ -31,10 +31,10 @@ object VirtualSurround {
     /** Told how long the decoder took to give real (not silent) sound after starting - for the TV's log. */
     @Volatile var onFirstSound: ((Long) -> Unit)? = null
 
-    private const val G = 0.72f            // level for surround mixes (the lookahead limiter catches the peaks)
+    private const val G = 0.64f            // level for surround mixes: room for the extra bass without the limiter pumping
     private val FL = floatArrayOf(G, 0f)
     private val FR = floatArrayOf(0f, G)
-    private val LFE = floatArrayOf(0.8f * G, 0.8f * G)   // the film's bass channel, fuller into the subwoofer
+    private val LFE = floatArrayOf(1.0f * G, 1.0f * G)   // the film's bass channel, at full weight into the subwoofer
     private val SL = floatArrayOf(-0.87f * G, 0.49f * G)
     private val SR = floatArrayOf(-0.49f * G, 0.87f * G)
     private fun centre(boost: Float) = floatArrayOf(0.707f * G * boost, 0.707f * G * boost)
@@ -108,7 +108,7 @@ object VirtualSurround {
         private var applied: SoundProfile.Settings? = null
         private var coeffs: Array<FloatArray> = emptyArray()
         // The middle of the mix (voices) and the sides (width) are shaped separately.
-        private val mid = Array(10) { Biquad() }
+        private val mid = Array(12) { Biquad() }
         private val side = Array(4) { Biquad() }
         private var env = 0f
         private var atk = 0f; private var rel = 0f
@@ -173,14 +173,18 @@ object VirtualSurround {
             // Cinema voicing (Virtual Surround), after Harman's in-room preference research: a bass shelf, less
             // boxiness, and only a small lift on top (a big treble tilt either way sounds dull or harsh).
             if (surround) {
-                mid[4].lowShelf(fs, 105.0, 4.0); mid[5].peak(fs, 300.0, -2.0, 0.8); mid[6].highShelf(fs, 10_000.0, 1.0)
+                // Rich and boomy: a deeper bass shelf, a low "boom" bump where film scores and kick drums live (55 Hz),
+                // warmth at 180 Hz (body in strings and voices), and the boxy band moved up out of its way (400 Hz).
+                mid[4].lowShelf(fs, 85.0, 5.5); mid[5].peak(fs, 400.0, -1.8, 0.9); mid[6].highShelf(fs, 10_000.0, 1.5)
+                mid[10].peak(fs, 55.0, 2.5, 0.9); mid[11].peak(fs, 180.0, 1.5, 0.7)
                 // Vocal presence, the way soundbars' "voice" modes do it: a lift where voices get their bite (2.8 kHz)
                 // and where consonants get crisp (5.5 kHz) - in the middle of the mix only, so effects stay wide and soft.
                 mid[8].peak(fs, 2800.0, 2.0, 1.1); mid[9].peak(fs, 5500.0, 1.2, 1.4)
-                side[3].highShelf(fs, 10_000.0, 1.0)
+                side[3].highShelf(fs, 10_000.0, 2.0)          // air and sparkle out at the sides
             } else {
                 mid[4].peak(fs, 1000.0, 0.0, 1.0); mid[5].peak(fs, 1000.0, 0.0, 1.0); mid[6].peak(fs, 1000.0, 0.0, 1.0)
                 mid[8].peak(fs, 1000.0, 0.0, 1.0); mid[9].peak(fs, 1000.0, 0.0, 1.0)
+                mid[10].peak(fs, 1000.0, 0.0, 1.0); mid[11].peak(fs, 1000.0, 0.0, 1.0)
                 side[3].peak(fs, 1000.0, 0.0, 1.0)
             }
         }
@@ -213,13 +217,13 @@ object VirtualSurround {
                 framesSinceStart++
                 if (rearPos > 1_000_000_000) rearPos = 0
                 // Middle and sides (surround: the sides a little wider).
-                var md = (l + r) * 0.5f; var sd = (l - r) * (if (surround) 0.6f else 0.5f)
+                var md = (l + r) * 0.5f; var sd = (l - r) * (if (surround) 0.66f else 0.5f)
                 // Dynamic EQ: track how loud the programme is (~0.4 s), and set the deep-bass lift every ~10 ms.
                 ms += msA * (md * md - ms)
                 if (++dynCount >= 512) {
                     dynCount = 0
                     val db = 10 * log10(ms.coerceAtLeast(1e-9f))
-                    val target = ((-15f - db) / 20f).coerceIn(0f, 1f) * 5f        // -35 dB or quieter: +5 dB; -15 dB or louder: 0
+                    val target = ((-15f - db) / 20f).coerceIn(0f, 1f) * 3.5f      // -35 dB or quieter: +3.5 dB; -15 dB or louder: 0
                     dynGain += (target - dynGain) * 0.15f
                     if (abs(dynGain - dynApplied) > 0.25f) { mid[7].lowShelf(fs, 60.0, dynGain.toDouble()); dynApplied = dynGain }
                 }
