@@ -61,38 +61,77 @@ internal fun WatchActivity.showLiveTab() {
     for (i in 0 until nav.childCount) nav.getChildAt(i).isSelected = nav.getChildAt(i).tag == "live"
     val token = ++buildToken
     freshRows()
-    // What's on now on the channel you last watched (BBC One to start with), full screen behind the tabs.
-    val last = ResumeStore.all(this).filter { it.kind == "live" }.maxByOrNull { it.at }?.title ?: "BBC One"
+    setHeroImage(null)
+    showPlainHero("LIVE TV", "TV Guide", "Press OK or ↓ to open the full guide")
+    // A preview of the guide itself underneath: the first channels, what's on now and over the next couple of hours.
     val fill = { list: List<LiveGuide.Channel>? ->
-        val ch = list?.let { liveChannelFor(it, last) ?: liveChannelFor(it, "BBC One") }
-        val p = ch?.now()
-        if (ch != null && p != null) showLiveNowHero(ch, p)
-        else {
-            setHeroImage(null)
-            showPlainHero("LIVE TV", "TV Guide", "Press OK or ↓ to open the guide - every channel, what’s on now and next, pause and rewind.")
-        }
+        if (list != null && list.isNotEmpty()) rows.addView(guidePreview(list), LinearLayout.LayoutParams(-1, -2))
     }
     val ready = LiveGuide.cached()
-    fill(ready)
-    if (ready == null) LiveGuide.load(this) { list -> runOnUiThread { if (token == buildToken && tab == "live" && !isFinishing) fill(list) } }
+    if (ready != null) fill(ready)
+    else LiveGuide.load(this) { list -> runOnUiThread { if (token == buildToken && tab == "live" && !isFinishing) fill(list) } }
 }
 
-private fun liveChannelFor(list: List<LiveGuide.Channel>, name: String): LiveGuide.Channel? {
-    val k = TextMatch.normalise(name)
-    return list.firstOrNull { TextMatch.normalise(it.name) == k }
-        ?: list.firstOrNull { TextMatch.normalise(it.name).let { n -> n.isNotEmpty() && TextMatch.matches(k, n) } }
-}
-
-/** The Live TV tab's hero: the programme on now, its picture behind, then what's next. */
-private fun WatchActivity.showLiveNowHero(ch: LiveGuide.Channel, p: LiveGuide.Programme) = setHero(true) {
-    queueTrailer(null)
-    eyebrow.text = "ON NOW  ·  " + ch.name.uppercase()
-    heroTitle.text = p.title
-    val next = ch.upcoming().firstOrNull { it.start >= p.stop }
-    heroMeta.text = listOfNotNull(timeRange(p), p.episode.takeIf { it.isNotBlank() }, next?.let { "Next: " + it.title }).joinToString("  ·  ")
-    heroText.text = p.desc
-    heroWhere.text = "Press OK or ↓ to open the guide"
-    setHeroImage(p.image ?: ch.logo)
+/** The guide as it opens: channel logos down the left, a time bar along the top, programmes as blocks, a line at now. */
+private fun WatchActivity.guidePreview(all: List<LiveGuide.Channel>): View {
+    val c = this
+    val now = System.currentTimeMillis()
+    val start = now - now % (30 * 60_000L)
+    val span = 150 * 60_000L
+    val end = start + span
+    val side = dp(c, 56f)
+    val logoW = dp(c, 132f)
+    val rowH = dp(c, 46f)
+    val gap = dp(c, 4f)
+    val lineW = resources.displayMetrics.widthPixels - side * 2 - logoW - gap
+    fun x(t: Long) = ((t - start).toFloat() / span * lineW).toInt().coerceIn(0, lineW)
+    val fmt = java.text.SimpleDateFormat("HH:mm", java.util.Locale.UK)
+    val box = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL; setPadding(side, 0, side, 0); isFocusable = false }
+    // Time bar.
+    val times = FrameLayout(c)
+    var t = start
+    while (t < end) {
+        times.addView(GlassUi.text(c, if (t == start) "Today" else fmt.format(java.util.Date(t)), 11.5f, R.font.inter_medium, 0x99FFFFFF.toInt()),
+            FrameLayout.LayoutParams(-2, -2).apply { leftMargin = logoW + gap + x(t) + dp(c, 6f) })
+        t += 30 * 60_000L
+    }
+    box.addView(times, LinearLayout.LayoutParams(-1, dp(c, 22f)))
+    val grid = FrameLayout(c).apply { clipChildren = false }
+    val col = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL }
+    for (ch in all.filter { it.programmes.any { p -> p.stop > start && p.start < end } }.take(5)) {
+        val row = LinearLayout(c).apply { orientation = LinearLayout.HORIZONTAL }
+        val logoBox = FrameLayout(c).apply { background = GlassUi.panel(c, 10f, 0x24) }
+        val logo = android.widget.ImageView(c).apply { scaleType = android.widget.ImageView.ScaleType.FIT_CENTER }
+        if (ch.logo != null) {
+            logoBox.addView(logo, FrameLayout.LayoutParams(-1, -1).apply { setMargins(dp(c, 18f), dp(c, 8f), dp(c, 18f), dp(c, 8f)) })
+            ImageLoader.load(logo, ch.logo, ImageLoader.ICON)
+        } else logoBox.addView(GlassUi.text(c, ch.name, 12.5f, R.font.inter_semibold).apply { gravity = Gravity.CENTER; maxLines = 1 }, FrameLayout.LayoutParams(-1, -1))
+        row.addView(logoBox, LinearLayout.LayoutParams(logoW, rowH).apply { marginEnd = gap })
+        val line = FrameLayout(c)
+        for (p in ch.programmes.filter { it.stop > start && it.start < end }) {
+            val l = x(maxOf(p.start, start)); val r = x(minOf(p.stop, end))
+            if (r - l < dp(c, 10f)) continue
+            val on = p.isOn(now)
+            val cell = LinearLayout(c).apply {
+                orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_VERTICAL
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    cornerRadius = dp(c, 10f).toFloat(); setColor(if (on) 0x38FFFFFF else 0x1AFFFFFF)
+                }
+                setPadding(dp(c, 12f), 0, dp(c, 8f), 0)
+            }
+            cell.addView(GlassUi.text(c, p.title, 13f, R.font.inter_semibold, if (on) 0xFFFFFFFF.toInt() else 0xD9FFFFFF.toInt()).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })
+            cell.addView(GlassUi.text(c, fmt.format(java.util.Date(p.start)) + " – " + fmt.format(java.util.Date(p.stop)), 10.5f, R.font.inter_medium, 0x80FFFFFF.toInt()).apply { maxLines = 1 })
+            line.addView(cell, FrameLayout.LayoutParams(r - l - gap, rowH).apply { leftMargin = l })
+        }
+        row.addView(line, LinearLayout.LayoutParams(lineW, rowH))
+        col.addView(row, LinearLayout.LayoutParams(-1, rowH).apply { bottomMargin = gap })
+    }
+    grid.addView(col, FrameLayout.LayoutParams(-1, -2))
+    // The "now" line through every row.
+    grid.addView(View(c).apply { setBackgroundColor(0xFFFF453A.toInt()) }, FrameLayout.LayoutParams(dp(c, 2f), -1).apply { leftMargin = logoW + gap + x(now) - dp(c, 1f) })
+    box.addView(grid, LinearLayout.LayoutParams(-1, -2))
+    // The bottom fades out: there's more in the full guide.
+    return box
 }
 
 internal fun WatchActivity.openGuide() = startActivity(Intent(this, LiveGuideActivity::class.java))
