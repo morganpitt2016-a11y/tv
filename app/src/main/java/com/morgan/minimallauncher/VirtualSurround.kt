@@ -35,8 +35,8 @@ object VirtualSurround {
     private val FL = floatArrayOf(G, 0f)
     private val FR = floatArrayOf(0f, G)
     private val LFE = floatArrayOf(1.0f * G, 1.0f * G)   // the film's bass channel, at full weight into the subwoofer
-    private val SL = floatArrayOf(-0.87f * G, 0.49f * G)
-    private val SR = floatArrayOf(-0.49f * G, 0.87f * G)
+    private val SL = floatArrayOf(-1.0f * G, 0.56f * G)     // surrounds a touch louder: you're in it
+    private val SR = floatArrayOf(-0.56f * G, 1.0f * G)
     private fun centre(boost: Float) = floatArrayOf(0.707f * G * boost, 0.707f * G * boost)
 
     /** Each input channel as (to left, to right), in Android's order: FL FR FC LFE BL BR SL SR. */
@@ -138,6 +138,13 @@ object VirtualSurround {
         private var la = 1
         private var limL = FloatArray(1); private var limR = FloatArray(1); private var limPos = 0
         private var hold = 0f; private var gain = 1f
+        // Front widening (crosstalk cancellation, as 3D virtualisers do it): the side signal feeds back a little, delayed by
+        // the time sound takes between your ears and softened as your head would - cancelling what reaches the "wrong"
+        // ear, so sound seems to come from well beyond the ends of the soundbar. Only the side (not the voices).
+        private var xtcBuf = FloatArray(1); private var xtcPos = 0; private var xtcLp = 0f; private var xtcA = 0f
+        private var sideLow = 0f; private var sideLowA = 0f
+        // Rears made slightly different left to right (all-pass filters), so they feel diffuse and around you.
+        private var apX = FloatArray(0); private var apY = FloatArray(0)
         // Two bands at the end (Linkwitz-Riley at 120 Hz): the bass gets its own limiter, so a kick drum or a score hit
         // only turns the bass down - never the voices and detail above it (that ducking was the "blanket over it").
         private val xoL = arrayOf(Biquad(), Biquad()); private val xoR = arrayOf(Biquad(), Biquad())
@@ -151,7 +158,11 @@ object VirtualSurround {
             n = f.channelCount; fs = f.sampleRate
             applied = null
             atk = exp(-1.0 / (0.020 * fs)).toFloat(); rel = exp(-1.0 / (0.25 * fs)).toFloat()
-            rearBuf = Array(n) { FloatArray((0.012 * fs).toInt().coerceAtLeast(1)) }; rearLp = FloatArray(n); rearPos = 0
+            rearBuf = Array(n) { FloatArray((0.015 * fs).toInt().coerceAtLeast(1)) }; rearLp = FloatArray(n); rearPos = 0
+            xtcBuf = FloatArray((0.00025 * fs).toInt().coerceAtLeast(1)); xtcPos = 0; xtcLp = 0f
+            xtcA = (1 - exp(-2 * Math.PI * 3000.0 / fs)).toFloat()
+            sideLowA = (1 - exp(-2 * Math.PI * 250.0 / fs)).toFloat(); sideLow = 0f
+            apX = FloatArray(n); apY = FloatArray(n)
             rearA = (1 - exp(-2 * Math.PI * 11_000.0 / fs)).toFloat()   // rears keep their detail
             rearLow = FloatArray(n); lowA = (1 - exp(-2 * Math.PI * 180.0 / fs)).toFloat()
             msA = (1 - exp(-1.0 / (0.4 * fs))).toFloat(); dynApplied = -99f
@@ -173,6 +184,7 @@ object VirtualSurround {
             mid.forEach { it.clear() }; side.forEach { it.clear() }; env = 0f; envLow = 0f
             rearBuf.forEach { it.fill(0f) }; rearLp.fill(0f); rearLow.fill(0f); limL.fill(0f); limR.fill(0f); hold = 0f; gain = 1f
             (xoL + xoR + xhL + xhR).forEach { it.clear() }; lowEnv = 0f; lowGain = 1f
+            xtcBuf.fill(0f); xtcLp = 0f; sideLow = 0f; apX.fill(0f); apY.fill(0f)
         }
 
         private fun tune(s: SoundProfile.Settings) {
@@ -230,7 +242,10 @@ object VirtualSurround {
                     var x = input.getShort() / 32768f
                     if (!heard && abs(x) > 0.0005f) { heard = true; val ms = framesSinceStart * 1000 / fs; onFirstSound?.invoke(ms) }
                     if (rear[ch]) {
-                        val buf = rearBuf[ch]; val d = buf[rearPos % buf.size]; buf[rearPos % buf.size] = x
+                        val buf = rearBuf[ch]; var d = buf[rearPos % buf.size]; buf[rearPos % buf.size] = x
+                        // First-order all-pass, opposite settings on the two sides: same sound, different phase - diffuse.
+                        val g = if (ch % 2 == 0) 0.55f else -0.55f
+                        val y = -g * d + apX[ch] + g * apY[ch]; apX[ch] = d; apY[ch] = y; d = y
                         rearLp[ch] += rearA * (d - rearLp[ch])
                         // Lows in phase to both sides (for the subwoofer), the rest blended wide.
                         rearLow[ch] += lowA * (rearLp[ch] - rearLow[ch])
@@ -256,6 +271,16 @@ object VirtualSurround {
                 }
                 for (b in mid) md = b.run(md)
                 for (b in side) sd = b.run(sd)
+                if (surround) {
+                    // Widening only above ~250 Hz (bass stays centred and solid for the subwoofer).
+                    sideLow += sideLowA * (sd - sideLow)
+                    val hi = sd - sideLow
+                    val fb = xtcBuf[xtcPos]
+                    xtcLp += xtcA * (fb - xtcLp)
+                    val wide = hi + 0.42f * xtcLp
+                    xtcBuf[xtcPos] = wide; xtcPos = (xtcPos + 1) % xtcBuf.size
+                    sd = sideLow + wide * 0.85f
+                }
                 l = md + sd; r = md - sd
                 // Split at 120 Hz with a Linkwitz-Riley crossover (as in speaker crossovers): the two bands add back flat.
                 var lowL = xoL[1].run(xoL[0].run(l)); var lowR = xoR[1].run(xoR[0].run(r))
