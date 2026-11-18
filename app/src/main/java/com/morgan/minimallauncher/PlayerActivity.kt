@@ -78,6 +78,7 @@ class PlayerActivity : Activity() {
     private var altUrl: String? = null
     private var live = false
     private var triedAlt = false
+    private val triedCopies = HashSet<String>()
     private var triedResolved = false
     private var audioFallback = false
     private var audioSession = 0
@@ -434,7 +435,11 @@ class PlayerActivity : Activity() {
                 val alt = altUrl
                 if (!triedAlt && alt != null) { triedAlt = true; url = alt; start(alt, resume = false); return }
                 val http = (error.cause as? androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException)?.responseCode
-                Diag.send(this@PlayerActivity, "player", "error: ${error.errorCodeName}${http?.let { " (HTTP $it)" }.orEmpty()} for \"$titleText\"")
+                val ext = url.substringBefore('?').substringAfterLast('.', "?").take(5)
+                Diag.send(this@PlayerActivity, "player", "error: ${error.errorCodeName}${http?.let { " (HTTP $it)" }.orEmpty()} [.$ext] for \"$titleText\" S${curSeason}E${curEpisode}")
+                // An episode file this player can't read (or a broken upload): Dodgy Box often has the show more than once
+                // (other languages, HD/SD, older and newer uploads) - play the same episode from another copy.
+                if (!live && seriesTitle != null && curSeason > 0 && http == null) { triedCopies += url; if (tryOtherCopy()) return }
                 GlassUi.toast(this@PlayerActivity, when {
                     http == 466 || http == 403 || http == 401 -> "Dodgy Box turned this down - check the VPN is on, and that no other TV is watching Dodgy Box right now"
                     http == 404 -> "Dodgy Box doesn’t have this episode any more - try another"
@@ -1058,6 +1063,31 @@ class PlayerActivity : Activity() {
         AspectRatioFrameLayout.RESIZE_MODE_FILL -> "Stretch to fill"
         AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Zoom (crop edges)"
         else -> "Original shape"
+    }
+
+    /** Same season and episode from another listing of this show on Dodgy Box. False if there's none left to try. */
+    private fun tryOtherCopy(): Boolean {
+        val name = seriesTitle ?: return false
+        val app = applicationContext
+        val season = curSeason; val number = curEpisode
+        GlassUi.toast(this, "This copy won't play - trying another…")
+        Bg.run {
+            val next = try {
+                Xtream.seriesCandidates(app, name, 0).take(8).firstNotNullOfOrNull { cand ->
+                    val e = try { Xtream.episodes(app, cand) } catch (ex: Exception) { emptyList() }.firstOrNull { it.season == season && it.number == number }
+                    e?.let { Xtream.episodeUrl(app, it) }?.takeIf { it !in triedCopies }
+                }
+            } catch (ex: Exception) { null }
+            runOnUiThread {
+                if (isDestroyed) return@runOnUiThread
+                if (next == null) { GlassUi.toast(this, "No other copy of S${season} E${number} on Dodgy Box plays - try the next episode"); return@runOnUiThread }
+                Diag.send(app, "player", "trying another copy of \"$name\" S${season}E${number} [.${next.substringAfterLast('.').take(5)}]")
+                triedCopies += next
+                url = next; triedResolved = true; usingResolved = false
+                start(next, resume = true)
+            }
+        }
+        return true
     }
 
     // ---------- Live: recording what you're watching ----------
