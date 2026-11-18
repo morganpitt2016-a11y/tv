@@ -83,8 +83,8 @@ class SettingsActivity : AppCompatActivity() {
             // A thick outline round whatever is selected, for anyone who finds it hard to see (per profile).
             vrow("Focus Highlight", { if (FocusRing.mode(this) != "off") "On" else "Off" }) {
                 val on = FocusRing.mode(this) == "off"
-                FocusRing.setMode(this, if (on) "yellow" else "off"); refreshValues()
-                GlassUi.toast(this, if (on) "Focus Highlight on - a yellow outline shows where you are" else "Focus Highlight off")
+                FocusRing.setMode(this, if (on) "on" else "off"); refreshValues()
+                GlassUi.toast(this, if (on) "Focus Highlight on - a white rim shows where you are" else "Focus Highlight off")
             }
             vrow("Who’s Watching on Wake", { if (Prefs.bool(this, "who_on_wake", true)) "On" else "Off" }) {
                 Prefs.setBool(this, "who_on_wake", !Prefs.bool(this, "who_on_wake", true)); refreshValues()

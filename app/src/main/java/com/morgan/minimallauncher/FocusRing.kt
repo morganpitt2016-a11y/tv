@@ -19,7 +19,7 @@ object FocusRing {
     fun mode(c: Context): String = Prefs.string(c, ProfileManager.scope(c, KEY)) ?: "off"
     fun setMode(c: Context, m: String) = Prefs.setString(c, ProfileManager.scope(c, KEY), m)
 
-    private var ring: GradientDrawable? = null
+    private var ring: android.graphics.drawable.Drawable? = null
     private var on: View? = null
 
     /** Follows focus in this window (activities and pop-ups). Safe to call more than once. */
@@ -30,24 +30,57 @@ object FocusRing {
         decor.viewTreeObserver.addOnGlobalFocusChangeListener(ViewTreeObserver.OnGlobalFocusChangeListener { _, new -> show(c, new) })
     }
 
+    /**
+     * The tvOS "Increase Focus State" look: a crisp white rim that follows the item's own shape (its exact corner
+     * rounding), with a fine dark line just inside it so it shows on white tiles as well as dark ones.
+     */
+    private class Rim(private val d: Float) : android.graphics.drawable.Drawable() {
+        var radius = 0f
+        var shape: android.graphics.Rect? = null
+        private val white = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            style = android.graphics.Paint.Style.STROKE; strokeWidth = 3f * d; color = 0xF2FFFFFF.toInt()
+        }
+        private val dark = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            style = android.graphics.Paint.Style.STROKE; strokeWidth = 1.2f * d; color = 0x73000000
+        }
+        override fun draw(c: android.graphics.Canvas) {
+            val b = shape ?: bounds
+            val w = white.strokeWidth
+            val o = android.graphics.RectF(b.left + w / 2, b.top + w / 2, b.right - w / 2, b.bottom - w / 2)
+            val r = (radius - w / 2).coerceAtLeast(0f)
+            c.drawRoundRect(o, r, r, white)
+            val k = w + dark.strokeWidth / 2
+            val i = android.graphics.RectF(b.left + k, b.top + k, b.right - k, b.bottom - k)
+            val ri = (radius - k).coerceAtLeast(0f)
+            c.drawRoundRect(i, ri, ri, dark)
+        }
+        override fun setAlpha(a: Int) {}
+        override fun setColorFilter(cf: android.graphics.ColorFilter?) {}
+        @Deprecated("Deprecated in Java") override fun getOpacity() = android.graphics.PixelFormat.TRANSLUCENT
+    }
+
     private fun show(c: Context, v: View?) {
         on?.let { old -> ring?.let { old.overlay.remove(it) } }
         on = null
-        val m = mode(c)
-        if (m == "off" || v == null) return
+        if (mode(c) == "off" || v == null) return
         // Not round whole screens or the TV guide grid (that marks its own programme in white).
         val dm = v.resources.displayMetrics
         if (v.width > dm.widthPixels * 0.7f && v.height > dm.heightPixels * 0.5f) return
-        val d = GradientDrawable().apply {
-            cornerRadius = dp(c, 12f).toFloat()
-            setColor(0)
-            setStroke(dp(c, 4f), if (m == "yellow") 0xFFFFD60A.toInt() else 0xFFFFFFFF.toInt())
+        val rim = Rim(dm.density)
+        fun place() {
+            rim.setBounds(0, 0, v.width, v.height)
+            // The item's own outline (its real corner rounding); a rounded shape of the app's usual size otherwise.
+            val out = android.graphics.Outline()
+            try { v.outlineProvider?.getOutline(v, out) } catch (_: Throwable) {}
+            val r = android.graphics.Rect()
+            val has = android.os.Build.VERSION.SDK_INT >= 24 && out.getRect(r) && !r.isEmpty
+            rim.shape = if (has) r else null
+            rim.radius = if (android.os.Build.VERSION.SDK_INT >= 24 && has) out.radius else (v.background as? GradientDrawable)?.cornerRadius ?: dp(c, 14f).toFloat()
         }
-        fun place() { d.setBounds(0, 0, v.width, v.height) }
         place()
-        v.overlay.add(d)
-        ring = d; on = v
-        // Cards grow and open out when focused: keep the outline matching their size.
+        v.overlay.add(rim)
+        ring = rim; on = v
+        // Cards grow and open out when focused: keep the rim matching their size.
         v.addOnLayoutChangeListener(object : View.OnLayoutChangeListener {
             override fun onLayoutChange(x: View, l: Int, t: Int, r: Int, b: Int, ol: Int, ot: Int, or: Int, ob: Int) {
                 if (on !== x) { x.removeOnLayoutChangeListener(this); return }
