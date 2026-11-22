@@ -22,7 +22,7 @@ class TvColourSync(private val app: android.content.Context, private val surface
     /** A film's Cinema Room already holds the connection (and puts the lights back itself). */
     private val owns = shared == null
     private val link = shared ?: MagicHue.Link(host) { msg -> Diag.send(app, "lights", msg) }
-    private val engine = ColourEngine(link).also { e -> seed?.let { e.seed(it, 0.45f) } }
+    private val engine = ColourEngine(link, Prefs.int(app, "lights_style", 1)).also { e -> seed?.let { e.seed(it, 0.45f) } }
     private val px = IntArray(96 * 54)
     private var copies = 0; private var fails = 0
     private val thread = HandlerThread("tv-colour").apply { start() }

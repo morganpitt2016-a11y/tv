@@ -24,7 +24,18 @@ import kotlin.math.pow
  *
  * Fed with ARGB pixels (a small frame, [w] pixels wide) about 30 times a second; sends to [link].
  */
-class ColourEngine(private val link: MagicHue.Sink) {
+class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
+    /** How lively the room is (Settings › Lights Style): 0 Calm, 1 Balanced, 2 Intense. */
+    private class Tune(val rise: Float, val pop: Float, val accMin: Int, val flashMin: Int, val confirm: Boolean,
+                       val hiJump: Float, val brJump: Float, val up: Float, val down: Float, val drift: Float, val bigDrift: Float, val holdMs: Long)
+    private val t = when (style) {
+        0 -> Tune(0.26f, 0.26f, 8, 6, true, 0.32f, 0.16f, 160f, 450f, 520f, 240f, 450L)
+        2 -> Tune(0.12f, 0.18f, 3, 2, false, 0.22f, 0.10f, 70f, 240f, 200f, 90f, 0L)
+        else -> Tune(0.18f, 0.22f, 5, 4, true, 0.26f, 0.13f, 110f, 330f, 350f, 160f, 250L)
+    }
+    private var pendingBin = -10                                    // a flashing light must show on two frames running
+    private var heldR = -1f; private var heldG = 0f; private var heldB = 0f; private var heldAt = 0L
+
     private var r = 0f; private var g = 0f; private var b = 0f     // current colour at full strength
     internal var level = 0f                                         // current brightness 0..1
     internal var lastBright = 0f                                    // last scene brightness
@@ -145,11 +156,11 @@ class ColourEngine(private val link: MagicHue.Sink) {
             if (hsv[1] >= 0.45f && hsv[2] >= 0.5f) {
                 val rise = if (havePrev && prevY[i] >= 0f) ys[i] - prevY[i] else 0f
                 val pop = ys[i] - bright
-                if (rise > 0.12f || pop > 0.18f) {
+                if (rise > t.rise || pop > t.pop) {
                     val bin = ((hsv[0] / 20f).toInt()).coerceIn(0, 17)
                     val wgt = (hsv[1] * hsv[2] * (1f + 6f * max(0f, rise))).toDouble()
                     accW[bin] += wgt; accR[bin] += pr * wgt; accG[bin] += pg * wgt; accB[bin] += pb * wgt
-                    accN++; accY += hsv[2]; if (rise > 0.12f) flashN++
+                    accN++; accY += hsv[2]; if (rise > t.rise) flashN++
                 }
             }
             if (hsv[1] < 0.2f) { neutral += ys[i]; continue }
@@ -171,9 +182,15 @@ class ColourEngine(private val link: MagicHue.Sink) {
         // takes the room - full colour, snapping instantly from red to blue - and holds through the dark between
         // pulses, then hands back to the scene when it stops (the car's driven off).
         var accent = false
-        if (accN >= 3 && flashN >= 2 && accN < counted / 3) {
-            var ab = 0
+        var ab = -10
+        if (accN >= t.accMin && flashN >= t.flashMin && accN < counted / 3) {
+            ab = 0
             for (k in 1 until 18) if (accW[k] + 0.5 * (accW[(k + 17) % 18] + accW[(k + 1) % 18]) > accW[ab] + 0.5 * (accW[(ab + 17) % 18] + accW[(ab + 1) % 18])) ab = k
+        }
+        // Only a real flashing light, not one-frame noise: the same colour has to flash on two frames running.
+        val confirmed = ab >= 0 && (!t.confirm || (pendingBin >= 0 && minOf((ab - pendingBin + 18) % 18, (pendingBin - ab + 18) % 18) <= 1))
+        pendingBin = ab
+        if (confirmed) {
             var aw = 0.0; var ar = 0.0; var ag = 0.0; var abl = 0.0
             for (k in intArrayOf((ab + 17) % 18, ab, (ab + 1) % 18)) { aw += accW[k]; ar += accR[k]; ag += accG[k]; abl += accB[k] }
             if (aw > 0) {
@@ -187,12 +204,20 @@ class ColourEngine(private val link: MagicHue.Sink) {
         }
         val holdingAccent = now < accentUntil
         if (holdingAccent) { tr = accR0; tg = accG0; tb = accB0 }
+        else {
+            // The scene's colour settles: a new colour is kept for a moment before another can replace it, so busy
+            // shots don't flick the room back and forth.
+            val moved = heldR < 0 || abs(tr - heldR) + abs(tg - heldG) + abs(tb - heldB) > 60f
+            if (moved && (heldR < 0 || now - heldAt >= t.holdMs)) { heldR = tr; heldG = tg; heldB = tb; heldAt = now }
+            else if (!moved) { heldR = tr; heldG = tg; heldB = tb }
+            else { tr = heldR; tg = heldG; tb = heldB }
+        }
 
         // Real brightness: black is black (no glow floor); perceptually spaced so dim scenes still read.
         var targetLevel = if (bright < 0.018f) 0f else (bright.pow(0.8f) * 1.7f).coerceIn(0f, 1f)
 
         // A flash in the picture, or a 4D sound cue: the bright part's colour, full strength, instantly.
-        val flash = (hiY - lastHi > 0.22f && hiY > 0.45f) || bright - lastBright > 0.10f
+        val flash = (hiY - lastHi > t.hiJump && hiY > 0.45f) || bright - lastBright > t.brJump
         val cue = now < cueUntil
         if ((flash || cue) && hn > 0) {
             richer(hr / hn, hg / hn, hb / hn)
@@ -207,14 +232,14 @@ class ColourEngine(private val link: MagicHue.Sink) {
 
         val kl = when {
             flash || cue || accent -> 1f                               // lands on the frame it happens
-            targetLevel > level -> ease(70f)
+            targetLevel > level -> ease(t.up)
             targetLevel == 0f -> ease(140f)                            // fades to black quickly, like the picture
-            else -> ease(240f)
+            else -> ease(t.down)
         }
         level += (targetLevel - level) * kl
 
         val jump = abs(tr - r) + abs(tg - g) + abs(tb - b)
-        val kc = if (flash || cue || accent) 1f else if (jump > 150f) ease(90f) else ease(200f)
+        val kc = if (flash || cue || accent) 1f else if (jump > 150f) ease(t.bigDrift) else ease(t.drift)
         r += (tr - r) * kc; g += (tg - g) * kc; b += (tb - b) * kc
         send()
     }

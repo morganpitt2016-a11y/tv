@@ -308,9 +308,13 @@ class SettingsActivity : AppCompatActivity() {
                 if (MagicHue.ip(this) == null) findMagicHue(thenTurnOn = false)
                 else { Prefs.setBool(this, "cinema_room", !Prefs.bool(this, "cinema_room", true)); refreshValues() }
             }
+            vrow("Lights Style", { arrayOf("Calm", "Balanced", "Intense")[Prefs.int(this, "lights_style", 1).coerceIn(0, 2)] }) {
+                Prefs.setInt(this, "lights_style", (Prefs.int(this, "lights_style", 1) + 1) % 3); refreshValues()
+            }
             vrow("4D Mode", { onOff(Prefs.bool(this, "fourd_mode", true)) }) { Prefs.setBool(this, "fourd_mode", !Prefs.bool(this, "fourd_mode", true)); refreshValues() }
             vrow("Lights", { MagicHue.ip(this) ?: "Not found yet" }) { findMagicHue(thenTurnOn = false) }
         }
+        footnote("Lights Style: Calm drifts gently and only reacts to big moments; Balanced follows the film and catches flashes like police lights; Intense reacts to every flicker.")
         footnote("Cinema Room: when a film starts the lights glide into its colours under a \"Now Showing\" card, notifications go quiet, and at the credits the house lights come up - then everything goes back as it was.")
         footnote("While a film, show or channel plays in the launcher, your Magic Hue lights take on the colours on screen, then go back to how they were. Works with the launcher's own player (Dodgy Box, live TV, recordings) - Netflix and other apps don't let any app see their picture.")
 
