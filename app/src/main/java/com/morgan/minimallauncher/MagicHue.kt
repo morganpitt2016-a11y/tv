@@ -85,18 +85,11 @@ object MagicHue {
         fun begin() = exec.execute {
             if (!ensure()) return@execute
             before = state()
-            // Switching on takes the controller a moment, and colours sent straight after can cancel it: switch on,
-            // wait, check it really is on (try again if not), and only then let the colours through.
-            var on = before?.first == true
-            var tries = 0
-            while (!on && tries < 4) {
-                send(0x71, 0x23, 0x0F)
-                Thread.sleep(600)
-                drain()
-                on = state()?.first == true
-                tries++
-            }
-            log("Magic Hue: connected, lights ${if (on) "on" else "still off after $tries tries"} (were ${if (before?.first == true) "on" else "off"})")
+            // Some controllers (AK001) report on/off unreliably, so just ask for "on" once and carry on.
+            send(0x71, 0x23, 0x0F)
+            Thread.sleep(250)
+            drain()
+            log("Magic Hue: connected (colour before: ${before?.third?.joinToString(",")})")
         }
 
         /** On/off, mode and colour as the controller reports them. */
@@ -129,13 +122,10 @@ object MagicHue {
             }
         }
 
-        /** Put the lights back as they were (colour, and off if they were off), then hang up. */
+        /** Put the lights back to the colour they had, then hang up (on/off is left alone - it can't be trusted). */
         fun end() = exec.execute {
             val b = before
-            if (ensure() && b != null) {
-                send(0x31, b.third[0], b.third[1], b.third[2], 0x00, 0xF0, 0x0F)
-                if (!b.first) send(0x71, 0x24, 0x0F)
-            }
+            if (ensure() && b != null) send(0x31, b.third[0], b.third[1], b.third[2], 0x00, 0xF0, 0x0F)
             Thread.sleep(150)
             close()
             exec.shutdown()

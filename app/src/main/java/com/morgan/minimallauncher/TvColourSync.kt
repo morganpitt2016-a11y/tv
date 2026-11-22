@@ -75,11 +75,15 @@ class TvColourSync(private val app: android.content.Context, private val surface
         var tr = 0f; var tg = 0f; var tb = 0f
         if (wsum > 0) {
             Color.RGBToHSV((wr / wsum).toInt(), (wg / wsum).toInt(), (wb / wsum).toInt(), hsv)
-            hsv[1] = min(1f, hsv[1] * 1.35f + 0.05f)                    // LEDs look washed out without a push
+            // LED strips turn pale colours into a cold blue-white, so colours get a strong push, and a scene with
+            // hardly any colour (news studios, grey skies) becomes a warm white glow rather than icy blue.
+            if (hsv[1] < 0.10f) { hsv[0] = 32f; hsv[1] = 0.45f }
+            else hsv[1] = min(1f, hsv[1] * 1.9f + 0.15f)
             // Brightness follows the scene: a dim glow in dark scenes, full in bright ones.
             hsv[2] = (0.10f + bright * 1.6f).coerceIn(0.06f, 1f)
             val c = Color.HSVToColor(hsv)
-            tr = Color.red(c).toFloat(); tg = Color.green(c).toFloat(); tb = Color.blue(c).toFloat()
+            // LED white balance: their blue and green are much stronger than their red.
+            tr = Color.red(c).toFloat(); tg = Color.green(c) * 0.86f; tb = Color.blue(c) * 0.70f
         }
         // Smooth: quick enough to follow a cut, slow enough not to flicker.
         val k = 0.35f
