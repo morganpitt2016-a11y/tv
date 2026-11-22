@@ -197,8 +197,9 @@ object GlassUi {
             gravity = Gravity.CENTER
             maxLines = 2
             ellipsize = android.text.TextUtils.TruncateAt.END
-            // Never wider than most of the screen: long messages wrap onto a second line instead of running off.
-            maxWidth = (c.resources.displayMetrics.widthPixels * 0.7f).toInt()
+            // Kept to the middle half of the screen: long messages wrap onto a second line instead of running off,
+            // and never reach the corners (the player's Subtitles · Audio · Sound pill sits top right).
+            maxWidth = (c.resources.displayMetrics.widthPixels * 0.48f).toInt()
             setPadding(dp(c, 22f), dp(c, 12f), dp(c, 22f), dp(c, 12f))
             background = LayerDrawable(arrayOf(ColorDrawable(0), panel(c, 22f, 0x40)))
             alpha = 0f

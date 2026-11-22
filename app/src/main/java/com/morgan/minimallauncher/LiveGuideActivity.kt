@@ -488,7 +488,13 @@ class LiveGuideActivity : Activity() {
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         // Back from the categories goes to the guide grid first, then out.
-        if (event.keyCode == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_DOWN && !epg.isFocused) { epg.requestFocus(); return true }
+        // On Recordings the grid is hidden, so the list stands in for it (asking a hidden grid for focus swallowed Back for good).
+        if (event.keyCode == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_DOWN) {
+            val rec = current == "_rec"
+            val inMain = if (rec) recList.hasFocus() else epg.isFocused
+            val main: View? = if (rec) recList.getChildAt(0) else epg
+            if (!inMain && main != null && main.isShown && main.requestFocus()) return true
+        }
         return super.dispatchKeyEvent(event)
     }
 }

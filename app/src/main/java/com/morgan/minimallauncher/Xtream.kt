@@ -598,7 +598,43 @@ object Xtream {
         Thread { try { seriesEpisodes(c, title, year) } catch (e: Exception) {} }.start()
     }
 
-    fun episodes(c: Context, s: Series): List<Episode> {
+    /** The show's episodes, with the provider's doubled-up entries folded together (see [tidy]). */
+    fun episodes(c: Context, s: Series): List<Episode> = tidy(rawEpisodes(c, s))
+
+    // Spare copies of an episode found inside the same listing, by the kept episode's id.
+    private val spareCopies = java.util.concurrent.ConcurrentHashMap<String, List<Episode>>()
+
+    /** Other copies of the episode at [url] that the same listing carries (tried first when it won't play). */
+    fun spareCopyUrls(c: Context, url: String): List<String> {
+        val id = url.substringAfterLast('/').substringBeforeLast('.')
+        return spareCopies[id].orEmpty().map { episodeUrl(c, it) }
+    }
+
+    /**
+     * Dodgy Box sometimes lists one episode twice in a row (The Office US S1: "2. Diversity Day", "3. Diversity Day",
+     * then Health Care as 4), which showed a duplicate and pushed the rest of the season up one. Back-to-back entries
+     * with the same name are one episode: the first is kept, the other is kept aside as a spare copy, and a season
+     * that was numbered 1, 2, 3… straight through is numbered straight through again.
+     */
+    internal fun tidy(list: List<Episode>): List<Episode> {
+        val out = mutableListOf<Episode>()
+        for ((_, eps) in list.groupBy { it.season }) {
+            val kept = mutableListOf<Episode>()
+            for (e in eps) {
+                val prev = kept.lastOrNull()
+                val key = e.title.lowercase().replace(Regex("[^a-z0-9]"), "")
+                val same = prev != null && key.isNotEmpty() && !key.matches(Regex("episode\\d*")) &&
+                    key == prev.title.lowercase().replace(Regex("[^a-z0-9]"), "")
+                if (same) spareCopies[prev!!.id] = (spareCopies[prev.id].orEmpty().filter { it.id != e.id }) + e
+                else kept += e
+            }
+            val straight = eps.map { it.number } == (1..eps.size).toList()
+            out += if (straight && kept.size < eps.size) kept.mapIndexed { i, e -> e.copy(number = i + 1) } else kept
+        }
+        return out
+    }
+
+    private fun rawEpisodes(c: Context, s: Series): List<Episode> {
         episodeMem[s.id]?.let { (at, list) -> if (System.currentTimeMillis() - at < 30 * 60_000L) return list }
         val f = File(dir(c), "eps_${s.id}.bin")
         if (f.exists() && System.currentTimeMillis() - f.lastModified() < 6 * 3600_000L) try {

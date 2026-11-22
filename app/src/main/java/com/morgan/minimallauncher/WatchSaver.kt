@@ -71,24 +71,36 @@ internal fun WatchActivity.startSaver() {
     saver = sv
     sv.animate().alpha(1f).setDuration(900).start()
     var i = 0; var useA = true
+    var advance = Runnable {}
     fun next() {
         if (saver !== sv) return
         val (img, name, what) = slides[i % slides.size]; i++
         val into = if (useA) a else b; val out = if (useA) b else a; useA = !useA
         val back = into.getChildAt(0) as ImageView; val pic = into.getChildAt(1) as ImageView
         ImageLoader.load(back, img, ImageLoader.HERO, fade = false)
+        val turn = i
         ImageLoader.load(pic, img, ImageLoader.HERO, fade = false) { bmp ->
-            if (bmp != null) frameArt(pic, bmp.width, bmp.height, sv.width, sv.height)
+            if (saver !== sv || turn != i) return@load
+            // No picture: on to the next one rather than showing this name over the last picture.
+            if (bmp == null) { useA = !useA; handler.removeCallbacks(advance); handler.postDelayed(advance, 300); return@load }
+            frameArt(pic, bmp.width, bmp.height, sv.width, sv.height)
             into.animate().alpha(1f).setDuration(1500).start(); out.animate().alpha(0f).setDuration(1500).start()
             // Slow drift, like Apple's screensavers - zooming from the upper third, where the faces are.
             pic.scaleX = 1f; pic.scaleY = 1f; pic.pivotX = sv.width / 2f; pic.pivotY = sv.height * 0.3f
             pic.animate().scaleX(1.05f).scaleY(1.05f).setDuration(9000).start()
+            // The name changes with its picture (it used to change first, so a slow picture showed under the next name).
+            col.animate().cancel()
+            col.animate().alpha(0f).setDuration(400).withEndAction {
+                title.text = name
+                hint.text = if (what is ResumeStore.Item) "Press OK to carry on watching" else "Press any button to come back"
+                col.animate().alpha(1f).setDuration(700).start()
+            }.start()
+            sv.setTag(R.id.card_info, what as? ResumeStore.Item)
         }
-        title.text = name
-        hint.text = if (what is ResumeStore.Item) "Press OK to carry on watching" else "Press any button to come back"
-        sv.setTag(R.id.card_info, what as? ResumeStore.Item)
-        handler.postDelayed({ next() }, 9000)
+        handler.removeCallbacks(advance)
+        handler.postDelayed(advance, 9000)
     }
+    advance = Runnable { next() }
     next()
 }
 

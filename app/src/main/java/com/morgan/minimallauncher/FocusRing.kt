@@ -77,13 +77,16 @@ object FocusRing {
         return true
     }
 
-    private fun show(c: Context, v: View?) {
+    private fun show(c: Context, focused: View?) {
         on?.let { old -> ring?.let { old.overlay.remove(it) } }
         on = null
-        if (mode(c) == "off" || v == null) return
+        if (mode(c) == "off" || focused == null) return
         // Only things you pick (tiles, posters, buttons, rows) - never the video, the TV guide grid (it marks its own
         // programme) or a whole scrolling list.
-        if (!selectable(v)) return
+        if (!selectable(focused)) return
+        // A card can name the part the rim belongs on (an episode card: its picture, so the rim isn't drawn
+        // over the words underneath it).
+        val v: View = (focused.getTag(R.id.focus_ring_target) as? View) ?: focused
         val dm = v.resources.displayMetrics
         if (tooBig(v)) return
         val rim = Rim(dm.density)

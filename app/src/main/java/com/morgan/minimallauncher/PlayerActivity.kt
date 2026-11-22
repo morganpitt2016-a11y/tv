@@ -1086,7 +1086,9 @@ class PlayerActivity : Activity() {
             var copyId = -1
             var copyEps: List<Xtream.Episode> = emptyList()
             val remaining = queue.size
-            val next = try {
+            // A spare copy in the same listing first (Dodgy Box sometimes lists an episode twice) - it's the same show for sure.
+            val spare = triedCopies.flatMap { Xtream.spareCopyUrls(app, it) }.firstOrNull { it !in triedCopies }
+            val next = spare ?: try {
                 val all = Xtream.seriesCandidates(app, name, 0).take(8).map { cand -> cand to (try { Xtream.episodes(app, cand) } catch (ex: Exception) { emptyList() }) }
                 // The copy you were watching (the one the failed episode came from), to compare the others with.
                 val orig = all.firstOrNull { (_, eps) -> eps.any { Xtream.episodeUrl(app, it) in triedCopies } }

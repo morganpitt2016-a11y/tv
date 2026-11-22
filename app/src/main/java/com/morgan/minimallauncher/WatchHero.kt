@@ -52,6 +52,8 @@ internal fun WatchActivity.setHeroCollapsed(collapse: Boolean) {
     }
     info.animate().alpha(if (collapse || searchBar?.visibility == View.VISIBLE) 0f else 1f).setDuration(260).start()
     heroDim.animate().alpha(if (collapse) 0.9f else 0f).setDuration(380).start()
+    // Search: the results slide up into the search bar's place, so the bar steps aside until you're back at the top.
+    searchBar?.takeIf { it.visibility == View.VISIBLE }?.animate()?.alpha(if (collapse) 0f else 1f)?.setDuration(220)?.start()
 }
 
 /** Live TV: just a doorway to the guide (OK or Down opens it), so moving past it loads nothing. */

@@ -256,7 +256,12 @@ class EpisodesActivity : Activity() {
                 // Up from the episodes: the season you're in (not whichever season tab sits above, which would switch season).
                 KeyEvent.KEYCODE_DPAD_UP -> if (inList && seasonViews.isNotEmpty()) { seasonViews[season]?.requestFocus(); return true }
                 // Down from the seasons: the first episode showing.
-                KeyEvent.KEYCODE_DPAD_DOWN -> if (onSeason) {
+                // Down from the buttons above (Resume / My List): the season you're in. Left to Android, a wide Resume
+                // button landed on whichever tab sat under its middle, and resting there switched season.
+                KeyEvent.KEYCODE_DPAD_DOWN -> if (!inList && !onSeason && f != null && seasonViews.isNotEmpty() &&
+                    android.view.FocusFinder.getInstance().findNextFocus(window.decorView as ViewGroup, f, View.FOCUS_DOWN).let { n -> seasonViews.values.any { it === n } }) {
+                    seasonViews[season]?.let { it.requestFocus(); return true }
+                } else if (onSeason) {
                     val lm = list.layoutManager as? LinearLayoutManager
                     val pos = lm?.findFirstCompletelyVisibleItemPosition()?.takeIf { it >= 0 } ?: lm?.findFirstVisibleItemPosition() ?: 0
                     (lm?.findViewByPosition(pos) ?: list.getChildAt(0))?.let { it.requestFocus(); return true }
@@ -320,6 +325,7 @@ class EpisodesActivity : Activity() {
             thumb.addView(bar, FrameLayout.LayoutParams(0, dp(c, 4f), Gravity.BOTTOM))
             card.addView(thumb, LinearLayout.LayoutParams(-1, dp(c, 152f)))
             card.setOnFocusChangeListener { _, has -> Motion.focus(thumb, has, 1.07f) }
+            card.setTag(R.id.focus_ring_target, thumb)
             val title = GlassUi.text(c, "", 14.5f, R.font.inter_semibold).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
             val meta = GlassUi.text(c, "", 11.5f, R.font.inter_medium, 0x99FFFFFF.toInt())
             val plot = GlassUi.text(c, "", 12f, R.font.inter_regular, 0xB3FFFFFF.toInt()).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END }
@@ -334,7 +340,8 @@ class EpisodesActivity : Activity() {
             val e = items[pos]
             @Suppress("UNCHECKED_CAST") val v = h.itemView.tag as Array<View>
             val c = h.itemView.context
-            (v[0] as ImageView).let { iv -> if (e.image != null) ImageLoader.load(iv, e.image, ImageLoader.CARD) else iv.setImageDrawable(null) }
+            // No still for this episode on Dodgy Box: the show's own picture rather than an empty grey card.
+            (v[0] as ImageView).let { iv -> (e.image ?: image)?.let { ImageLoader.load(iv, it, ImageLoader.CARD) } ?: iv.setImageDrawable(null) }
             val url = Xtream.episodeUrl(applicationContext, e)
             val at = WatchHistory.seconds(applicationContext, url)
             val total = e.minutes * 60

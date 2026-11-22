@@ -263,8 +263,13 @@ internal fun WatchActivity.dodgySearchRows(token: Int, query: String) {
         runOnUiThread {
             if (containerToken[host] != token || isDestroyed) return@runOnUiThread
             var at = 0
+            // A show you named exactly ("the office") comes before films that only share a word with it.
+            val q = TextMatch.vodKey(query).removePrefix("the ").trim()
+            fun exact(n: String) = TextMatch.vodKey(n).removePrefix("the ").trim() == q
+            val showsFirst = shows.any { exact(it.name) } && films.none { exact(it.name) }
+            if (showsFirst) host.addView(libRow("s_series", "Series on Dodgy Box", shows) { h, v -> bindSeries(h, v) }.view, at++)
             if (films.isNotEmpty()) host.addView(libRow("s_films", "Films on Dodgy Box", films) { h, v -> bindVod(h, v) }.view, at++)
-            if (shows.isNotEmpty()) host.addView(libRow("s_series", "Series on Dodgy Box", shows) { h, v -> bindSeries(h, v) }.view, at)
+            if (!showsFirst && shows.isNotEmpty()) host.addView(libRow("s_series", "Series on Dodgy Box", shows) { h, v -> bindSeries(h, v) }.view, at)
             if (films.isNotEmpty() || shows.isNotEmpty()) focusContentIfIdle()
         }
     }

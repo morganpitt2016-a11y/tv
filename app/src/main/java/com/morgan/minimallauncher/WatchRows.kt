@@ -190,6 +190,14 @@ internal fun WatchActivity.resumeOptions(item: ResumeStore.Item) {
         Prefs.setInt(this, WatchHistory.posKey(this, item.url), 0)
         openResume(item.copy(posSec = 0))
     }
+    // An episode: its show's page (every season and episode), not just the one you were up to.
+    item.series?.takeIf { item.kind == "episode" && it.isNotBlank() }?.let { show ->
+        d.button("Go to Show") {
+            startActivity(Intent(this, EpisodesActivity::class.java)
+                .putExtra(EpisodesActivity.EXTRA_NAME, show)
+                .putExtra(EpisodesActivity.EXTRA_IMAGE, Prefs.string(this, "rart_$show") ?: item.image))
+        }
+    }
     d.button("Remove from $rowName", GlassDialog.Style.DESTRUCTIVE) {
         ResumeStore.remove(this, item.key)
         if (item.kind != "live") Prefs.setInt(this, WatchHistory.posKey(this, item.url), 0)

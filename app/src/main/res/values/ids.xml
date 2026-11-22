@@ -7,5 +7,6 @@
     <item name="card_poster" type="id" />
     <item name="card_av" type="id" />
     <item name="focus_ring" type="id" />
+    <item name="focus_ring_target" type="id" />
     <item name="toast" type="id" />
 </resources>

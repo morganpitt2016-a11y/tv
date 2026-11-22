@@ -32,9 +32,23 @@ object RecentAppsTracker {
     fun getRecent(context: Context, allApps: List<AppEntry>, limit: Int): List<Recent> {
         val byPackage = allApps.associateBy { it.packageName }
         return load(context)
+            .filterNot { (pkg, _) -> isUtility(pkg) }
             .mapNotNull { (pkg, time) -> byPackage[pkg]?.let { Recent(it, time) } }
             .take(limit)
     }
+
+    /**
+     * Apps you open to set something up rather than to watch (Settings, a VPN, the Play Store, Downloader, file
+     * managers): never shown under Continue Watching.
+     */
+    fun isUtility(pkg: String): Boolean {
+        val p = pkg.lowercase()
+        if (p in UTILITY_PACKAGES) return true
+        return listOf("settings", "vpn", "surfshark", "downloader", "filemanager", "file.manager", "filecommander", "launcher")
+            .any { it in p }
+    }
+
+    private val UTILITY_PACKAGES = setOf("com.android.vending", "com.google.android.tvrecommendations", "com.google.android.apps.tv.launcherx")
 
     /**
      * Apps this person tends to open around this time of day, then their

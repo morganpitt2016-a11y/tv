@@ -87,6 +87,8 @@ internal fun WatchActivity.showSearchBar(focus: Boolean) {
         searchBar = this
     }
     bar.visibility = View.VISIBLE
+    bar.animate().cancel(); bar.alpha = if (heroCollapsed && !focus) 0f else 1f
+    if (focus && heroCollapsed) setHeroCollapsed(false)
     info.alpha = 0f
     if (focus) searchField?.let { f ->
         f.requestFocus()
