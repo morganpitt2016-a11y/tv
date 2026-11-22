@@ -127,8 +127,11 @@ class LiveGuideActivity : Activity() {
         val tick = object : Runnable { override fun run() { clockView.text = fmt.format(Date()).lowercase(); handler.postDelayed(this, 20_000) } }
         tick.run()
 
-        epg.onSelect = { row, prog ->
+        epg.onSelect = sel@{ row, prog ->
             selected = row
+            // On Recordings the (hidden) grid can still report a programme - e.g. coming back from a recording - and
+            // it mustn't take over the "Recordings" heading.
+            if (current == "_rec") return@sel
             title.text = prog?.title ?: row.ch.name
             desc.text = prog?.desc?.takeIf { it.isNotBlank() } ?: "Live on ${row.ch.name}"
             meta.text = if (prog == null) row.ch.name else {
