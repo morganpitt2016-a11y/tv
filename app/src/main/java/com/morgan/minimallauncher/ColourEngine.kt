@@ -7,22 +7,35 @@ import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.pow
 
 /**
- * Turns frames of the picture into a light colour, the way Ambilight / Hue Sync feel: the main colour on screen
- * (vivid, well-lit areas count most; black bars and shadows barely), pushed richer for LEDs, and moved with an
- * envelope - FAST ATTACK, SMOOTH DECAY. Light rises to a flash or a cut within a few frames (a gunshot pops), then
- * glides back over about a third of a second, and calm scenes drift gently - punchy without strobing.
+ * Turns frames of the picture into the room's light - faithfully, not decoratively:
+ *  - the scene's real colour: an average weighted by brightness (so a small bright logo can't take over, and
+ *    nothing is invented), with only a light saturation lift for the LEDs; grey and white scenes stay neutral white;
+ *  - real brightness: a black screen is black lights (no glow floor), a dim night scene is a dim glow, and
+ *    letterbox bars are ignored;
+ *  - flashes from the picture itself: when any part of the frame suddenly gets much brighter (lightning, a muzzle
+ *    flash, an explosion, headlights) the lights jump to the colour of that bright part, at full strength;
+ *  - 4D Mode's sound cues ([impulse]) do the same on the beat of the sound - a blast lights the room in the
+ *    fireball's own colour, taken from the frame;
+ *  - motion like Ambilight: flashes land instantly, rises in ~70 ms, falls glide over ~¼ s.
  *
- * Fed with ARGB pixels (any small size) about 30 times a second; sends to the Magic Hue [MagicHue.Link].
+ * Fed with ARGB pixels (a small frame, [w] pixels wide) about 30 times a second; sends to [link].
  */
 class ColourEngine(private val link: MagicHue.Sink) {
-    private var r = 0f; private var g = 0f; private var b = 0f
-    internal var level = 0f           // smoothed scene brightness 0..1
-    internal var lastBright = 0f
+    private var r = 0f; private var g = 0f; private var b = 0f     // current colour at full strength
+    internal var level = 0f                                         // current brightness 0..1
+    internal var lastBright = 0f                                    // last scene brightness
+    private var lastHi = 0f                                         // last highlight brightness
     private var lastAt = 0L
     private val sent = intArrayOf(-1, -1, -1)
     private val hsv = FloatArray(3)
+    private var ys = FloatArray(0)
+
+    // 4D Mode: while a sound cue's window is open, the lights follow the frame's brightest part at full strength.
+    private var cueUntil = 0L
+    private var blackUntil = 0L
 
     /** Carry on from where the lights already are (no dip to black when taking over). */
     fun seed(rgb: IntArray, brightness: Float) {
@@ -40,98 +53,111 @@ class ColourEngine(private val link: MagicHue.Sink) {
             if (small !== bmp) small.recycle()
             val sink = object : MagicHue.Sink { var last = intArrayOf(255, 140, 70); override fun colour(r: Int, g: Int, b: Int) { last = intArrayOf(r, g, b) } }
             val e = ColourEngine(sink)
-            e.level = 1f; e.lastBright = 1f
-            repeat(40) { e.frame(px, px.size) }          // let it settle on the picture's colour
+            repeat(40) { e.frame(px, px.size, 32) }
             val m = max(sink.last[0], max(sink.last[1], sink.last[2])).coerceAtLeast(1)
             return intArrayOf(sink.last[0] * 255 / m, sink.last[1] * 255 / m, sink.last[2] * 255 / m)
         }
+
+        private fun y(p: Int) = (0.2126f * ((p shr 16) and 0xFF) + 0.7152f * ((p shr 8) and 0xFF) + 0.0722f * (p and 0xFF)) / 255f
     }
 
-    // 4D Mode: a flash holds the lights for a moment before the picture takes them back (with the usual glide).
-    private var holdUntil = 0L
-    private var redAt = 0L
-
-    /** A moment from 4D Mode: "boom" (fire), "bang" (white flash) or "scare" (blackout, then red). */
+    /** A 4D Mode sound cue: "boom" / "bang" light the room in the frame's brightest colour; "scare" blacks out first. */
     fun impulse(kind: String) {
         val now = SystemClock.uptimeMillis()
         when (kind) {
-            "boom" -> { r = 255f; g = 105f; b = 15f; level = 1f; holdUntil = now + 170 }
-            "bang" -> { r = 255f; g = 238f; b = 205f; level = 1f; holdUntil = now + 70 }
-            "scare" -> { level = 0f; holdUntil = now + 160; redAt = now + 140 }
+            "boom" -> cueUntil = now + 320
+            "bang" -> cueUntil = now + 140
+            "scare" -> { blackUntil = now + 140; cueUntil = now + 480; level = 0f; send(force = true) }
         }
-        sendNow()
     }
 
-    private fun sendNow() {
-        val o0 = (r * level).toInt().coerceIn(0, 255); val o1 = (g * level).toInt().coerceIn(0, 255); val o2 = (b * level).toInt().coerceIn(0, 255)
-        sent[0] = o0; sent[1] = o1; sent[2] = o2
-        link.colour(o0, o1, o2)
-    }
-
-    /** One frame. [px] is ARGB, [n] pixels long. */
-    fun frame(px: IntArray, n: Int) {
-        val t0 = SystemClock.uptimeMillis()
-        if (redAt in 1..t0) { redAt = 0L; r = 255f; g = 0f; b = 0f; level = 1f; holdUntil = t0 + 350; sendNow(); return }
-        if (t0 < holdUntil) return
-        var wr = 0.0; var wg = 0.0; var wb = 0.0; var wsum = 0.0; var lum = 0.0
-        for (i in 0 until n) {
-            val p = px[i]
-            val pr = (p shr 16) and 0xFF; val pg = (p shr 8) and 0xFF; val pb = p and 0xFF
-            val mx = max(pr, max(pg, pb)); val mn = min(pr, min(pg, pb))
-            val v = mx / 255f
-            lum += (0.2126 * pr + 0.7152 * pg + 0.0722 * pb) / 255.0
-            if (v < 0.08f) continue                                  // black bars, deep shadow
-            val s = if (mx == 0) 0f else (mx - mn) / mx.toFloat()
-            val w = (0.15 + s * s * 1.6) * v                         // colourful and lit counts most
-            wr += pr * w; wg += pg * w; wb += pb * w; wsum += w
-        }
-        val bright = (lum / max(n, 1)).toFloat()
-
-        // Target colour at full strength (brightness is handled by the envelope below).
-        var tr = 255f * 0.9f; var tg = 255f * 0.62f; var tb = 255f * 0.35f   // warm white when there's no colour
-        if (wsum > 0) {
-            Color.RGBToHSV((wr / wsum).toInt(), (wg / wsum).toInt(), (wb / wsum).toInt(), hsv)
-            // LEDs turn pale colours into icy blue-white: push colour hard, and make colourless scenes warm white.
-            if (hsv[1] < 0.10f) { hsv[0] = 32f; hsv[1] = 0.45f } else hsv[1] = min(1f, hsv[1] * 1.9f + 0.15f)
-            hsv[2] = 1f
-            val c = Color.HSVToColor(hsv)
-            // LED white balance: their blue and green run much stronger than their red.
-            tr = Color.red(c).toFloat(); tg = Color.green(c) * 0.86f; tb = Color.blue(c) * 0.70f
-        }
-
-        // Time-based easing, so it feels the same however fast frames arrive.
+    /** One frame: [px] is ARGB, [n] pixels long, [w] pixels wide. */
+    fun frame(px: IntArray, n: Int, w: Int = 48) {
         val now = SystemClock.uptimeMillis()
         val dt = if (lastAt == 0L) 33f else (now - lastAt).coerceIn(5, 200).toFloat()
         lastAt = now
         fun ease(tauMs: Float) = 1f - exp(-dt / tauMs)
+        if (now < blackUntil) { level = 0f; send(); return }
 
-        // Brightness: a sudden jump (flash, explosion) attacks in ~40 ms; rising scenes in ~90 ms; fading in ~350 ms.
-        val targetLevel = (0.10f + bright * 1.6f).coerceIn(0.06f, 1f).let { if (bright - lastBright > 0.10f) 1f else it }
-        lastBright = bright
+        // Brightness of every pixel; rows that are black all the way across are letterbox bars - left out.
+        if (ys.size < n) ys = FloatArray(n)
+        val rows = if (w > 0) n / w else 1
+        var lum = 0.0; var counted = 0
+        var wr = 0.0; var wg = 0.0; var wb = 0.0; var wsum = 0.0
+        for (row in 0 until rows) {
+            var rowMax = 0f
+            for (x in 0 until w) { val yv = y(px[row * w + x]); ys[row * w + x] = yv; if (yv > rowMax) rowMax = yv }
+            if (rowMax < 0.04f) { for (x in 0 until w) ys[row * w + x] = -1f; continue }
+            for (x in 0 until w) {
+                val i = row * w + x; val yv = ys[i]; val p = px[i]
+                lum += yv; counted++
+                if (yv < 0.03f) continue
+                val wt = yv * yv                                    // brighter areas carry the scene's colour
+                wr += ((p shr 16) and 0xFF) * wt; wg += ((p shr 8) and 0xFF) * wt; wb += (p and 0xFF) * wt; wsum += wt
+            }
+        }
+        val bright = if (counted == 0) 0f else (lum / counted).toFloat()
+
+        // The brightest tenth of the picture: its colour and brightness (the fireball, the lightning, the lamp).
+        var hr = 0.0; var hg = 0.0; var hb = 0.0; var hn = 0; var hiY = 0f
+        if (counted > 0) {
+            val sorted = ys.copyOf(n).filter { it >= 0f }.sorted()
+            val cut = sorted[(sorted.size * 0.9f).toInt().coerceAtMost(sorted.size - 1)]
+            for (i in 0 until n) if (ys[i] >= cut && ys[i] > 0.2f) {
+                val p = px[i]; hr += (p shr 16) and 0xFF; hg += (p shr 8) and 0xFF; hb += p and 0xFF; hn++; hiY += ys[i]
+            }
+            if (hn > 0) hiY /= hn
+        }
+
+        // The scene's colour: what's really there, a little richer for the LEDs; grey stays white.
+        var tr: Float; var tg: Float; var tb: Float
+        fun richer(cr: Double, cg: Double, cb: Double) {
+            Color.RGBToHSV(cr.toInt().coerceIn(0, 255), cg.toInt().coerceIn(0, 255), cb.toInt().coerceIn(0, 255), hsv)
+            hsv[1] = if (hsv[1] < 0.07f) 0f else min(1f, hsv[1] * 1.18f)
+            hsv[2] = 1f
+        }
+        if (wsum > 0) richer(wr / wsum, wg / wsum, wb / wsum) else { hsv[0] = 0f; hsv[1] = 0f; hsv[2] = 1f }
+        var c = Color.HSVToColor(hsv)
+        tr = Color.red(c).toFloat(); tg = Color.green(c).toFloat(); tb = Color.blue(c).toFloat()
+
+        // Real brightness: black is black (no glow floor); perceptually spaced so dim scenes still read.
+        var targetLevel = if (bright < 0.018f) 0f else (bright.pow(0.8f) * 1.7f).coerceIn(0f, 1f)
+
+        // A flash in the picture, or a 4D sound cue: the bright part's colour, full strength, instantly.
+        val flash = (hiY - lastHi > 0.22f && hiY > 0.45f) || bright - lastBright > 0.10f
+        val cue = now < cueUntil
+        if ((flash || cue) && hn > 0) {
+            richer(hr / hn, hg / hn, hb / hn)
+            c = Color.HSVToColor(hsv)
+            tr = Color.red(c).toFloat(); tg = Color.green(c).toFloat(); tb = Color.blue(c).toFloat()
+            targetLevel = max(targetLevel, if (cue) max(0.85f, hiY) else hiY.coerceAtLeast(0.6f))
+        }
+        lastBright = bright; lastHi = hiY
+
         val kl = when {
-            targetLevel >= 1f && targetLevel > level -> ease(40f)
-            targetLevel > level -> ease(90f)
-            else -> ease(350f)
+            flash || cue -> 1f                                         // lands on the frame it happens
+            targetLevel > level -> ease(70f)
+            targetLevel == 0f -> ease(140f)                            // fades to black quickly, like the picture
+            else -> ease(240f)
         }
         level += (targetLevel - level) * kl
 
-        // Colour: a cut (big change) moves in ~110 ms, ordinary drift in ~260 ms - never a hard snap.
         val jump = abs(tr - r) + abs(tg - g) + abs(tb - b)
-        val kc = if (jump > 150f) ease(110f) else ease(260f)
+        val kc = if (flash || cue) 1f else if (jump > 150f) ease(90f) else ease(200f)
         r += (tr - r) * kc; g += (tg - g) * kc; b += (tb - b) * kc
-
-        val out0 = (r * level).toInt().coerceIn(0, 255)
-        val out1 = (g * level).toInt().coerceIn(0, 255)
-        val out2 = (b * level).toInt().coerceIn(0, 255)
-        // Every small step goes out, so fades look continuous rather than stepped.
-        if (abs(out0 - sent[0]) + abs(out1 - sent[1]) + abs(out2 - sent[2]) < 2) return
-        sent[0] = out0; sent[1] = out1; sent[2] = out2
-        link.colour(out0, out1, out2)
+        send()
     }
 
-    /** Nothing worth lighting (paused, no picture): ease down to a dim warm glow rather than holding the last colour. */
-    fun idle() {
-        val px = IntArray(1)
-        frame(px, 1)
+    private fun send(force: Boolean = false) {
+        // LED white balance (their blue and green run much stronger than their red), so white looks white.
+        val o0 = (r * level).toInt().coerceIn(0, 255)
+        val o1 = (g * 0.86f * level).toInt().coerceIn(0, 255)
+        val o2 = (b * 0.70f * level).toInt().coerceIn(0, 255)
+        if (!force && abs(o0 - sent[0]) + abs(o1 - sent[1]) + abs(o2 - sent[2]) < 2) return
+        sent[0] = o0; sent[1] = o1; sent[2] = o2
+        link.colour(o0, o1, o2)
     }
+
+    /** Nothing on screen to follow (paused): ease down towards dark rather than holding the last colour. */
+    fun idle() { frame(IntArray(1), 1, 1) }
 }
