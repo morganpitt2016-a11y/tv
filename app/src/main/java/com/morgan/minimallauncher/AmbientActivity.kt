@@ -36,6 +36,7 @@ class AmbientActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         screen.start()
+        Soundscape.start(applicationContext)
         if (screen.mode != SLEEP) {
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             Prefs.ambientHours(this).takeIf { it > 0 }?.let { handler.postDelayed(toSleep, it * 3_600_000L) }
@@ -45,6 +46,7 @@ class AmbientActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         screen.stop()
+        Soundscape.stop()
         handler.removeCallbacks(toSleep)
     }
 

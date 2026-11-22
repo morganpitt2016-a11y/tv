@@ -22,6 +22,24 @@ object SoundEvents {
     @Volatile var rain = false
     private var aHi = 0f; private var hiLow = 0f; private var hiP = 0f; private var aHiP = 0f
     private var quietFor = 0f; private var rainFor = 0f
+
+    /** Auto Subtitles: until when the voices are being drowned out (music, explosions) - 0 when they're clear. */
+    @Volatile var buriedUntil = 0L
+    private var vRate = 0; private var aV = 0f; private var cEnv = 1e-9f; private var oEnv = 1e-9f; private var vCount = 0; private var buriedFor = 0f
+
+    /**
+     * Fed the centre channel (where films put the voices) and the average of the others, every sample. When there's
+     * speech in the centre but the rest of the mix is well above it for half a second, the dialogue is buried.
+     */
+    fun feedVoice(centre: Float, others: Float, fs: Int) {
+        if (fs != vRate) { vRate = fs; aV = (1.0 - kotlin.math.exp(-1.0 / (0.25 * fs))).toFloat() }
+        cEnv += aV * (centre * centre - cEnv); oEnv += aV * (others - oEnv)
+        if (++vCount < 480) return
+        vCount = 0
+        val c = db(cEnv); val o = db(oEnv)
+        if (c > -42f && o - c > 3f) buriedFor += 480f / fs else buriedFor = 0f
+        if (buriedFor > 0.5f) buriedUntil = android.os.SystemClock.uptimeMillis() + 3500
+    }
     private val main = Handler(Looper.getMainLooper())
 
     private var rate = 0

@@ -137,6 +137,9 @@ class SettingsActivity : AppCompatActivity() {
             vrow("Sleep Clock", { "" }, chevron = true) { AmbientActivity.start(this, AmbientActivity.SLEEP) }
         }
         group {
+            vrow("Ambient Sound", { Soundscape.title(this) }) {
+                choose("Ambient Sound", Soundscape.KINDS, Soundscape.kind(this)) { Prefs.setString(this, "soundscape", it) }
+            }
             vrow("When Idle, Show", { if (Prefs.idleAfter(this) == 0) "Nothing" else AmbientActivity.title(Prefs.idleMode(this)) }) {
                 choose("When Idle, Show", listOf(AmbientActivity.AMBIENT to "Ambient", AmbientActivity.AERIAL to "Aerial", AmbientActivity.SLEEP to "Sleep Clock", "none" to "Nothing"),
                     if (Prefs.idleAfter(this) == 0) "none" else Prefs.idleMode(this)) { v ->
@@ -312,10 +315,14 @@ class SettingsActivity : AppCompatActivity() {
             vrow("Lights Style", { arrayOf("Calm", "Balanced", "Intense")[Prefs.int(this, "lights_style", 1).coerceIn(0, 2)] }) {
                 Prefs.setInt(this, "lights_style", (Prefs.int(this, "lights_style", 1) + 1) % 3); refreshValues()
             }
+            vrow("Auto Subtitles", { onOff(Prefs.bool(this, "auto_subs", true)) }) { Prefs.setBool(this, "auto_subs", !Prefs.bool(this, "auto_subs", true)); refreshValues() }
+            vrow("Night Sound", { onOff(Prefs.bool(this, "night_sound", true)) }) { Prefs.setBool(this, "night_sound", !Prefs.bool(this, "night_sound", true)); VirtualSurround.nightAllowed = Prefs.bool(this, "night_sound", true); refreshValues() }
+            vrow("Still Watching?", { onOff(Prefs.bool(this, "sleep_check", true)) }) { Prefs.setBool(this, "sleep_check", !Prefs.bool(this, "sleep_check", true)); refreshValues() }
             vrow("4D Mode", { onOff(Prefs.bool(this, "fourd_mode", true)) }) { Prefs.setBool(this, "fourd_mode", !Prefs.bool(this, "fourd_mode", true)); refreshValues() }
             vrow("Lights", { MagicHue.ip(this) ?: "Not found yet" }) { findMagicHue(thenTurnOn = false) }
         }
         footnote("Wallpaper Lights: on the home screen the room slowly takes on the colours of the photo showing. Pausing a film brings the lights up to a soft warm glow; pressing play lets the film's colours back in.")
+        footnote("Auto Subtitles: when music or explosions drown out the voices (in 5.1 films and shows with subtitles), the subtitles appear for that line, then fade away. Night Sound: from 10 pm to 7 am loud bangs are evened out and quiet voices lifted. Still Watching?: late at night, after 90 minutes with nothing pressed, the TV checks - if you've nodded off, sound and lights fade over a minute, it pauses where you were, and the lights switch off.")
         footnote("Lights Style: Calm drifts gently and only reacts to big moments; Balanced follows the film and catches flashes like police lights; Intense reacts to every flicker.")
         footnote("Cinema Room: when a film starts the lights glide into its colours under a \"Now Showing\" card, notifications go quiet, and at the credits the house lights come up - then everything goes back as it was.")
         footnote("While a film, show or channel plays in the launcher, your Magic Hue lights take on the colours on screen, then go back to how they were. Works with the launcher's own player (Dodgy Box, live TV, recordings) - Netflix and other apps don't let any app see their picture.")

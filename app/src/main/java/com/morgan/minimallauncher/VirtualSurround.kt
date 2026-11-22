@@ -113,6 +113,12 @@ object VirtualSurround {
         }
     }
 
+    /** Night Sound (Settings) and Auto Subtitles are on - set by the player. */
+    @Volatile var nightAllowed = true
+    @Volatile var autoSubs = false
+    @Volatile var nightNow = false
+    private var nightCheck = 400
+
     private class Mixer(private val surround: Boolean) : BaseAudioProcessor() {
         private var n = 2
         private var fs = 48_000
@@ -256,12 +262,19 @@ object VirtualSurround {
             val frames = input.remaining() / (2 * n)
             val out = replaceOutputBuffer(frames * 4)
             val m = coeffs
-            val level = s.level
-            val makeup = if (level) 1.8f else 1f              // +5 dB back after the compressor
+            val level = s.level || night
+            val makeup = if (night) 2.6f else if (level) 1.8f else 1f   // +5 dB back after the compressor (+8 at night)
+            val thr = if (night) -30f else -22f; val ratio = if (night) 4f else 2.5f
+            // Night Sound: after 10 pm (till 7 am) loud bangs are evened out and quiet voices lifted, so nobody's woken.
+            if (++nightCheck >= 400) { nightCheck = 0; val h = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY); nightNow = nightAllowed && (h >= 22 || h < 7) }
+            val night = nightNow
+            val voices = autoSubs && n >= 5
             for (f in 0 until frames) {
                 var l = 0f; var r = 0f
+                var cx = 0f; var oP = 0f
                 for (ch in 0 until n) {
                     var x = input.getShort() / 32768f
+                    if (voices) { if (ch == 2) cx = x else if (!(n >= 6 && ch == 3)) oP += x * x }
                     if (!heard && abs(x) > 0.0005f) { heard = true; val ms = framesSinceStart * 1000 / fs; onFirstSound?.invoke(ms) }
                     if (rear[ch]) {
                         val buf = rearBuf[ch]; var d = buf[rearPos % buf.size]; buf[rearPos % buf.size] = x
@@ -277,6 +290,7 @@ object VirtualSurround {
                     }
                     l += x * m[ch][0]; r += x * m[ch][1]
                 }
+                if (voices) SoundEvents.feedVoice(cx, oP / (if (n >= 6) n - 2 else n - 1), fs)
                 rearPos++
                 framesSinceStart++
                 if (rearPos > 1_000_000_000) rearPos = 0
@@ -326,7 +340,7 @@ object VirtualSurround {
                     val peak = maxOf(abs(highL), abs(highR))
                     env = if (peak > env) atk * env + (1 - atk) * peak else rel * env + (1 - rel) * peak
                     val db = 20 * log10(env.coerceAtLeast(1e-6f))
-                    val g = if (db > -22f) 10f.pow(-(db + 22f) * (1f - 1f / 2.5f) / 20f) else 1f
+                    val g = if (db > thr) 10f.pow(-(db - thr) * (1f - 1f / ratio) / 20f) else 1f
                     val lpk = maxOf(abs(lowL), abs(lowR))
                     envLow = if (lpk > envLow) atk * envLow + (1 - atk) * lpk else rel * envLow + (1 - rel) * lpk
                     val dbl = 20 * log10(envLow.coerceAtLeast(1e-6f))

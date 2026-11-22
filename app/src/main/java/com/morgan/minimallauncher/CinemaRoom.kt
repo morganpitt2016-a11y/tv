@@ -51,6 +51,9 @@ class CinemaRoom(private val app: Context, host: String) {
     /** The credits: house lights up, slowly. */
     fun houseLights() = bg.post { fadeTo(scaled(HOUSE, 0.75f), 20_000) }
 
+    /** Nodded off: fade to dark over a minute; the lights switch off when the film closes. */
+    fun sleep() { link.asleep = true; bg.post { fadeTo(intArrayOf(0, 0, 0), 60_000) } }
+
     /** Leaving: lights and notifications back as they were. */
     fun end() {
         if (ended) return

@@ -87,6 +87,16 @@ class TvColourSync(private val app: android.content.Context, private val surface
         }
     }
 
+    /** Nodded off: the lights sink to dark over [ms], and switch off when the player closes. */
+    fun sleep(ms: Long) {
+        running = false; bg.removeCallbacks(tick); bg.removeCallbacks(glowTick)
+        link.asleep = true
+        val steps = (ms / 50).toInt().coerceAtLeast(1)
+        var i = 0
+        bg.post(object : Runnable { override fun run() { if (running) return; engine.glide(intArrayOf(0, 0, 0), 0f, 3f / steps); if (++i < steps) bg.postDelayed(this, 50) } })
+    }
+    fun awake() { link.asleep = false }
+
     /** Paused: hold the last colour - or, when you paused it, glow warm. */
     fun pause(glow: Boolean = false) {
         running = false; bg.removeCallbacks(tick); bg.removeCallbacks(glowTick)

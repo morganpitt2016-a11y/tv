@@ -138,6 +138,13 @@ class PlayerActivity : Activity() {
     private var thumbRetriever: android.media.MediaMetadataRetriever? = null
     private var thumbFor: String? = null
     private var subsUntil = 0L
+    // Auto Subtitles: the subtitles are loaded but hidden, and shown only while the voices are drowned out.
+    private var autoSubsHidden = false
+    private var subsChosenByYou = false
+    // Still watching?: late at night with nothing pressed for 90 minutes, check before fading out.
+    private var lastKeyAt = android.os.SystemClock.uptimeMillis()
+    private var sleepAsked = 0L
+    private var sleepDialog: android.app.Dialog? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -450,6 +457,7 @@ class PlayerActivity : Activity() {
                 tracks.groups.firstOrNull { it.type == C.TRACK_TYPE_VIDEO && it.isSelected }?.let { g ->
                     (0 until g.length).firstOrNull { g.isTrackSelected(it) }?.let { matchFrameRate(g.getTrackFormat(it).frameRate) }
                 }
+                autoSubtitles(tracks)
                 val audio = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
                 if (audio.isEmpty()) return
                 val selected = audio.firstOrNull { it.isSelected }?.let { g -> (0 until g.length).firstOrNull { g.isTrackSelected(it) }?.let { g.getTrackFormat(it) } }
@@ -689,6 +697,12 @@ class PlayerActivity : Activity() {
                 else if (houseLit && left > window + 60_000L) { houseLit = false; startColourSync() }
             }
             if (subsUntil > 0 && System.currentTimeMillis() > subsUntil) endTempSubs()
+            if (autoSubsHidden) view.subtitleView?.visibility =
+                if (SoundEvents.buriedUntil > android.os.SystemClock.uptimeMillis() || subsUntil > 0) View.VISIBLE else View.INVISIBLE
+            if (p != null && p.isPlaying && sleepAsked == 0L && Prefs.bool(this, "sleep_check", true)) {
+                val h = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+                if ((h >= 23 || h < 6) && android.os.SystemClock.uptimeMillis() - lastKeyAt > 90 * 60_000L) askStillWatching()
+            }
             if (p != null && !live && seriesTitle != null) {
                 val pos = p.currentPosition
                 skipView.text = if (curEpisode > 1 && pos < 60_000L) "Skip Recap  ›" else "Skip Intro  ›"
@@ -1011,6 +1025,8 @@ class PlayerActivity : Activity() {
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        lastKeyAt = android.os.SystemClock.uptimeMillis()
+        if (sleepAsked > 0L && event.action == KeyEvent.ACTION_DOWN) { stillHere(); return true }
         // Talking to the characters: Back closes it; everything else moves around its buttons.
         talk?.let { t -> if (t.onKey(event)) return true; if (event.keyCode == KeyEvent.KEYCODE_BACK) return true; return super.dispatchKeyEvent(event) }
         // Paused with "You're watching" up: a press brings the controls back (and still does its job).
@@ -1349,6 +1365,7 @@ class PlayerActivity : Activity() {
     }
 
     private fun rememberTrack(type: Int, language: String?) {
+        if (type == C.TRACK_TYPE_TEXT) { subsChosenByYou = true; if (autoSubsHidden) { autoSubsHidden = false; view.subtitleView?.visibility = View.VISIBLE } }
         val k = trackKey()
         if (type == C.TRACK_TYPE_TEXT) Prefs.setString(this, ProfileManager.scope(this, "trk_t_$k"), language)
         else if (language != null) Prefs.setString(this, ProfileManager.scope(this, "trk_a_$k"), language)
@@ -1682,6 +1699,57 @@ class PlayerActivity : Activity() {
             }
             .button("Back to the Original Sound") { val n = SoundProfile.Settings(0, 0, 0, false, false); SoundProfile.save(this, n); applySound(n) }
             .button("Done").show()
+    }
+
+    // ---------- Auto Subtitles ----------
+
+    /** Subtitles off but the file has some: load them hidden, so they can appear the moment the voices get buried. */
+    private fun autoSubtitles(tracks: Tracks) {
+        VirtualSurround.autoSubs = Prefs.bool(this, "auto_subs", true) && !live
+        if (!VirtualSurround.autoSubs || autoSubsHidden || subsChosenByYou) return
+        val p = player ?: return
+        val hasText = tracks.groups.any { it.type == C.TRACK_TYPE_TEXT }
+        val anyOn = tracks.groups.any { it.type == C.TRACK_TYPE_TEXT && it.isSelected }
+        if (!hasText || anyOn && !p.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)) return
+        autoSubsHidden = true
+        view.subtitleView?.visibility = View.INVISIBLE
+        p.trackSelectionParameters = p.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+            .setPreferredTextLanguage(java.util.Locale.getDefault().language).build()
+    }
+
+    // ---------- Still watching? ----------
+
+    private val sleepFade = object : Runnable {
+        override fun run() {
+            val p = player ?: return
+            if (sleepAsked == 0L) return
+            val t = ((android.os.SystemClock.uptimeMillis() - sleepAsked) / 60_000f).coerceIn(0f, 1f)
+            p.volume = 1f - t
+            if (t < 1f) { handler.postDelayed(this, 250); return }
+            // Asleep: pause right here (it's remembered), sound back to normal for next time, screen dark.
+            p.pause(); p.volume = 1f
+            sleepDialog?.dismiss(); sleepDialog = null
+            Diag.send(applicationContext, "player", "nodded off at ${p.currentPosition / 60_000} min of \"$titleText\" - paused, lights off")
+            finish()
+        }
+    }
+
+    private fun askStillWatching() {
+        sleepAsked = android.os.SystemClock.uptimeMillis()
+        colourSync?.sleep(60_000L) ?: room?.sleep()
+        sleepDialog = GlassDialog(this).title("Still watching?")
+            .message("Nothing's been pressed for a while. If you've nodded off, the sound and lights will fade and it'll pause right here, ready for next time.")
+            .button("Keep Watching", GlassDialog.Style.BOLD) { stillHere() }.show()
+        handler.post(sleepFade)
+    }
+
+    private fun stillHere() {
+        if (sleepAsked == 0L) return
+        sleepAsked = 0L
+        handler.removeCallbacks(sleepFade)
+        sleepDialog?.dismiss(); sleepDialog = null
+        player?.volume = 1f
+        colourSync?.awake(); room?.link?.asleep = false; startColourSync()
     }
 
     // ---------- "What did they say?": back 10 seconds with subtitles on for a moment ----------
