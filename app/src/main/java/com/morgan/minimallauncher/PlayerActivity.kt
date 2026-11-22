@@ -363,7 +363,7 @@ class PlayerActivity : Activity() {
         val load = androidx.media3.exoplayer.DefaultLoadControl.Builder()
             // Films and shows: start once 3 s is in hand, carry on after a stall once 6 s is, and keep up to 2 minutes
             // ahead - big files over Starlink + VPN otherwise ran the buffer dry and stuttered stop-start.
-            .setBufferDurationsMs(if (live) 4_000 else 30_000, if (live) 30_000 else 120_000, if (live) 900 else 3_000, if (live) 3_000 else 6_000)
+            .setBufferDurationsMs(if (live) 4_000 else 30_000, if (live) 30_000 else 60_000, if (live) 900 else 2_500, if (live) 3_000 else 5_000)
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
         // Files without a seek index (common with .ts/.mkv from providers) can still jump to a point.

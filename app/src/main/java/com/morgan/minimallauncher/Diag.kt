@@ -125,6 +125,23 @@ object Diag {
             cmd == "screen" -> send(app, "screen", onMain { TiviTuner.tiviScreen() })
             cmd == "speedtest" -> main.post { Perf.runSpeedTest(app) { send(app, "speedtest", it) } }
             cmd == "xtream_from_guide" -> send(app, "xtream", try { "Signed in from the guide link: " + Xtream.signInFromGuideLink(app) } catch (e: Exception) { "Couldn't sign in from the guide link: ${e.message}" })
+            // Read / change the launcher's own settings remotely (no clicking through menus). Anything that looks
+            // like a login, key or address is never shown or changed this way.
+            cmd == "prefs" -> {
+                val secret = Regex("(?i)key|pass|token|user|server|login|code|secret|xtream|url|email|account")
+                val all = app.getSharedPreferences("launcher_settings", Context.MODE_PRIVATE).all
+                send(app, "prefs", all.filterKeys { !secret.containsMatchIn(it) }.toSortedMap().entries.joinToString("\n") { "${it.key} = ${it.value}" }.take(8000))
+            }
+            cmd.startsWith("set:") -> {
+                val kv = cmd.removePrefix("set:"); val k = kv.substringBefore('=').trim(); val v = kv.substringAfter('=', "").trim()
+                val secret = Regex("(?i)key|pass|token|user|server|login|code|secret|xtream|url|email|account")
+                if (k.isEmpty() || secret.containsMatchIn(k)) send(app, "prefs", "not changed: $k")
+                else {
+                    val e = app.getSharedPreferences("launcher_settings", Context.MODE_PRIVATE).edit()
+                    when { v == "true" || v == "false" -> e.putBoolean(k, v == "true"); v.toIntOrNull() != null -> e.putInt(k, v.toInt()); else -> e.putString(k, v) }
+                    e.apply(); send(app, "prefs", "set $k = $v")
+                }
+            }
             cmd.startsWith("xfilm:") -> thread(isDaemon = true) {
                 val title = cmd.removePrefix("xfilm:").trim()
                 val t0 = android.os.SystemClock.uptimeMillis()

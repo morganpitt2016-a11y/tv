@@ -32,6 +32,7 @@ class ColourEngine(private val link: MagicHue.Sink) {
     private val sent = intArrayOf(-1, -1, -1)
     private val hsv = FloatArray(3)
     private var ys = FloatArray(0)
+    private val binW = DoubleArray(18); private val binR = DoubleArray(18); private val binG = DoubleArray(18); private val binB = DoubleArray(18)
 
     // 4D Mode: while a sound cue's window is open, the lights follow the frame's brightest part at full strength.
     private var cueUntil = 0L
@@ -109,14 +110,35 @@ class ColourEngine(private val link: MagicHue.Sink) {
             if (hn > 0) hiY /= hn
         }
 
-        // The scene's colour: what's really there, a little richer for the LEDs; grey stays white.
+        // The scene's colour: its DOMINANT colour, not its average - an average of Marvel red and white titles is a
+        // washed-out pink. Pixels are grouped by hue (18 groups), weighted by how colourful and lit they are; the
+        // strongest group (with its neighbours) is the colour. White only when the scene really is mostly neutral.
         var tr: Float; var tg: Float; var tb: Float
         fun richer(cr: Double, cg: Double, cb: Double) {
             Color.RGBToHSV(cr.toInt().coerceIn(0, 255), cg.toInt().coerceIn(0, 255), cb.toInt().coerceIn(0, 255), hsv)
-            hsv[1] = if (hsv[1] < 0.07f) 0f else min(1f, hsv[1] * 1.18f)
+            // LEDs need colour pushed well up to look coloured at all (0.3 → 0.56, 0.5 → 0.75).
+            hsv[1] = if (hsv[1] < 0.07f) 0f else min(1f, hsv[1].pow(0.55f) * 1.08f)
             hsv[2] = 1f
         }
-        if (wsum > 0) richer(wr / wsum, wg / wsum, wb / wsum) else { hsv[0] = 0f; hsv[1] = 0f; hsv[2] = 1f }
+        java.util.Arrays.fill(binW, 0.0); java.util.Arrays.fill(binR, 0.0); java.util.Arrays.fill(binG, 0.0); java.util.Arrays.fill(binB, 0.0)
+        var neutral = 0.0
+        for (i in 0 until n) {
+            if (ys[i] < 0.04f) continue
+            val p = px[i]
+            val pr = (p shr 16) and 0xFF; val pg = (p shr 8) and 0xFF; val pb = p and 0xFF
+            Color.RGBToHSV(pr, pg, pb, hsv)
+            if (hsv[1] < 0.2f) { neutral += ys[i]; continue }
+            val bin = ((hsv[0] / 20f).toInt()).coerceIn(0, 17)
+            val wgt = (hsv[1] * hsv[2]).toDouble()
+            binW[bin] += wgt; binR[bin] += pr * wgt; binG[bin] += pg * wgt; binB[bin] += pb * wgt
+        }
+        var best = 0
+        for (k in 1 until 18) if (binW[k] + 0.5 * (binW[(k + 17) % 18] + binW[(k + 1) % 18]) > binW[best] + 0.5 * (binW[(best + 17) % 18] + binW[(best + 1) % 18])) best = k
+        var cw = 0.0; var cr = 0.0; var cg = 0.0; var cb = 0.0
+        for (k in intArrayOf((best + 17) % 18, best, (best + 1) % 18)) { cw += binW[k]; cr += binR[k]; cg += binG[k]; cb += binB[k] }
+        if (cw > 0 && cw * 2.5 >= neutral * 0.5) richer(cr / cw, cg / cw, cb / cw)
+        else if (wsum > 0) { richer(wr / wsum, wg / wsum, wb / wsum); hsv[1] = min(hsv[1], 0.15f) }
+        else { hsv[0] = 0f; hsv[1] = 0f; hsv[2] = 1f }
         var c = Color.HSVToColor(hsv)
         tr = Color.red(c).toFloat(); tg = Color.green(c).toFloat(); tb = Color.blue(c).toFloat()
 
