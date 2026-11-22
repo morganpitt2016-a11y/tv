@@ -102,6 +102,7 @@ class TvColourSync(private val app: android.content.Context, private val surface
 
     private fun analyse() {
         frame.getPixels(px, 0, frame.width, 0, 0, frame.width, frame.height)
+        engine.tension = SoundEvents.tension; engine.rain = SoundEvents.rain
         engine.frame(px, px.size, frame.width)
     }
 }

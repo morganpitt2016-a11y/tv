@@ -56,6 +56,14 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
     // 4D Mode: while a sound cue's window is open, the lights follow the frame's brightest part at full strength.
     private var cueUntil = 0L
     private var blackUntil = 0L
+    private var whiteUntil = 0L                                     // the jump scare's white flash
+
+    /** 4D Mode's sense of the film (from [SoundEvents]): suspense sinks the room towards dark; rain makes it a storm. */
+    @Volatile var tension = 0f
+    @Volatile var rain = false
+    private var stormUntil = 0L
+    private var lastFlashAt = 0L
+    private var flicker = 0L                                        // lightning's second strike
 
     /** Carry on from where the lights already are (no dip to black when taking over). */
     fun seed(rgb: IntArray, brightness: Float) {
@@ -85,9 +93,10 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
     fun impulse(kind: String) {
         val now = SystemClock.uptimeMillis()
         when (kind) {
-            "boom" -> cueUntil = now + 320
+            "boom" -> { cueUntil = now + 320; if (now - lastFlashAt < 6000) stormUntil = now + 25_000 }   // thunder after lightning: a storm
             "bang" -> cueUntil = now + 140
-            "scare" -> { blackUntil = now + 140; cueUntil = now + 480; level = 0f; send(force = true) }
+            // The jump scare: the room flashes white, then cuts to black, then the film comes back.
+            "scare" -> { whiteUntil = now + 130; blackUntil = now + 700; r = 255f; g = 255f; b = 255f; level = 1f; send(force = true) }
         }
     }
 
@@ -97,6 +106,7 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
         val dt = if (lastAt == 0L) 33f else (now - lastAt).coerceIn(5, 200).toFloat()
         lastAt = now
         fun ease(tauMs: Float) = 1f - exp(-dt / tauMs)
+        if (now < whiteUntil) { r = 255f; g = 255f; b = 255f; level = 1f; send(); return }
         if (now < blackUntil) { level = 0f; send(); return }
 
         // Brightness of every pixel; rows that are black all the way across are letterbox bars - left out.
@@ -225,13 +235,30 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
             tr = Color.red(c).toFloat(); tg = Color.green(c).toFloat(); tb = Color.blue(c).toFloat()
             targetLevel = max(targetLevel, if (cue) max(0.85f, hiY) else hiY.coerceAtLeast(0.6f))
         }
+        if (flash) lastFlashAt = now
+        if (rain) stormUntil = max(stormUntil, now + 8000)
+        val storm = now < stormUntil
+        if (storm) {
+            if (flash) {
+                // Lightning: cold white-blue, and a second strike a moment later, the way real lightning flickers.
+                tr = 205f; tg = 220f; tb = 255f; targetLevel = 1f; flicker = now + 170
+            } else if (!(cue || holdingAccent)) {
+                // Between strikes: the scene washed storm blue-grey, the light rolling slowly like clouds and rain.
+                tr = tr * 0.45f + 140f * 0.55f; tg = tg * 0.45f + 170f * 0.55f; tb = tb * 0.45f + 255f * 0.55f
+                targetLevel *= 0.8f + 0.2f * kotlin.math.sin(now / 2600.0 * 2 * Math.PI).toFloat()
+            }
+        }
+        val strike2 = flicker != 0L && now in (flicker - 80)..flicker
+        if (strike2) { tr = 205f; tg = 220f; tb = 255f; targetLevel = if (now < flicker - 30) 0.12f else 1f }
+        // Suspense: the longer the film holds its breath, the darker the room - so the scare lands in the dark.
+        if (!(flash || cue || accent)) targetLevel *= 1f - 0.8f * tension
         if (holdingAccent && !(flash || cue)) targetLevel = max(targetLevel, if (accent) accLevel else accLevel * 0.6f)
         lastBright = bright; lastHi = hiY
         if (prevY.size < n) prevY = FloatArray(n)
         System.arraycopy(ys, 0, prevY, 0, n)
 
         val kl = when {
-            flash || cue || accent -> 1f                               // lands on the frame it happens
+            flash || cue || accent || strike2 -> 1f                    // lands on the frame it happens
             targetLevel > level -> ease(t.up)
             targetLevel == 0f -> ease(140f)                            // fades to black quickly, like the picture
             else -> ease(t.down)
@@ -239,7 +266,7 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
         level += (targetLevel - level) * kl
 
         val jump = abs(tr - r) + abs(tg - g) + abs(tb - b)
-        val kc = if (flash || cue || accent) 1f else if (jump > 150f) ease(t.bigDrift) else ease(t.drift)
+        val kc = if (flash || cue || accent || strike2) 1f else if (jump > 150f) ease(t.bigDrift) else ease(t.drift)
         r += (tr - r) * kc; g += (tg - g) * kc; b += (tb - b) * kc
         send()
     }
