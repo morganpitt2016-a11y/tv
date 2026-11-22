@@ -29,10 +29,18 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
     private class Tune(val rise: Float, val pop: Float, val accMin: Int, val flashMin: Int, val confirm: Boolean,
                        val hiJump: Float, val brJump: Float, val up: Float, val down: Float, val drift: Float, val bigDrift: Float, val holdMs: Long)
     private val t = when (style) {
-        0 -> Tune(0.26f, 0.26f, 8, 6, true, 0.32f, 0.16f, 160f, 450f, 520f, 240f, 450L)
-        2 -> Tune(0.12f, 0.18f, 3, 2, false, 0.22f, 0.10f, 70f, 240f, 200f, 90f, 0L)
-        else -> Tune(0.18f, 0.22f, 5, 4, true, 0.26f, 0.13f, 110f, 330f, 350f, 160f, 250L)
+        0 -> Tune(0.26f, 0.26f, 8, 6, true, 0.36f, 0.20f, 260f, 700f, 900f, 450f, 800L)
+        2 -> Tune(0.12f, 0.18f, 3, 2, false, 0.22f, 0.10f, 80f, 260f, 260f, 120f, 0L)
+        else -> Tune(0.18f, 0.22f, 5, 4, true, 0.30f, 0.16f, 180f, 500f, 600f, 300f, 500L)
     }
+    /**
+     * The film's pace, as a multiplier on every glide: the genre sets where it starts (a drama drifts, an action film
+     * moves), and the film itself moves it - how often the picture cuts over the last minute or so. A quiet
+     * conversation glides slowly; a chase keeps up. Flashes, lightning and police lights still land instantly.
+     */
+    var genrePace = 1f
+    private var cutRate = 12f                                       // picture cuts a minute, smoothed
+    private var pace = 1f
     private var pendingBin = -10                                    // a flashing light must show on two frames running
     private var heldR = -1f; private var heldG = 0f; private var heldB = 0f; private var heldAt = 0L
 
@@ -79,6 +87,19 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
     }
 
     companion object {
+        /** Where a film's lights start, by genre: dramas drift slowly, action keeps up (the film then adjusts it). */
+        fun paceFor(genres: String): Float {
+            val g = genres.lowercase()
+            return when {
+                g.isBlank() -> 1f
+                Regex("action|adventure|war|sci|animation|anime").containsMatchIn(g) -> 0.85f
+                Regex("horror|thriller|mystery|crime").containsMatchIn(g) -> 1.2f
+                Regex("drama|romance|documentary|history|biograph|music").containsMatchIn(g) -> 1.5f
+                Regex("comedy|family|kids").containsMatchIn(g) -> 1.1f
+                else -> 1f
+            }
+        }
+
         /** A picture's main colour, at full strength - the film's "palette" for the room. */
         fun dominant(bmp: Bitmap): IntArray {
             val small = Bitmap.createScaledBitmap(bmp, 32, 18, true)
@@ -139,6 +160,16 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
             }
         }
         val bright = if (counted == 0) 0f else (lum / counted).toFloat()
+        if (prevY.size >= n && counted > 0) {
+            var d = 0f; var m = 0
+            for (i in 0 until n) if (ys[i] >= 0f && prevY[i] >= 0f) { d += abs(ys[i] - prevY[i]); m++ }
+            val cut = m > 0 && d / m > 0.12f
+            // ~45 s memory: each frame nudges the rate towards "this frame's cut, per minute".
+            val a = dt / 45_000f
+            cutRate += a * ((if (cut) 60_000f / dt else 0f) - cutRate)
+            val dyn = (1.45f - (cutRate - 6f) / 24f * 0.7f).coerceIn(0.75f, 1.45f)
+            pace = (genrePace * dyn).coerceIn(0.7f, 2.2f)
+        }
 
         // The brightest tenth of the picture: its colour and brightness (the fireball, the lightning, the lamp).
         var hr = 0.0; var hg = 0.0; var hb = 0.0; var hn = 0; var hiY = 0f
@@ -188,7 +219,10 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
             }
             if (hsv[1] < 0.2f) { neutral += ys[i]; continue }
             val bin = ((hsv[0] / 20f).toInt()).coerceIn(0, 17)
-            val wgt = (hsv[1] * hsv[2] * ew(i)).toDouble()
+            // Skin and warm interiors (soft orange) are in nearly every shot - they count for less, so the room isn't
+            // orange all film; a real orange sunset or fire is far more saturated and still wins.
+            val skin = hsv[0] in 5f..45f && hsv[1] < 0.55f
+            val wgt = (hsv[1] * hsv[2] * ew(i) * (if (skin) 0.35f else 1f)).toDouble()
             binW[bin] += wgt; binR[bin] += pr * wgt; binG[bin] += pg * wgt; binB[bin] += pb * wgt
         }
         var best = 0
@@ -231,7 +265,7 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
             // The scene's colour settles: a new colour is kept for a moment before another can replace it, so busy
             // shots don't flick the room back and forth.
             val moved = heldR < 0 || abs(tr - heldR) + abs(tg - heldG) + abs(tb - heldB) > 60f
-            if (moved && (heldR < 0 || now - heldAt >= t.holdMs)) { heldR = tr; heldG = tg; heldB = tb; heldAt = now }
+            if (moved && (heldR < 0 || now - heldAt >= (t.holdMs * pace).toLong())) { heldR = tr; heldG = tg; heldB = tb; heldAt = now }
             else if (!moved) { heldR = tr; heldG = tg; heldB = tb }
             else { tr = heldR; tg = heldG; tb = heldB }
         }
@@ -273,10 +307,10 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
         val snap = flash || cue || accent || strike2                   // lands on the frame it happens
         if (snap) { level = targetLevel; r = tr; g = tg; b = tb; vl = 0f; vr = 0f; vg = 0f; vb = 0f }
         else {
-            val sl = when { targetLevel > level -> t.up; targetLevel == 0f -> 140f; else -> t.down } * 1.4f / 1000f
+            val sl = when { targetLevel > level -> t.up; targetLevel == 0f -> 200f; else -> t.down } * pace * 1.4f / 1000f
             level = damp(level, targetLevel, 0, sl, dt / 1000f).coerceIn(0f, 1f)
             val jump = abs(tr - r) + abs(tg - g) + abs(tb - b)
-            val sc = (if (jump > 150f) t.bigDrift else t.drift) * 1.4f / 1000f
+            val sc = (if (jump > 150f) t.bigDrift else t.drift) * pace * 1.4f / 1000f
             r = damp(r, tr, 1, sc, dt / 1000f); g = damp(g, tg, 2, sc, dt / 1000f); b = damp(b, tb, 3, sc, dt / 1000f)
         }
         send()
@@ -295,7 +329,8 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
         return target + (change + temp) * e
     }
 
-    private fun lin(x: Float) = (x / 255f).coerceIn(0f, 1f).pow(2.2f)
+    // Most of the way to real light (1.8 rather than the full 2.2): rich colours without every warm tone going orange.
+    private fun lin(x: Float) = (x / 255f).coerceIn(0f, 1f).pow(1.8f)
 
     private fun send(force: Boolean = false) {
         // The screen's colours are gamma-encoded; LEDs make light in proportion to what they're sent. So the colour goes

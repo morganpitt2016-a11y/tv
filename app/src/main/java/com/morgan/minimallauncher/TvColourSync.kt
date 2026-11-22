@@ -72,6 +72,9 @@ class TvColourSync(private val app: android.content.Context, private val surface
         bg.post(tick)
     }
 
+    /** The film's genre sets the lights' starting pace (see [ColourEngine.genrePace]). */
+    fun genrePace(p: Float) { engine.genrePace = p }
+
     /** A 4D Mode moment (see [SoundEvents]). */
     fun impulse(kind: String) = bg.post { if (running) engine.impulse(kind) }
 

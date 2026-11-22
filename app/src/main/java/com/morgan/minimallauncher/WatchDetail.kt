@@ -38,6 +38,8 @@ import java.util.Date
 // Part of the Watch screen (WatchActivity), kept in its own file to keep each piece small.
 
 internal fun WatchActivity.openDetail(t: WatchCatalog.Title, from: View?) {
+    // The film's genres, for the lights' pace when it plays.
+    if (t.genres.isNotEmpty()) Prefs.setString(this, ResumeStore.keyOf("genres", t.name), t.genres.joinToString(","))
     val c = this
     if (Xtream.isSetUp(this) && t.type == "SHOW") Xtream.prefetchSeries(applicationContext, t.name, t.year)   // so the episode list is ready when you press Watch
     if (detail == null) detailReturn = from
