@@ -59,11 +59,12 @@ object AvBadges {
             mime.contains("eac3") -> "eac3"; mime.contains("ac3") -> "ac3"; mime.contains("dts") -> "dts"
             mime.contains("truehd") -> "truehd"; mime.contains("mp4a") || mime.contains("aac") -> "aac"; else -> mime.substringAfter("/").ifEmpty { null }
         }
-        return Av(video?.height?.takeIf { it > 0 } ?: 0, hdr, codec, audio?.channelCount?.takeIf { it > 0 } ?: 0, mime.contains("joc"))
+        // Widescreen films are shorter than their resolution (1280x688 is 720p, 1920x800 is 1080p): judge by width too.
+        return Av(video?.let { maxOf(it.height, it.width * 9 / 16) }?.takeIf { it > 0 } ?: 0, hdr, codec, audio?.channelCount?.takeIf { it > 0 } ?: 0, mime.contains("joc"))
     }
 
     fun labels(av: Av): List<String> = listOfNotNull(
-        when { av.height >= 1800 -> "4K"; av.height >= 700 -> "HD"; av.height > 0 -> "SD"; else -> null },
+        when { av.height >= 1800 -> "4K"; av.height >= 650 -> "HD"; av.height > 0 -> "SD"; else -> null },
         av.hdr,
         when {
             av.atmos -> "Dolby Atmos"
@@ -107,7 +108,7 @@ object AvBadges {
     }
 
     /** A small rounded outline round the text, like Apple TV's 4K / Dolby Atmos badges. */
-    private class Box(private val d: Float) : ReplacementSpan() {
+    class Box(private val d: Float) : ReplacementSpan() {
         private val padX = 5f * d
         override fun getSize(paint: Paint, text: CharSequence, start: Int, end: Int, fm: Paint.FontMetricsInt?): Int {
             val old = paint.textSize

@@ -14,7 +14,8 @@ object ResumeStore {
 
     private fun key(c: Context) = ProfileManager.scope(c, "resume_v1")
 
-    fun keyOf(kind: String, name: String) = kind + ":" + name.lowercase().replace(Regex("[^a-z0-9]+"), "")
+    /** The same film or show whatever the listing calls it: "Insidious" and "Insidious (2011)" are one entry. */
+    fun keyOf(kind: String, name: String) = kind + ":" + name.lowercase().replace(Regex("[\\s(\\[]*(19|20)\\d\\d[)\\]]*\\s*$"), "").replace(Regex("[^a-z0-9]+"), "")
 
     @Volatile private var memoRaw: String? = null
     @Volatile private var memo: List<Item> = emptyList()
@@ -32,6 +33,9 @@ object ResumeStore {
             Item(it.getString("k"), it.getString("kind"), it.getString("t"), it.optString("s").ifEmpty { null }, it.optInt("se"), it.optInt("ep"),
                 it.getString("u"), it.optString("i").ifEmpty { null }, it.optInt("p"), it.optInt("d"), it.optLong("at"), it.optInt("lid", -1))
         }.sortedByDescending { it.at }
+            // Older entries saved under a slightly different name for the same thing: keep the newest.
+            .map { if (it.kind == "live") it else it.copy(key = keyOf(it.kind, it.series ?: it.title)) }
+            .distinctBy { it.key }
     } catch (e: Exception) { emptyList() }
 
     @Synchronized private fun save(c: Context, items: List<Item>) {

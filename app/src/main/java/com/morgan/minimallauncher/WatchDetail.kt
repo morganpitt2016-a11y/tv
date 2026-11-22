@@ -56,6 +56,8 @@ internal fun WatchActivity.openDetail(t: WatchCatalog.Title, from: View?) {
     page.animate().alpha(1f).setDuration(280).start()
     heroUrl = null
     setHeroImage(t.backdrop ?: t.poster, fallback = t.poster)
+    // The rows' dimming (scrolled down) mustn't darken the show's own picture.
+    heroDim.animate().alpha(0f).setDuration(280).start()
 
     // One column that glides down to "More Like This".
     val col = LinearLayout(c).apply {
@@ -324,6 +326,7 @@ internal fun WatchActivity.closeDetail() {
         v.animate().alpha(if (v === info && (heroCollapsed || searchBar?.visibility == View.VISIBLE)) 0f else 1f).setDuration(240).start()
     }
     page.animate().alpha(0f).setDuration(200).withEndAction { root.removeView(page) }.start()
+    heroDim.animate().alpha(if (heroCollapsed) 0.9f else 0f).setDuration(280).start()
     heroUrl = null
     // Something may have been watched from the page: bring Continue Watching and My List up to date.
     if (rows.childCount > 0) { if (tab == "home") refreshPersonalRows(); refreshResumeRow() }
@@ -331,14 +334,25 @@ internal fun WatchActivity.closeDetail() {
     detailReturn = null
 }
 
-internal fun WatchActivity.metaLine(t: WatchCatalog.Title, d: WatchCatalog.Detail?) = listOfNotNull(
-    t.year.takeIf { it > 0 }?.toString(),
-    d?.seasons?.takeIf { it > 0 }?.let { if (it == 1) "1 Season" else "$it Seasons" },
-    d?.age?.takeIf { it.isNotBlank() },
-    d?.runtime?.takeIf { it > 0 }?.let { if (it >= 60 && t.type == "MOVIE") "${it / 60}h ${it % 60}m" else "$it min" },
-    t.imdb?.let { "IMDb %.1f".format(it) },
-    t.genres.take(3).joinToString(", ").ifEmpty { null },
-).joinToString("  ·  ")
+internal fun WatchActivity.metaLine(t: WatchCatalog.Title, d: WatchCatalog.Detail?): CharSequence {
+    val parts = listOfNotNull(
+        t.year.takeIf { it > 0 }?.toString(),
+        d?.seasons?.takeIf { it > 0 }?.let { if (it == 1) "1 Season" else "$it Seasons" },
+        d?.age?.takeIf { it.isNotBlank() }?.let { "\u0000$it" },          // the age rating, in a box like tvOS
+        d?.runtime?.takeIf { it > 0 }?.let { if (it >= 60 && t.type == "MOVIE") "${it / 60}h ${it % 60}m" else "$it min" },
+        t.imdb?.let { "IMDb %.1f".format(it) },
+        t.genres.take(3).joinToString(", ").ifEmpty { null },
+    )
+    val b = android.text.SpannableStringBuilder()
+    parts.forEachIndexed { i, p ->
+        if (i > 0) b.append("  ·  ")
+        if (p.startsWith("\u0000")) {
+            val start = b.length; b.append(p.substring(1))
+            b.setSpan(AvBadges.Box(resources.displayMetrics.density), start, b.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        } else b.append(p)
+    }
+    return b
+}
 
 /** Every other way to watch: each service that has it (included, rent, buy or not installed), then Google TV. */
 internal fun WatchActivity.moreWays(t: WatchCatalog.Title, note: String? = null) {

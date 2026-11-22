@@ -19,6 +19,7 @@ import kotlin.math.pow
  *    flash, an explosion, headlights) the lights jump to the colour of that bright part, at full strength;
  *  - 4D Mode's sound cues ([impulse]) do the same on the beat of the sound - a blast lights the room in the
  *    fireball's own colour, taken from the frame;
+ *  - small flashing lights (police lights, sirens, muzzle flashes) take the room for a moment in their own colour;
  *  - motion like Ambilight: flashes land instantly, rises in ~70 ms, falls glide over ~¼ s.
  *
  * Fed with ARGB pixels (a small frame, [w] pixels wide) about 30 times a second; sends to [link].
@@ -32,6 +33,13 @@ class ColourEngine(private val link: MagicHue.Sink) {
     private val sent = intArrayOf(-1, -1, -1)
     private val hsv = FloatArray(3)
     private var ys = FloatArray(0)
+    private var prevY = FloatArray(0)                              // last frame's brightness per pixel (what just lit up)
+    private val hist = IntArray(64)
+    private val accW = DoubleArray(18); private val accR = DoubleArray(18); private val accG = DoubleArray(18); private val accB = DoubleArray(18)
+    // A small, vivid light in the picture that's flashing (police lights, a muzzle flash, a neon sign flickering on):
+    // the room takes its colour for a moment - the red, then the blue, snapping between them like the real thing.
+    private var accentUntil = 0L
+    private var accR0 = 0f; private var accG0 = 0f; private var accB0 = 0f; private var accLevel = 0f
     private val binW = DoubleArray(18); private val binR = DoubleArray(18); private val binG = DoubleArray(18); private val binB = DoubleArray(18)
 
     // 4D Mode: while a sound cue's window is open, the lights follow the frame's brightest part at full strength.
@@ -73,7 +81,7 @@ class ColourEngine(private val link: MagicHue.Sink) {
     }
 
     /** One frame: [px] is ARGB, [n] pixels long, [w] pixels wide. */
-    fun frame(px: IntArray, n: Int, w: Int = 48) {
+    fun frame(px: IntArray, n: Int, w: Int = 96) {
         val now = SystemClock.uptimeMillis()
         val dt = if (lastAt == 0L) 33f else (now - lastAt).coerceIn(5, 200).toFloat()
         lastAt = now
@@ -102,8 +110,11 @@ class ColourEngine(private val link: MagicHue.Sink) {
         // The brightest tenth of the picture: its colour and brightness (the fireball, the lightning, the lamp).
         var hr = 0.0; var hg = 0.0; var hb = 0.0; var hn = 0; var hiY = 0f
         if (counted > 0) {
-            val sorted = ys.copyOf(n).filter { it >= 0f }.sorted()
-            val cut = sorted[(sorted.size * 0.9f).toInt().coerceAtMost(sorted.size - 1)]
+            java.util.Arrays.fill(hist, 0)
+            for (i in 0 until n) if (ys[i] >= 0f) hist[(ys[i] * 63f).toInt().coerceIn(0, 63)]++
+            var above = 0; var k = 63
+            while (k > 0 && above + hist[k] < counted / 10) { above += hist[k]; k-- }
+            val cut = k / 63f
             for (i in 0 until n) if (ys[i] >= cut && ys[i] > 0.2f) {
                 val p = px[i]; hr += (p shr 16) and 0xFF; hg += (p shr 8) and 0xFF; hb += p and 0xFF; hn++; hiY += ys[i]
             }
@@ -122,11 +133,25 @@ class ColourEngine(private val link: MagicHue.Sink) {
         }
         java.util.Arrays.fill(binW, 0.0); java.util.Arrays.fill(binR, 0.0); java.util.Arrays.fill(binG, 0.0); java.util.Arrays.fill(binB, 0.0)
         var neutral = 0.0
+        java.util.Arrays.fill(accW, 0.0); java.util.Arrays.fill(accR, 0.0); java.util.Arrays.fill(accG, 0.0); java.util.Arrays.fill(accB, 0.0)
+        var accN = 0; var flashN = 0; var accY = 0f
+        val havePrev = prevY.size >= n
         for (i in 0 until n) {
             if (ys[i] < 0.04f) continue
             val p = px[i]
             val pr = (p shr 16) and 0xFF; val pg = (p shr 8) and 0xFF; val pb = p and 0xFF
             Color.RGBToHSV(pr, pg, pb, hsv)
+            // Small vivid lights: strongly coloured, bright, and standing out from the scene or just switched on.
+            if (hsv[1] >= 0.45f && hsv[2] >= 0.5f) {
+                val rise = if (havePrev && prevY[i] >= 0f) ys[i] - prevY[i] else 0f
+                val pop = ys[i] - bright
+                if (rise > 0.12f || pop > 0.18f) {
+                    val bin = ((hsv[0] / 20f).toInt()).coerceIn(0, 17)
+                    val wgt = (hsv[1] * hsv[2] * (1f + 6f * max(0f, rise))).toDouble()
+                    accW[bin] += wgt; accR[bin] += pr * wgt; accG[bin] += pg * wgt; accB[bin] += pb * wgt
+                    accN++; accY += hsv[2]; if (rise > 0.12f) flashN++
+                }
+            }
             if (hsv[1] < 0.2f) { neutral += ys[i]; continue }
             val bin = ((hsv[0] / 20f).toInt()).coerceIn(0, 17)
             val wgt = (hsv[1] * hsv[2]).toDouble()
@@ -142,6 +167,27 @@ class ColourEngine(private val link: MagicHue.Sink) {
         var c = Color.HSVToColor(hsv)
         tr = Color.red(c).toFloat(); tg = Color.green(c).toFloat(); tb = Color.blue(c).toFloat()
 
+        // A flashing light in the picture, however small (a few pixels of a police car's light bar is enough): it
+        // takes the room - full colour, snapping instantly from red to blue - and holds through the dark between
+        // pulses, then hands back to the scene when it stops (the car's driven off).
+        var accent = false
+        if (accN >= 3 && flashN >= 2 && accN < counted / 3) {
+            var ab = 0
+            for (k in 1 until 18) if (accW[k] + 0.5 * (accW[(k + 17) % 18] + accW[(k + 1) % 18]) > accW[ab] + 0.5 * (accW[(ab + 17) % 18] + accW[(ab + 1) % 18])) ab = k
+            var aw = 0.0; var ar = 0.0; var ag = 0.0; var abl = 0.0
+            for (k in intArrayOf((ab + 17) % 18, ab, (ab + 1) % 18)) { aw += accW[k]; ar += accR[k]; ag += accG[k]; abl += accB[k] }
+            if (aw > 0) {
+                richer(ar / aw, ag / aw, abl / aw); hsv[1] = max(hsv[1], 0.85f)
+                val ac = Color.HSVToColor(hsv)
+                accR0 = Color.red(ac).toFloat(); accG0 = Color.green(ac).toFloat(); accB0 = Color.blue(ac).toFloat()
+                accLevel = (0.55f + 0.45f * (accY / accN)).coerceAtMost(1f)
+                accentUntil = now + 220
+                accent = true
+            }
+        }
+        val holdingAccent = now < accentUntil
+        if (holdingAccent) { tr = accR0; tg = accG0; tb = accB0 }
+
         // Real brightness: black is black (no glow floor); perceptually spaced so dim scenes still read.
         var targetLevel = if (bright < 0.018f) 0f else (bright.pow(0.8f) * 1.7f).coerceIn(0f, 1f)
 
@@ -154,10 +200,13 @@ class ColourEngine(private val link: MagicHue.Sink) {
             tr = Color.red(c).toFloat(); tg = Color.green(c).toFloat(); tb = Color.blue(c).toFloat()
             targetLevel = max(targetLevel, if (cue) max(0.85f, hiY) else hiY.coerceAtLeast(0.6f))
         }
+        if (holdingAccent && !(flash || cue)) targetLevel = max(targetLevel, if (accent) accLevel else accLevel * 0.6f)
         lastBright = bright; lastHi = hiY
+        if (prevY.size < n) prevY = FloatArray(n)
+        System.arraycopy(ys, 0, prevY, 0, n)
 
         val kl = when {
-            flash || cue -> 1f                                         // lands on the frame it happens
+            flash || cue || accent -> 1f                               // lands on the frame it happens
             targetLevel > level -> ease(70f)
             targetLevel == 0f -> ease(140f)                            // fades to black quickly, like the picture
             else -> ease(240f)
@@ -165,7 +214,7 @@ class ColourEngine(private val link: MagicHue.Sink) {
         level += (targetLevel - level) * kl
 
         val jump = abs(tr - r) + abs(tg - g) + abs(tb - b)
-        val kc = if (flash || cue) 1f else if (jump > 150f) ease(90f) else ease(200f)
+        val kc = if (flash || cue || accent) 1f else if (jump > 150f) ease(90f) else ease(200f)
         r += (tr - r) * kc; g += (tg - g) * kc; b += (tb - b) * kc
         send()
     }

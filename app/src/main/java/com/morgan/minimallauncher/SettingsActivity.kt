@@ -813,7 +813,7 @@ class SettingsActivity : AppCompatActivity() {
         val left = findViewById<View>(R.id.settingsIconTile).parent as LinearLayout
         left.removeAllViews()
         left.gravity = Gravity.CENTER_VERTICAL
-        left.addView(GlassUi.text(this, "Settings", 26f, R.font.inter_semibold), LinearLayout.LayoutParams(-2, -2).apply { bottomMargin = dp(this@SettingsActivity, 16f); marginStart = dp(this@SettingsActivity, 14f) })
+        left.addView(GlassUi.text(this, "Settings", 26f, R.font.inter_semibold), LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(this@SettingsActivity, 34f); bottomMargin = dp(this@SettingsActivity, 14f); marginStart = dp(this@SettingsActivity, 14f) })   // clear of the TV's edge
         val cats = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; clipChildren = false; clipToPadding = false
             setPadding(dp(context, 10f), dp(context, 8f), dp(context, 24f), dp(context, 40f)) }
         val catScroll = ScrollView(this).apply { isVerticalScrollBarEnabled = false; overScrollMode = View.OVER_SCROLL_NEVER; clipChildren = false; clipToPadding = false

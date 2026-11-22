@@ -23,11 +23,11 @@ class TvColourSync(private val app: android.content.Context, private val surface
     private val owns = shared == null
     private val link = shared ?: MagicHue.Link(host) { msg -> Diag.send(app, "lights", msg) }
     private val engine = ColourEngine(link).also { e -> seed?.let { e.seed(it, 0.45f) } }
-    private val px = IntArray(48 * 27)
+    private val px = IntArray(96 * 54)
     private var copies = 0; private var fails = 0
     private val thread = HandlerThread("tv-colour").apply { start() }
     private val bg = Handler(thread.looper)
-    private val frame = Bitmap.createBitmap(48, 27, Bitmap.Config.ARGB_8888)
+    private val frame = Bitmap.createBitmap(96, 54, Bitmap.Config.ARGB_8888)
     @Volatile private var running = false
     private var r = 0f; private var g = 0f; private var b = 0f
     private var sent = intArrayOf(-1, -1, -1)
@@ -86,6 +86,6 @@ class TvColourSync(private val app: android.content.Context, private val surface
 
     private fun analyse() {
         frame.getPixels(px, 0, frame.width, 0, 0, frame.width, frame.height)
-        engine.frame(px, px.size)
+        engine.frame(px, px.size, frame.width)
     }
 }
