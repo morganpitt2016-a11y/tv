@@ -82,7 +82,7 @@ class TvColourSync(private val app: android.content.Context, private val surface
     private val glowTick = object : Runnable {
         override fun run() {
             if (running) return
-            engine.glide(warm, 0.32f, 0.06f)
+            engine.glide(warm, 0.45f, 0.06f)
             if (++glowSteps < 75) bg.postDelayed(this, 33)
         }
     }

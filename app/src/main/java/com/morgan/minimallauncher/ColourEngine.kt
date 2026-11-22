@@ -51,6 +51,11 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
     // the room takes its colour for a moment - the red, then the blue, snapping between them like the real thing.
     private var accentUntil = 0L
     private var accR0 = 0f; private var accG0 = 0f; private var accB0 = 0f; private var accLevel = 0f
+    // Smoothing like a critically damped spring (HyperHDR's "hybrid physics" idea): changes ease in and ease out
+    // instead of lurching off at full speed - smooth without being slow.
+    private var vr = 0f; private var vg = 0f; private var vb = 0f; private var vl = 0f
+    // Light from the picture's edges spills onto the wall around the TV, so the edges count a bit more (Ambilight).
+    private var edgeW = FloatArray(0); private var edgeFor = 0
     private val binW = DoubleArray(18); private val binR = DoubleArray(18); private val binG = DoubleArray(18); private val binB = DoubleArray(18)
 
     // 4D Mode: while a sound cue's window is open, the lights follow the frame's brightest part at full strength.
@@ -105,10 +110,17 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
         val now = SystemClock.uptimeMillis()
         val dt = if (lastAt == 0L) 33f else (now - lastAt).coerceIn(5, 200).toFloat()
         lastAt = now
-        fun ease(tauMs: Float) = 1f - exp(-dt / tauMs)
         if (now < whiteUntil) { r = 255f; g = 255f; b = 255f; level = 1f; send(); return }
         if (now < blackUntil) { level = 0f; send(); return }
 
+        if (edgeFor != n * 1000 + w && w > 1 && n / w > 1) {
+            edgeFor = n * 1000 + w; edgeW = FloatArray(n); val hh = n / w
+            for (i in 0 until n) {
+                val ex = abs((i % w) - (w - 1) / 2f) / ((w - 1) / 2f); val ey = abs((i / w) - (hh - 1) / 2f) / ((hh - 1) / 2f)
+                edgeW[i] = 1f + 0.8f * max(ex, ey).pow(2f)
+            }
+        }
+        fun ew(i: Int) = if (edgeW.size >= n) edgeW[i] else 1f
         // Brightness of every pixel; rows that are black all the way across are letterbox bars - left out.
         if (ys.size < n) ys = FloatArray(n)
         val rows = if (w > 0) n / w else 1
@@ -122,7 +134,7 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
                 val i = row * w + x; val yv = ys[i]; val p = px[i]
                 lum += yv; counted++
                 if (yv < 0.03f) continue
-                val wt = yv * yv                                    // brighter areas carry the scene's colour
+                val wt = yv * yv * ew(i)                            // brighter areas (and the edges) carry the scene's colour
                 wr += ((p shr 16) and 0xFF) * wt; wg += ((p shr 8) and 0xFF) * wt; wb += (p and 0xFF) * wt; wsum += wt
             }
         }
@@ -148,8 +160,9 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
         var tr: Float; var tg: Float; var tb: Float
         fun richer(cr: Double, cg: Double, cb: Double) {
             Color.RGBToHSV(cr.toInt().coerceIn(0, 255), cg.toInt().coerceIn(0, 255), cb.toInt().coerceIn(0, 255), hsv)
-            // LEDs need colour pushed well up to look coloured at all (0.3 → 0.56, 0.5 → 0.75).
-            hsv[1] = if (hsv[1] < 0.07f) 0f else min(1f, hsv[1].pow(0.55f) * 1.08f)
+            // Sent to the LEDs as real light (linear, see [send]) colours already come out as rich as on screen; only a
+            // light lift on top (0.3 → 0.39, 0.5 → 0.6).
+            hsv[1] = if (hsv[1] < 0.07f) 0f else min(1f, hsv[1].pow(0.8f) * 1.03f)
             hsv[2] = 1f
         }
         java.util.Arrays.fill(binW, 0.0); java.util.Arrays.fill(binR, 0.0); java.util.Arrays.fill(binG, 0.0); java.util.Arrays.fill(binB, 0.0)
@@ -175,7 +188,7 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
             }
             if (hsv[1] < 0.2f) { neutral += ys[i]; continue }
             val bin = ((hsv[0] / 20f).toInt()).coerceIn(0, 17)
-            val wgt = (hsv[1] * hsv[2]).toDouble()
+            val wgt = (hsv[1] * hsv[2] * ew(i)).toDouble()
             binW[bin] += wgt; binR[bin] += pr * wgt; binG[bin] += pg * wgt; binB[bin] += pb * wgt
         }
         var best = 0
@@ -224,7 +237,7 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
         }
 
         // Real brightness: black is black (no glow floor); perceptually spaced so dim scenes still read.
-        var targetLevel = if (bright < 0.018f) 0f else (bright.pow(0.8f) * 1.7f).coerceIn(0f, 1f)
+        var targetLevel = if (bright < 0.018f) 0f else (bright * 1.5f).coerceIn(0f, 1f).pow(0.85f)
 
         // A flash in the picture, or a 4D sound cue: the bright part's colour, full strength, instantly.
         val flash = (hiY - lastHi > t.hiJump && hiY > 0.45f) || bright - lastBright > t.brJump
@@ -233,7 +246,7 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
             richer(hr / hn, hg / hn, hb / hn)
             c = Color.HSVToColor(hsv)
             tr = Color.red(c).toFloat(); tg = Color.green(c).toFloat(); tb = Color.blue(c).toFloat()
-            targetLevel = max(targetLevel, if (cue) max(0.85f, hiY) else hiY.coerceAtLeast(0.6f))
+            targetLevel = max(targetLevel, if (cue) max(0.9f, hiY) else (0.7f + 0.3f * hiY))
         }
         if (flash) lastFlashAt = now
         if (rain) stormUntil = max(stormUntil, now + 8000)
@@ -257,26 +270,45 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
         if (prevY.size < n) prevY = FloatArray(n)
         System.arraycopy(ys, 0, prevY, 0, n)
 
-        val kl = when {
-            flash || cue || accent || strike2 -> 1f                    // lands on the frame it happens
-            targetLevel > level -> ease(t.up)
-            targetLevel == 0f -> ease(140f)                            // fades to black quickly, like the picture
-            else -> ease(t.down)
+        val snap = flash || cue || accent || strike2                   // lands on the frame it happens
+        if (snap) { level = targetLevel; r = tr; g = tg; b = tb; vl = 0f; vr = 0f; vg = 0f; vb = 0f }
+        else {
+            val sl = when { targetLevel > level -> t.up; targetLevel == 0f -> 140f; else -> t.down } * 1.4f / 1000f
+            level = damp(level, targetLevel, 0, sl, dt / 1000f).coerceIn(0f, 1f)
+            val jump = abs(tr - r) + abs(tg - g) + abs(tb - b)
+            val sc = (if (jump > 150f) t.bigDrift else t.drift) * 1.4f / 1000f
+            r = damp(r, tr, 1, sc, dt / 1000f); g = damp(g, tg, 2, sc, dt / 1000f); b = damp(b, tb, 3, sc, dt / 1000f)
         }
-        level += (targetLevel - level) * kl
-
-        val jump = abs(tr - r) + abs(tg - g) + abs(tb - b)
-        val kc = if (flash || cue || accent || strike2) 1f else if (jump > 150f) ease(t.bigDrift) else ease(t.drift)
-        r += (tr - r) * kc; g += (tg - g) * kc; b += (tb - b) * kc
         send()
     }
 
+    /** Critically damped spring towards [target] (Game Programming Gems 4's SmoothDamp): stable at any frame time. */
+    private fun damp(cur: Float, target: Float, ch: Int, smooth: Float, dt: Float): Float {
+        val omega = 2f / smooth.coerceAtLeast(0.01f)
+        val x = omega * dt
+        val e = 1f / (1f + x + 0.48f * x * x + 0.235f * x * x * x)
+        val change = cur - target
+        val v = when (ch) { 0 -> vl; 1 -> vr; 2 -> vg; else -> vb }
+        val temp = (v + omega * change) * dt
+        val nv = (v - omega * temp) * e
+        when (ch) { 0 -> vl = nv; 1 -> vr = nv; 2 -> vg = nv; else -> vb = nv }
+        return target + (change + temp) * e
+    }
+
+    private fun lin(x: Float) = (x / 255f).coerceIn(0f, 1f).pow(2.2f)
+
     private fun send(force: Boolean = false) {
+        // The screen's colours are gamma-encoded; LEDs make light in proportion to what they're sent. So the colour goes
+        // to the strip as real light (an orange stays orange instead of turning yellow, skin stays warm, not pale), and
+        // brightness gets the LEDs' own curve so dim scenes are dim and bright ones bright, like the screen.
+        val pwm = level.coerceIn(0f, 1f).pow(1.6f) * 255f
         // LED white balance (their blue and green run much stronger than their red), so white looks white.
-        val o0 = (r * level).toInt().coerceIn(0, 255)
-        val o1 = (g * 0.86f * level).toInt().coerceIn(0, 255)
-        val o2 = (b * 0.70f * level).toInt().coerceIn(0, 255)
-        if (!force && abs(o0 - sent[0]) + abs(o1 - sent[1]) + abs(o2 - sent[2]) < 2) return
+        val o0 = (lin(r) * pwm + 0.5f).toInt().coerceIn(0, 255)
+        val o1 = (lin(g) * 0.86f * pwm + 0.5f).toInt().coerceIn(0, 255)
+        val o2 = (lin(b) * 0.70f * pwm + 0.5f).toInt().coerceIn(0, 255)
+        // Anti-flicker: in dark scenes a one-step change in one colour is visible as a hue wobble - wait for a real change.
+        val need = if (max(o0, max(o1, o2)) < 24) 3 else 2
+        if (!force && abs(o0 - sent[0]) + abs(o1 - sent[1]) + abs(o2 - sent[2]) < need) return
         sent[0] = o0; sent[1] = o1; sent[2] = o2
         link.colour(o0, o1, o2)
     }
