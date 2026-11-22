@@ -66,7 +66,8 @@ class ScoreOverlay(private val c: Context) {
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
             PixelFormat.TRANSLUCENT
-        ).apply { gravity = Gravity.TOP or Gravity.END; x = dp(c, 28f); y = dp(c, 22f) }
+        // Below the strip where screens keep their top controls (Watch's tabs, the home screen's round buttons).
+        ).apply { gravity = Gravity.TOP or Gravity.END; x = dp(c, 28f); y = dp(c, 84f) }
         return try { wm.addView(col, params); column = col; col } catch (e: Exception) { null }
     }
 

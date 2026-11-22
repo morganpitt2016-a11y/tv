@@ -209,7 +209,6 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         window.decorView.post { LaunchTransition.close(this) }       // the tile you opened shrinks back into place
-        LightsCaptureService.ensure(this)                            // TV Colour Lights for every app, if switched on
         // First launch: set up the account. Start-up / waking the TV: "Who's watching?"
         if (Accounts.needsSetup(this) || (Accounts.askWho && Prefs.bool(this, "who_at_start", true))) {
             Accounts.askWho = false
