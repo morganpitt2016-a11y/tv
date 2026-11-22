@@ -699,9 +699,9 @@ class PlayerActivity : Activity() {
             if (subsUntil > 0 && System.currentTimeMillis() > subsUntil) endTempSubs()
             if (autoSubsHidden) view.subtitleView?.visibility =
                 if (SoundEvents.buriedUntil > android.os.SystemClock.uptimeMillis() || subsUntil > 0) View.VISIBLE else View.INVISIBLE
-            if (p != null && p.isPlaying && sleepAsked == 0L && Prefs.bool(this, "sleep_check", true)) {
+            if (p != null && p.isPlaying && sleepAsked == 0L && Prefs.bool(this@PlayerActivity, "sleep_check", true)) {
                 val h = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
-                if ((h >= 23 || h < 6) && android.os.SystemClock.uptimeMillis() - lastKeyAt > 90 * 60_000L) askStillWatching()
+                if ((h >= 23 || h < 6) && android.os.SystemClock.uptimeMillis() - lastKeyAt > 90 * 60_000L) askIfAsleep()
             }
             if (p != null && !live && seriesTitle != null) {
                 val pos = p.currentPosition
@@ -1735,10 +1735,10 @@ class PlayerActivity : Activity() {
         }
     }
 
-    private fun askStillWatching() {
+    private fun askIfAsleep() {
         sleepAsked = android.os.SystemClock.uptimeMillis()
         colourSync?.sleep(60_000L) ?: room?.sleep()
-        sleepDialog = GlassDialog(this).title("Still watching?")
+        sleepDialog = GlassDialog(this).title("Still Watching?")
             .message("Nothing's been pressed for a while. If you've nodded off, the sound and lights will fade and it'll pause right here, ready for next time.")
             .button("Keep Watching", GlassDialog.Style.BOLD) { stillHere() }.show()
         handler.post(sleepFade)

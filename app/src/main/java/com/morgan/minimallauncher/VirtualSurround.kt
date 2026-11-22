@@ -262,12 +262,12 @@ object VirtualSurround {
             val frames = input.remaining() / (2 * n)
             val out = replaceOutputBuffer(frames * 4)
             val m = coeffs
-            val level = s.level || night
-            val makeup = if (night) 2.6f else if (level) 1.8f else 1f   // +5 dB back after the compressor (+8 at night)
-            val thr = if (night) -30f else -22f; val ratio = if (night) 4f else 2.5f
             // Night Sound: after 10 pm (till 7 am) loud bangs are evened out and quiet voices lifted, so nobody's woken.
             if (++nightCheck >= 400) { nightCheck = 0; val h = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY); nightNow = nightAllowed && (h >= 22 || h < 7) }
             val night = nightNow
+            val level = s.level || night
+            val makeup = if (night) 2.6f else if (level) 1.8f else 1f   // +5 dB back after the compressor (+8 at night)
+            val thr = if (night) -30f else -22f; val ratio = if (night) 4f else 2.5f
             val voices = autoSubs && n >= 5
             for (f in 0 until frames) {
                 var l = 0f; var r = 0f
