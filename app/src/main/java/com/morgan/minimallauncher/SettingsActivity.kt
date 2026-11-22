@@ -174,7 +174,7 @@ class SettingsActivity : AppCompatActivity() {
             vrow("Music Visualiser", { onOff(Prefs.visualiser(this)) }) { toggleVisualiser() }
             vrow("System Screen Saver", { "" }, chevron = true) { open(Intent(Settings.ACTION_DREAM_SETTINGS), "Screen saver settings") }
         }
-        footnote("Landscapes and artwork download once over Wi-Fi (Wikimedia Commons featured pictures; public-domain paintings from the Art Institute of Chicago). The visualiser follows the music when Android allows the microphone permission; otherwise it sways gently.")
+        footnote("Landscapes and artwork download once over Wi-Fi (Wikimedia Commons featured pictures; public-domain paintings from the Art Institute of Chicago). The visualiser sways gently with the music. The launcher has no microphone access at all - it can't listen to the room; voice search only uses the TV's own on-screen listening when you press the mic button.")
 
         section("Cinema Mode")
         group {
@@ -1271,9 +1271,6 @@ class SettingsActivity : AppCompatActivity() {
     private fun toggleVisualiser() {
         val on = !Prefs.visualiser(this)
         Prefs.setBool(this, "visualiser", on)
-        if (on && checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), 7)
-        }
         refreshValues()
     }
 
