@@ -85,6 +85,12 @@ internal fun WatchActivity.showSearchBar(focus: Boolean) {
         }, LinearLayout.LayoutParams(-2, dp(c, 44f)).apply { marginStart = dp(c, 12f) })
         root.addView(this, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START).apply { setMargins(dp(c, 56f), dp(c, 84f), 0, 0) })
         searchBar = this
+        // Down from the search box or Speak: the first result (Android picked whichever sat nearest - the second
+        // poster, or back into the box).
+        val toResults = android.view.View.OnKeyListener { _, code, e ->
+            if (code == KeyEvent.KEYCODE_DPAD_DOWN && e.action == KeyEvent.ACTION_DOWN) firstItem()?.requestFocus() == true else false
+        }
+        for (i in 0 until childCount) getChildAt(i).setOnKeyListener(toResults)
     }
     bar.visibility = View.VISIBLE
     bar.animate().cancel(); bar.alpha = if (heroCollapsed && !focus) 0f else 1f

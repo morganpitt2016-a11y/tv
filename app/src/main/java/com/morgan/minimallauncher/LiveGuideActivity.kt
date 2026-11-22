@@ -411,7 +411,9 @@ class LiveGuideActivity : Activity() {
         val files = Recordings.shown(this)
         title.text = "Recordings"
         desc.text = if (lib.isEmpty() && files.isEmpty()) "Nothing yet. Hold OK on any programme in the guide and choose Record or Record series." else "Everything you've recorded, ready to watch. Hold OK on one to remove it."
-        meta.text = Recordings.storageSummary(this)
+        // How many - the space left is already at the foot of the side panel.
+        val count = lib.size + files.size
+        meta.text = if (count == 0) "" else if (count == 1) "1 recording" else "$count recordings"
         for (it in lib) {
             val sub = when (it.kind) { "series" -> "Whole series  ·  from ${it.channel}"; "episode" -> "S${it.season} E${it.episode}  ·  from ${it.channel}"; else -> "Film  ·  from ${it.channel}" }
             recList.addView(recRow(it.name, sub, it.image, { playLibrary(it) }) {

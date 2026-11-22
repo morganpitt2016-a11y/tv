@@ -139,7 +139,11 @@ class MainActivity : AppCompatActivity() {
                 if (inGrid) dock.getChildAt(0)?.requestFocus()
             }
         })
-        ui.viewTreeObserver.addOnGlobalFocusChangeListener { _, now -> gridFocusMoved(now) }
+        ui.viewTreeObserver.addOnGlobalFocusChangeListener { _, now ->
+            gridFocusMoved(now)
+            val top = findViewById<View>(R.id.topRight)
+            ScoreOverlay.stepAside(now != null && top != null && isInside(now, top))
+        }
 
         for ((button, scale) in listOf(nightModeButton to 1.08f, quickSettingsButton to 1.08f, cinemaButton to 1.08f)) {
             addFocusScale(button, scale)
@@ -210,7 +214,9 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         window.decorView.post { LaunchTransition.close(this) }       // the tile you opened shrinks back into place
         // First launch: set up the account. Start-up / waking the TV: "Who's watching?"
-        if (Accounts.needsSetup(this) || (Accounts.askWho && Prefs.bool(this, "who_at_start", true))) {
+        // Not straight after an update: the launcher restarting isn't someone new sitting down.
+        val justUpdated = System.currentTimeMillis() - (Prefs.string(this, "updated_at")?.toLongOrNull() ?: 0L) < 3 * 60_000L
+        if (Accounts.needsSetup(this) || (Accounts.askWho && !justUpdated && Prefs.bool(this, "who_at_start", true))) {
             Accounts.askWho = false
             startActivity(Intent(this, WhoActivity::class.java))
             @Suppress("DEPRECATION") overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
@@ -243,7 +249,14 @@ class MainActivity : AppCompatActivity() {
         wake()
     }
 
+    private fun isInside(v: View, container: View): Boolean {
+        var p: View? = v
+        while (p != null) { if (p === container) return true; p = p.parent as? View }
+        return false
+    }
+
     override fun onPause() {
+        ScoreOverlay.stepAside(false)
         super.onPause()
         handler.removeCallbacks(clockTick)
         handler.removeCallbacks(ambientTick)
@@ -755,11 +768,14 @@ class MainActivity : AppCompatActivity() {
     /** The focused app's name, centred under its icon; fades out when focus leaves the dock. */
     private fun showDockLabel(tile: View?, name: String) {
         if (tile == null) {
+            dockLabel.animate().cancel()
             dockLabel.animate().alpha(0f).setDuration(Motion.FADE).start()
             return
         }
         dockLabel.text = name
         dockLabel.post {
+            // Focus may have moved on (down into the app grid) before this ran: then the name stays hidden.
+            if (!tile.hasFocus() && !tile.isFocused) return@post
             val centre = dock.left + tile.left + tile.width / 2f
             dockLabel.translationX = centre - dockLabel.width / 2f
             dockLabel.animate().alpha(1f).setInterpolator(Motion.standard).setDuration(Motion.FADE).start()
@@ -839,8 +855,9 @@ class MainActivity : AppCompatActivity() {
             }
         }
         // Your apps, as on Apple TV; the ones you could get sit apart under their own heading, so the grid isn't
-        // mostly placeholders.
-        addRows(allApps)
+        // mostly placeholders. Google's Play Games and Play Movies shells (that came with the TV) are left off the
+        // home grid - they're still in All Apps.
+        addRows(allApps.filterNot { it.packageName in GRID_HIDDEN })
         if (missing.isNotEmpty()) {
             rails.addView(label("Get More Apps", R.font.inter_semibold, 15f, 0xD9FFFFFF.toInt()),
                 LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(34); bottomMargin = dp(2); marginStart = dp(2) })
@@ -1138,6 +1155,7 @@ class MainActivity : AppCompatActivity() {
 
         private const val DOCK_GAP = 12
         private const val GRID_COLS = 6
+        private val GRID_HIDDEN = setOf("com.google.android.play.games", "com.google.android.videos")
         private const val GRID_W = 124
         private const val GRID_H = 74
         private const val GRID_GAP = 20

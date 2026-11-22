@@ -24,6 +24,23 @@ import kotlin.random.Random
  * "TMO – No try", "Yellow card", "FT · Ireland win 27–22"). Scores can set off confetti in the team's colours.
  */
 class ScoreOverlay(private val c: Context) {
+    companion object {
+        @Volatile private var current: ScoreOverlay? = null
+
+        /**
+         * The launcher's top-right controls (the home screen's round buttons, Watch's last tabs) sit where the score
+         * box does: while you're on them it slides out to the right, and comes back when you move away.
+         */
+        fun stepAside(on: Boolean) {
+            val col = current?.column ?: return
+            col.post {
+                col.animate().cancel()
+                col.animate().translationX(if (on) col.width.toFloat() * 1.1f else 0f).alpha(if (on) 0f else 1f)
+                    .setDuration(260).setInterpolator(Motion.standard).start()
+            }
+        }
+    }
+
     private val wm = c.getSystemService(Context.WINDOW_SERVICE) as WindowManager
     private val main = android.os.Handler(android.os.Looper.getMainLooper())
     private var column: LinearLayout? = null
@@ -66,9 +83,8 @@ class ScoreOverlay(private val c: Context) {
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
             PixelFormat.TRANSLUCENT
-        // Below the strip where screens keep their top controls (Watch's tabs, the home screen's round buttons).
-        ).apply { gravity = Gravity.TOP or Gravity.END; x = dp(c, 28f); y = dp(c, 84f) }
-        return try { wm.addView(col, params); column = col; col } catch (e: Exception) { null }
+        ).apply { gravity = Gravity.TOP or Gravity.END; x = dp(c, 28f); y = dp(c, 22f) }
+        return try { wm.addView(col, params); column = col; current = this; col } catch (e: Exception) { null }
     }
 
     private fun removeAll() {

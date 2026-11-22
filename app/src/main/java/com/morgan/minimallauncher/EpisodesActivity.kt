@@ -41,7 +41,8 @@ class EpisodesActivity : Activity() {
     private var season = -1
     private var epsText = "Loading episodes…"
     private var facts = ""
-    private fun setHeading() { heading.text = listOf(epsText, facts).filter { it.isNotBlank() }.joinToString("  ·  ") }
+    // With the picture and sound badges (HD / 4K, Dolby, 5.1) like the Watch pages, once they're known.
+    private fun setHeading() { heading.text = AvBadges.withBadges(this, listOf(epsText, facts).filter { it.isNotBlank() }.joinToString("  ·  "), name) }
     private val seasonViews = LinkedHashMap<Int, TextView>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -175,6 +176,7 @@ class EpisodesActivity : Activity() {
         val facts = listOfNotNull(t.year.takeIf { it > 0 }?.toString(), d.age.ifBlank { null }, t.genres.take(3).joinToString(", ").ifBlank { null },
             t.imdb?.let { "IMDb %.1f".format(it) }).joinToString("  ·  ")
         this.facts = facts; setHeading()
+        AvBadges.fetch(this, name, t.year, true) { setHeading() }
         if (d.cast.isNotEmpty() || d.directors.isNotEmpty()) {
             header("Cast & Crew")
             val row = LinearLayout(c).apply { setPadding(dp(c, 56f), dp(c, 10f), dp(c, 56f), dp(c, 6f)); clipChildren = false; clipToPadding = false }

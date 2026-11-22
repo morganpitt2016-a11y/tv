@@ -190,6 +190,8 @@ class WatchActivity : AppCompatActivity() {
         // Glide each row to the top of the rows area as focus reaches it.
         window.decorView.viewTreeObserver.addOnGlobalFocusChangeListener { old, new ->
             if (new == null) return@addOnGlobalFocusChangeListener
+            // On the tabs, the score box (top right, over My Stuff / Search) slides out of the way.
+            ScoreOverlay.stepAside(new.parent === nav || new === nav)
             if (detail != null) { detailFocusMoved(new); return@addOnGlobalFocusChangeListener }
             // Coming up out of the rows onto the tabs: land on the tab you're in, not whichever is nearest.
             if (new.parent === nav && old != null && rowOf(old) != null && new.tag != tab) {
@@ -382,6 +384,7 @@ class WatchActivity : AppCompatActivity() {
     }
 
     override fun onPause() {
+        ScoreOverlay.stepAside(false)
         super.onPause()
         handler.removeCallbacks(showSaver)
         saver?.let { root.removeView(it) }; saver = null

@@ -1035,7 +1035,8 @@ class PlayerActivity : Activity() {
         if (live && !optionsPill.isFocused && event.keyCode in listOf(KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER)) {
             if (event.action == KeyEvent.ACTION_DOWN) {
                 if (event.repeatCount == 0) okLong = false
-                else if (event.repeatCount == 1 || ts == null && event.repeatCount == 0) { okLong = true; showLiveOptions() }
+                // Held: the full menu (Record, Start Over, subtitles, audio…) at once - not the pill first.
+                else if (event.repeatCount == 1) { okLong = true; options() }
                 return true
             }
             if (event.action == KeyEvent.ACTION_UP) {
@@ -1207,7 +1208,7 @@ class PlayerActivity : Activity() {
         d0
             .button("Subtitles · ${selectedLabel(C.TRACK_TYPE_TEXT, "Off")}") { pickTrack(C.TRACK_TYPE_TEXT, "Subtitles") }
             .button("Audio · ${selectedLabel(C.TRACK_TYPE_AUDIO, null)}") { pickTrack(C.TRACK_TYPE_AUDIO, "Audio") }
-            .button("Sound · ${soundLabel()}  (Sound Check, Enhance Dialogue)") { pickSound() }
+            .button("Sound · ${soundLabel()}") { pickSound() }
             .button("Picture · ${resizeName(view.resizeMode)}") { pickPicture() }
             .button("Speed · ${p.playbackParameters.speed}x") { pickSpeed() }
             .button("Sleep Timer · ${sleepLabel()}") { pickSleep() }

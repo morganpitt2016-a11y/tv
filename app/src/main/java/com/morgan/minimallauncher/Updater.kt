@@ -121,5 +121,8 @@ class UpdateReceiver : BroadcastReceiver() {
 class PackageReplacedReceiver : BroadcastReceiver() {
     override fun onReceive(c: Context, i: Intent) {
         Diag.send(c, "update", "Launcher restarted after an update (build ${Updater.installedBuild(c)})")
+        // An update restarts the launcher - that's not someone new sitting down, so don't ask "Who's watching?".
+        Accounts.askWho = false
+        Prefs.setString(c, "updated_at", System.currentTimeMillis().toString())
     }
 }
