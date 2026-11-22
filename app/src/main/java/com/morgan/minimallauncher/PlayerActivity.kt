@@ -34,6 +34,10 @@ class PlayerActivity : Activity() {
     private lateinit var view: PlayerView
     /** TV Colour Lights: the Magic Hue lights follow the picture while it plays (Settings › Magic Hue Lights). */
     private var colourSync: TvColourSync? = null
+    private var droppedTotal = 0
+    private var videoNote = ""
+    /** 10-bit, HDR or 4K video: the lights read the picture more gently so the decoder never goes short. */
+    private var heavyVideo = false
     /** Talk to the Characters (pause, and the people on screen talk back) - and what's been said so far. */
     private var talk: CharacterTalk? = null
     private val transcript = ArrayList<String>()
@@ -398,6 +402,16 @@ class PlayerActivity : Activity() {
         } catch (e: Throwable) {}
         // Timing of the sound starting (for the TV's log): which decoder, how long it took, and when real sound came out.
         p.addAnalyticsListener(object : androidx.media3.exoplayer.analytics.AnalyticsListener {
+            // Jerky picture: how many frames the decoder couldn't show in time (and whether the lights were reading).
+            override fun onDroppedVideoFrames(eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, droppedFrames: Int, elapsedMs: Long) {
+                droppedTotal += droppedFrames
+                if (droppedFrames >= 5) Diag.send(this@PlayerActivity, "player", "dropped $droppedFrames frames in ${elapsedMs} ms (total $droppedTotal) on \"$titleText\" · ${videoNote} · lights=${colourSync != null}")
+            }
+            override fun onVideoInputFormatChanged(eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, format: androidx.media3.common.Format, decoderReuseEvaluation: androidx.media3.exoplayer.DecoderReuseEvaluation?) {
+                videoNote = "${format.width}x${format.height} ${format.sampleMimeType} ${format.codecs ?: ""} ${format.bitrate.takeIf { it > 0 }?.let { "${it / 1000} kbps" } ?: ""}".trim()
+                heavyVideo = format.width > 1920 || (format.codecs ?: "").startsWith("hvc1.2") || (format.codecs ?: "").startsWith("hev1.2") || format.colorInfo?.colorTransfer.let { it == androidx.media3.common.C.COLOR_TRANSFER_ST2084 || it == androidx.media3.common.C.COLOR_TRANSFER_HLG }
+                colourSync?.gentle = heavyVideo
+            }
             override fun onAudioDecoderInitialized(eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, decoderName: String, initializedTimestampMs: Long, initializationDurationMs: Long) {
                 Diag.send(this@PlayerActivity, "player", "audio decoder $decoderName ready in ${initializationDurationMs} ms · \"$titleText\"")
             }
@@ -517,9 +531,9 @@ class PlayerActivity : Activity() {
             }
             override fun onPlaybackStateChanged(state: Int) {
                 // Live picture stalling (for the TV's log): count it, and note which channel.
-                if (live && state == Player.STATE_BUFFERING && firstFrameLogged) {
+                if (state == Player.STATE_BUFFERING && firstFrameLogged) {
                     stalls++
-                    if (stalls == 1 || stalls % 3 == 0) Diag.send(this@PlayerActivity, "player", "stall #$stalls on \"$titleText\" (timeshift=${ts != null})")
+                    if (stalls == 1 || stalls % 3 == 0) Diag.send(this@PlayerActivity, "player", "stall #$stalls on \"$titleText\" at ${(player?.currentPosition ?: 0) / 1000}s (live=$live, timeshift=${ts != null}, buffered ${((player?.bufferedPosition ?: 0) - (player?.currentPosition ?: 0)) / 1000}s ahead, lights=${colourSync != null})")
                 }
                 // Live pause buffer filled up (or the stream ended): start a fresh one from live.
                 if (state == Player.STATE_ENDED && live && ts != null) { ts?.stop(); ts = null; tsStart = 0L; start(url, resume = false); return }
@@ -704,7 +718,7 @@ class PlayerActivity : Activity() {
         // 4D Mode: the room reacts to what it hears - explosions, gunshots, jump scares.
         SoundEvents.listener = if (!live && Prefs.bool(this, "fourd_mode", true)) { kind -> if (!houseLit) colourSync?.impulse(kind) } else null
         (colourSync ?: (if (r != null) TvColourSync(applicationContext, sv, ip, shared = r.link, seed = r.current())
-            else TvColourSync(applicationContext, sv, ip)).also { colourSync = it }).start()
+            else TvColourSync(applicationContext, sv, ip)).also { colourSync = it; it.gentle = heavyVideo }).start()
     }
 
     override fun onStop() {

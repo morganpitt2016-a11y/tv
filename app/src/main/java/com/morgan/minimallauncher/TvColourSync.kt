@@ -45,7 +45,12 @@ class TvColourSync(private val app: android.content.Context, private val surface
                 PixelCopy.request(surface, frame, { result ->
                     if (result == PixelCopy.SUCCESS) { copies++; analyse() } else fails++
                     if (copies + fails == 150) Diag.send(app, "lights", "TV Colour Lights: $copies frames read in ${(android.os.SystemClock.uptimeMillis() - startedAt) / 1000.0}s, $fails failed")
-                    if (running) bg.postDelayed(this, (FRAME_MS - (android.os.SystemClock.uptimeMillis() - t0)).coerceAtLeast(0))
+                    // The picture always comes first: if reading a frame takes long (the TV is busy), or the video
+                    // is heavy (10-bit / HDR / 4K), read less often.
+                    val took = android.os.SystemClock.uptimeMillis() - t0
+                    slow = slow * 0.8f + took * 0.2f
+                    val every = when { gentle || slow > 18f -> 80L; slow > 10f -> 50L; else -> FRAME_MS }
+                    if (running) bg.postDelayed(this, (every - took).coerceAtLeast(5))
                 }, bg)
             } catch (e: Exception) {
                 if (fails++ == 0) Diag.send(app, "lights", "PixelCopy error: ${e.message}")
@@ -54,6 +59,9 @@ class TvColourSync(private val app: android.content.Context, private val surface
         }
     }
     private var startedAt = 0L
+    private var slow = 0f
+    /** Heavy video (10-bit / HDR / 4K): about 12 reads a second instead of 30. */
+    @Volatile var gentle = false
     private var lastBright = 0f
 
     fun start() {
