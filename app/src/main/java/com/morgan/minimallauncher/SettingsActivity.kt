@@ -296,6 +296,16 @@ class SettingsActivity : AppCompatActivity() {
         }
         devicesNote = footnote("")
 
+        section("Magic Hue Lights")
+        group {
+            vrow("TV Colour Lights", { onOff(MagicHue.syncOn(this)) }) {
+                if (MagicHue.ip(this) == null) findMagicHue(thenTurnOn = true)
+                else { MagicHue.setSync(this, !MagicHue.syncOn(this)); refreshValues() }
+            }
+            vrow("Lights", { MagicHue.ip(this) ?: "Not found yet" }) { findMagicHue(thenTurnOn = false) }
+        }
+        footnote("While a film, show or channel plays in the launcher, your Magic Hue lights take on the colours on screen, then go back to how they were. Works with the launcher's own player (Dodgy Box, live TV, recordings) - Netflix and other apps don't let any app see their picture.")
+
         section("Copy to Another TV")
         group {
             row("Activation Code", chevron = true) { activationCode() }
@@ -983,6 +993,23 @@ class SettingsActivity : AppCompatActivity() {
         }
         d.focusButton(options.indexOfFirst { it.first == current }.coerceAtLeast(0))
         d.show()
+    }
+
+    /** Looks for Magic Hue controllers on the Wi-Fi and remembers the first one. */
+    private fun findMagicHue(thenTurnOn: Boolean) {
+        GlassUi.toast(this, "Looking for Magic Hue lights…")
+        val app = applicationContext
+        Bg.run {
+            val found = MagicHue.discover()
+            runOnUiThread {
+                if (isDestroyed) return@runOnUiThread
+                if (found.isEmpty()) { GlassUi.toast(this, "No Magic Hue lights found - are they on the same Wi-Fi?"); return@runOnUiThread }
+                MagicHue.setIp(app, found.first())
+                if (thenTurnOn) MagicHue.setSync(app, true)
+                GlassUi.toast(this, if (found.size == 1) "Found your Magic Hue lights" else "Found ${found.size} Magic Hue controllers - using the first")
+                refreshValues()
+            }
+        }
     }
 
     private fun pickWallpaper() {

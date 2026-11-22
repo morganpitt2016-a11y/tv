@@ -104,6 +104,7 @@ object WallpaperLibrary {
     fun photosFor(c: Context, choice: String): List<Photo> {
         val list: List<Photo> = when {
             choice == "album" -> album(c)
+            choice.startsWith("photo:hd") -> hd.filter { it.id == choice.removePrefix("photo:") }
             choice.startsWith("photo:") -> bundled.filter { it.number == choice.removePrefix("photo:").toIntOrNull() }
             choice.startsWith("cat:") -> categories.firstOrNull { it.id == choice.removePrefix("cat:") }
                 ?.numbers?.mapNotNull { n -> bundled.firstOrNull { it.number == n } }.orEmpty()
@@ -118,6 +119,7 @@ object WallpaperLibrary {
 
     fun describe(c: Context, choice: String = ProfileManager.getWallpaper(c)): String = when {
         choice == "album" -> "My Photos"
+        choice.startsWith("photo:hd") -> hd.firstOrNull { it.id == choice.removePrefix("photo:") }?.place ?: "One Photo"
         choice.startsWith("photo:") -> bundled.firstOrNull { it.number == choice.removePrefix("photo:").toIntOrNull() }?.place ?: "One Photo"
         choice.startsWith("cat:") -> categories.firstOrNull { it.id == choice.removePrefix("cat:") }?.title ?: "All Photos"
         else -> "All Photos"

@@ -86,11 +86,12 @@ class WallpaperPickerActivity : Activity() {
         val current = ProfileManager.getWallpaper(this)
         val albumCount = WallpaperLibrary.album(this).size
         val groups = listOf(
-            "COLLECTIONS" to (listOf(Option("all", "All Photos", "${WallpaperLibrary.bundled.size} photos, changing slowly")) +
+            "COLLECTIONS" to (listOf(Option("all", "All Photos", "${WallpaperLibrary.hd.size} HD photos, changing slowly")) +
                 WallpaperLibrary.categories.map { Option("cat:${it.id}", it.title, "${it.numbers.size} photos") }),
             "YOUR PHOTOS" to listOf(Option("album", if (albumCount == 0) "My Photos" else "My Photos ($albumCount)",
                 if (albumCount == 0) "Add photos from the iPhone remote’s Photos tab" else "$albumCount of your own")),
-            "ONE PHOTO" to WallpaperLibrary.bundled.map { Option("photo:${it.number}", it.place, "One photo, always") },
+            "ONE PHOTO" to (WallpaperLibrary.hd.map { Option("photo:${it.id}", it.place, "HD · ${it.credit}") } +
+                WallpaperLibrary.bundled.map { Option("photo:${it.number}", it.place, "One photo, always") }),
         )
         var currentRow: View? = null
         for ((heading, options) in groups) {

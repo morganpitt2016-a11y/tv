@@ -32,6 +32,8 @@ class PlayerActivity : Activity() {
 
     private var player: ExoPlayer? = null
     private lateinit var view: PlayerView
+    /** TV Colour Lights: the Magic Hue lights follow the picture while it plays (Settings › Magic Hue Lights). */
+    private var colourSync: TvColourSync? = null
     private lateinit var banner: LinearLayout
     private lateinit var optionsPill: android.widget.TextView
     private lateinit var bannerTitle: android.widget.TextView
@@ -460,6 +462,7 @@ class PlayerActivity : Activity() {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 // The sound has started: set the sound profile up now, when the real channel layout (stereo, 5.1…) is known.
                 if (isPlaying && fxFor != url) { fxFor = url; startSoundFx() }
+                if (isPlaying) startColourSync() else colourSync?.pause()
                 handler.removeCallbacks(showPause)
                 val pausedByYou = !isPlaying && !atItemEnd && scrubWasPlaying == null && player?.playWhenReady == false && player?.playbackState == Player.STATE_READY
                 if (pausedByYou) handler.postDelayed(showPause, 1200) else hidePauseInfo()
@@ -634,8 +637,16 @@ class PlayerActivity : Activity() {
         saveProgress()
     }
 
+    private fun startColourSync() {
+        val ip = MagicHue.ip(this)
+        if (!MagicHue.syncOn(this) || ip == null) return
+        val sv = view.videoSurfaceView as? android.view.SurfaceView ?: return
+        (colourSync ?: TvColourSync(sv, ip).also { colourSync = it }).start()
+    }
+
     override fun onStop() {
         super.onStop()
+        colourSync?.stop(); colourSync = null
         SoundbarWake.release("player")
         liveChannel = null
         handOffRecording()
