@@ -84,16 +84,32 @@ object MagicHue {
         /** Remember the current state, then switch the lights on. */
         fun begin() = exec.execute {
             if (!ensure()) return@execute
-            try {
-                send(0x81, 0x8A, 0x8B)
-                val r = ByteArray(14); var n = 0
-                while (n < 14) { val k = input!!.read(r, n, 14 - n); if (k < 0) break; n += k }
-                if (n >= 9) before = Triple(r[2].toInt() and 0xFF == 0x23, r[3].toInt() and 0xFF, intArrayOf(r[6].toInt() and 0xFF, r[7].toInt() and 0xFF, r[8].toInt() and 0xFF))
-            } catch (_: Exception) {}
-            send(0x71, 0x23, 0x0F)
-            log("Magic Hue: connected, lights on (were ${if (before?.first == true) "on" else "off"})")
-            try { input?.skip(input?.available()?.toLong() ?: 0) } catch (_: Exception) {}
+            before = state()
+            // Switching on takes the controller a moment, and colours sent straight after can cancel it: switch on,
+            // wait, check it really is on (try again if not), and only then let the colours through.
+            var on = before?.first == true
+            var tries = 0
+            while (!on && tries < 4) {
+                send(0x71, 0x23, 0x0F)
+                Thread.sleep(600)
+                drain()
+                on = state()?.first == true
+                tries++
+            }
+            log("Magic Hue: connected, lights ${if (on) "on" else "still off after $tries tries"} (were ${if (before?.first == true) "on" else "off"})")
         }
+
+        /** On/off, mode and colour as the controller reports them. */
+        private fun state(): Triple<Boolean, Int, IntArray>? = try {
+            drain()
+            send(0x81, 0x8A, 0x8B)
+            val r = ByteArray(14); var n = 0
+            while (n < 14) { val k = input!!.read(r, n, 14 - n); if (k < 0) break; n += k }
+            if (n >= 9) Triple(r[2].toInt() and 0xFF == 0x23, r[3].toInt() and 0xFF, intArrayOf(r[6].toInt() and 0xFF, r[7].toInt() and 0xFF, r[8].toInt() and 0xFF)) else null
+        } catch (_: Exception) { null }
+
+        /** Throw away replies we didn't wait for (the controller answers some commands). */
+        private fun drain() { try { val i = input ?: return; while (i.available() > 0) i.skip(i.available().toLong()) } catch (_: Exception) {} }
 
         /** The next colour to show. Only the newest is sent if the lights fall behind - never a queue of old ones. */
         fun colour(r: Int, g: Int, b: Int) {
