@@ -3,7 +3,6 @@ package com.morgan.minimallauncher
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapShader
-import android.graphics.BlurMaskFilter
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.ColorMatrix
@@ -80,17 +79,17 @@ class GlassClockView @JvmOverloads constructor(c: Context, attrs: AttributeSet? 
         val d = resources.displayMetrics.density
         val textAlpha = Color.alpha(currentTextColor)
 
-        // 1. Shadow, lifting the glass off the photo.
+        // 1. Shadow, lifting the glass off the photo: a shadow layer on the first fill (follows the numerals' shapes -
+        // a blur mask filter here was drawn by the TV as a faint box around the whole clock).
         p.shader = null; p.style = Paint.Style.FILL
-        p.color = Color.argb(shadowAlpha * textAlpha / 255, 0, 0, 0)
-        p.maskFilter = BlurMaskFilter(16f * d, BlurMaskFilter.Blur.NORMAL)
-        canvas.drawText(text, x, y + 5f * d, p)
-        p.maskFilter = null
+        val shadow = Color.argb(shadowAlpha * textAlpha / 255, 0, 0, 0)
 
         val shader = glassShader
         if (plain || shader == null || stageW == 0) {
             p.color = currentTextColor
+            p.setShadowLayer(16f * d, 0f, 5f * d, shadow)
             canvas.drawText(text, x, y, p)
+            p.clearShadowLayer()
         } else {
             // 2. The frosted photo inside each numeral, lined up with the real photo behind it.
             val g = glass!!
@@ -102,7 +101,9 @@ class GlassClockView @JvmOverloads constructor(c: Context, attrs: AttributeSet? 
             shader.setLocalMatrix(m)
             p.shader = shader
             p.color = Color.argb(textAlpha, 255, 255, 255)
+            p.setShadowLayer(16f * d, 0f, 5f * d, shadow)
             canvas.drawText(text, x, y, p)
+            p.clearShadowLayer()
             // A milky veil so the numerals always read clearly, whatever the photo.
             p.shader = null
             val tint = currentTextColor   // the profile's clock colour tints the glass

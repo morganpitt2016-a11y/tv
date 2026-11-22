@@ -158,11 +158,16 @@ object AppTiles {
         val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bmp)
         if (logo != null) {
-            // Service logos are square with their own background: extend that colour across the tile.
-            canvas.drawColor(logo.getPixel(logo.width / 2, 1) or 0xFF000000.toInt())
-            val size = (h * 0.86f).toInt()
-            val dst = Rect((w - size) / 2, (h - size) / 2, (w + size) / 2, (h + size) / 2)
+            // Service logos are squares with their own background: the tile takes the colour of the logo's edges (all
+            // round, not one pixel), and the logo sits on it as a rounded app icon - no hard square edge showing.
+            canvas.drawColor(edgeColour(logo))
+            val size = (h * 0.72f).toInt()
+            val dst = RectF((w - size) / 2f, (h - size) / 2f, (w + size) / 2f, (h + size) / 2f)
+            val r = size * 0.22f
+            canvas.save()
+            canvas.clipPath(android.graphics.Path().apply { addRoundRect(dst, r, r, android.graphics.Path.Direction.CW) })
             canvas.drawBitmap(logo, null, dst, Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
+            canvas.restore()
         } else {
             // The brand colour as a soft vertical gradient (lighter at the top), like a lit app tile.
             val hsv = FloatArray(3); Color.colorToHSV(app.colour, hsv)
@@ -186,16 +191,25 @@ object AppTiles {
         return bmp
     }
 
+    /** The average colour round a logo's border - the colour its own background has. */
+    private fun edgeColour(b: Bitmap): Int {
+        var r = 0L; var g = 0L; var bl = 0L; var n = 0
+        val last = b.width - 1; val bottom = b.height - 1
+        for (i in 0 until b.width step 2) for (y in intArrayOf(0, 1, bottom - 1, bottom)) { val p = b.getPixel(i, y); r += Color.red(p); g += Color.green(p); bl += Color.blue(p); n++ }
+        for (j in 0 until b.height step 2) for (x in intArrayOf(0, 1, last - 1, last)) { val p = b.getPixel(x, j); r += Color.red(p); g += Color.green(p); bl += Color.blue(p); n++ }
+        return if (n == 0) 0xFF1C1C1E.toInt() else Color.rgb((r / n).toInt(), (g / n).toInt(), (bl / n).toInt())
+    }
+
     /** A small "GET" pill in the corner of an app you don't have yet, like the App Store's button. */
     private fun getBadge(c: Context, canvas: Canvas, w: Int, h: Int) {
         val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.WHITE; textSize = h * 0.12f; letterSpacing = 0.06f
+            color = Color.WHITE; textSize = h * 0.095f; letterSpacing = 0.08f
             typeface = ResourcesCompat.getFont(c, R.font.inter_semibold) ?: Typeface.DEFAULT_BOLD
         }
         val label = "GET"
         val tw = p.measureText(label)
-        val ph = h * 0.2f; val pw = tw + ph * 1.1f
-        val r = RectF(w - pw - h * 0.08f, h * 0.08f, w - h * 0.08f, h * 0.08f + ph)
+        val ph = h * 0.16f; val pw = tw + ph * 1.1f
+        val r = RectF(w - pw - h * 0.06f, h * 0.06f, w - h * 0.06f, h * 0.06f + ph)
         canvas.drawRoundRect(r, ph / 2, ph / 2, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(120, 0, 0, 0) })
         canvas.drawText(label, r.centerX() - tw / 2, r.centerY() - (p.descent() + p.ascent()) / 2, p)
     }

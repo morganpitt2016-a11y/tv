@@ -55,7 +55,7 @@ internal fun WatchActivity.openDetail(t: WatchCatalog.Title, from: View?) {
     root.addView(page, FrameLayout.LayoutParams(-1, -1))
     page.animate().alpha(1f).setDuration(280).start()
     heroUrl = null
-    setHeroImage(t.backdrop ?: t.poster)
+    setHeroImage(t.backdrop ?: t.poster, fallback = t.poster)
 
     // One column that glides down to "More Like This".
     val col = LinearLayout(c).apply {
@@ -143,7 +143,7 @@ internal fun WatchActivity.openDetail(t: WatchCatalog.Title, from: View?) {
         people.text = listOfNotNull(
             d.cast.takeIf { it.isNotEmpty() }?.let { "Starring " + it.joinToString(", ") },
             d.directors.takeIf { it.isNotEmpty() }?.let { "Directed by " + it.joinToString(", ") },
-        ).joinToString("   ·   ")
+        ).joinToString("\n")      // each on its own line (joined with a dot, a wrap left a stray "·" at a line start)
         d.trailer?.let { id ->
             trailerButton.visibility = View.VISIBLE
             trailerButton.setOnClickListener { WatchCatalog.playTrailer(this, id) }

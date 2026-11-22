@@ -408,7 +408,7 @@ class QuickSettings(private val activity: AppCompatActivity, private val host: H
         val level = am.getStreamVolume(AudioManager.STREAM_MUSIC)
         // Through HDMI the TV itself does the volume (its own bar shows the number), and the
         // Chromecast can't read it - so don't show a misleading "100%".
-        if (am.isVolumeFixed || (where == "TV speakers" && level >= max)) "$where · hold ◀ ▶" else "$where · ${level * 100 / max}%"
+        if (am.isVolumeFixed || (where == "TV speakers" && level >= max)) where else "$where · ${level * 100 / max}%"
     } catch (e: Exception) { "TV speakers" }
 
     private fun memoryLine(): String = try {

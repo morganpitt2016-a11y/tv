@@ -266,7 +266,7 @@ internal fun WatchActivity.setHero(now: Boolean, update: () -> Unit) {
     if (now) r.run() else handler.postDelayed(r, 260)
 }
 
-internal fun WatchActivity.setHeroImage(url: String?) {
+internal fun WatchActivity.setHeroImage(url: String?, fallback: String? = null) {
     if (url == heroUrl) return
     heroUrl = url
     val incoming = if (heroShowingA) heroB else heroA
@@ -274,6 +274,8 @@ internal fun WatchActivity.setHeroImage(url: String?) {
     heroShowingA = !heroShowingA
     if (url == null) { outgoing.animate().alpha(0f).setDuration(500).start(); return }
     ImageLoader.load(incoming, url, ImageLoader.HERO, fade = false) { bmp ->
+        // The wide artwork failed to load: the poster instead, rather than a black page.
+        if (bmp == null && heroUrl == url && fallback != null && fallback != url) { heroUrl = null; setHeroImage(fallback); return@load }
         if (bmp == null || heroUrl != url) return@load
         incoming.bringToFront()
         incoming.alpha = 0f
