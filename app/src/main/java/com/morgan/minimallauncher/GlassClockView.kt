@@ -107,13 +107,14 @@ class GlassClockView @JvmOverloads constructor(c: Context, attrs: AttributeSet? 
             // A milky veil so the numerals always read clearly, whatever the photo.
             p.shader = null
             val tint = currentTextColor   // the profile's clock colour tints the glass
-            p.color = Color.argb(textAlpha * 92 / 255, Color.red(tint), Color.green(tint), Color.blue(tint))
+            // Strong enough to read over a bright sky (the glass still shows the photo through it).
+            p.color = Color.argb(textAlpha * 135 / 255, Color.red(tint), Color.green(tint), Color.blue(tint))
             canvas.drawText(text, x, y, p)
 
             // 3. The rim: bright along the top where the light catches it, fading down the sides, a little glow at the foot.
             val glyphTop = y + p.ascent() * 0.72f
             p.style = Paint.Style.STROKE
-            p.strokeWidth = 1.4f * d
+            p.strokeWidth = 2f * d
             p.shader = LinearGradient(0f, glyphTop, 0f, y, intArrayOf(
                 Color.argb(textAlpha * 235 / 255, 255, 255, 255),
                 Color.argb(textAlpha * 40 / 255, 255, 255, 255),
