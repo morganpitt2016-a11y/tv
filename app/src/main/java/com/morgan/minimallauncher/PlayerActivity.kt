@@ -641,6 +641,7 @@ class PlayerActivity : Activity() {
     private fun startColourSync() {
         val ip = MagicHue.ip(this)
         if (!MagicHue.syncOn(this) || ip == null) return
+        if (LightsCaptureService.running) return      // the screen-capture service already lights everything
         val sv = view.videoSurfaceView as? android.view.SurfaceView
         if (sv == null) { Diag.send(this, "lights", "TV Colour Lights: no SurfaceView (${view.videoSurfaceView?.javaClass?.simpleName})"); return }
         if (colourSync == null) Diag.send(this, "lights", "TV Colour Lights starting → $ip")

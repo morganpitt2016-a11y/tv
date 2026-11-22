@@ -300,7 +300,10 @@ class SettingsActivity : AppCompatActivity() {
         group {
             vrow("TV Colour Lights", { onOff(MagicHue.syncOn(this)) }) {
                 if (MagicHue.ip(this) == null) findMagicHue(thenTurnOn = true)
-                else { MagicHue.setSync(this, !MagicHue.syncOn(this)); refreshValues() }
+                else {
+                    MagicHue.setSync(this, !MagicHue.syncOn(this)); refreshValues()
+                    if (MagicHue.syncOn(this)) LightsCaptureService.ensure(this, force = true) else LightsCaptureService.stop(this)
+                }
             }
             vrow("Lights", { MagicHue.ip(this) ?: "Not found yet" }) { findMagicHue(thenTurnOn = false) }
         }
@@ -1005,7 +1008,7 @@ class SettingsActivity : AppCompatActivity() {
                 if (isDestroyed) return@runOnUiThread
                 if (found.isEmpty()) { GlassUi.toast(this, "No Magic Hue lights found - are they on the same Wi-Fi?"); return@runOnUiThread }
                 MagicHue.setIp(app, found.first())
-                if (thenTurnOn) MagicHue.setSync(app, true)
+                if (thenTurnOn) { MagicHue.setSync(app, true); LightsCaptureService.ensure(this, force = true) }
                 GlassUi.toast(this, if (found.size == 1) "Found your Magic Hue lights" else "Found ${found.size} Magic Hue controllers - using the first")
                 refreshValues()
             }

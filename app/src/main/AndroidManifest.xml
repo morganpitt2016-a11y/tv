@@ -29,6 +29,8 @@
         tools:ignore="ProtectedPermissions"
         xmlns:tools="http://schemas.android.com/tools" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- TV Colour Lights: a tiny live copy of the screen drives the Magic Hue lights -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
@@ -248,6 +250,18 @@
             android:screenOrientation="landscape"
             android:launchMode="singleTop"
             android:theme="@style/Theme.MinimalLauncher" />
+
+        <!-- TV Colour Lights: screen capture for the Magic Hue lights, and the (normally invisible) consent step -->
+        <service
+            android:name=".LightsCaptureService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
+        <activity
+            android:name=".LightsCaptureService$ConsentActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <!-- Aerial as the system screensaver -->
         <service
