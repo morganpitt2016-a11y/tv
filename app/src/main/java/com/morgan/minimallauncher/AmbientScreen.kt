@@ -299,7 +299,9 @@ class AmbientScreen(private val c: Context, mode: String) {
         fun builtin(): List<Slide> {
             val cat = WallpaperLibrary.categories.firstOrNull { it.id == Prefs.aerialCategory(c) }
             val list = if (mode == AERIAL && cat != null) WallpaperLibrary.bundled.filter { it.number in cat.numbers } else WallpaperLibrary.bundled
-            return list.shuffled().map { p -> Slide({ WallpaperLibrary.decode(c, p) }, p.place, "") }
+            // The HD Featured Pictures first (with their photographer's credit), then the bundled ones.
+            val hd = if (cat == null) WallpaperLibrary.hd.shuffled().map { p -> Slide({ WallpaperLibrary.decode(c, p) }, p.place, p.credit) } else emptyList()
+            return hd + list.shuffled().map { p -> Slide({ WallpaperLibrary.decode(c, p) }, p.place, "") }
         }
         fun fromPics(list: List<PhotoSources.Pic>) = list.shuffled().map { p ->
             Slide({ WallpaperLibrary.decodeFile(p.file, 1920) }, p.place, p.credit)

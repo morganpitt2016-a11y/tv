@@ -54,6 +54,7 @@ object GlassUi {
             when (p) {
                 is WallpaperLibrary.Photo.Bundled -> BitmapFactory.decodeResource(c.resources, p.res, small)
                 is WallpaperLibrary.Photo.Local -> WallpaperLibrary.decodeFile(p.file, 240)
+                is WallpaperLibrary.Photo.Online -> WallpaperLibrary.hdFile(c, p).takeIf { it.exists() }?.let { WallpaperLibrary.decodeFile(it, 240) }
             }
         } catch (e: Exception) { null }
         backdropFor = p; backdropBmp = bmp

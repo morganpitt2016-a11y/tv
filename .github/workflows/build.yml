@@ -2,6 +2,11 @@ name: Build debug APK
 
 on:
   workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish to the TVs (untick for a preview build: the APK is only attached to the run, for installing by hand)"
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -55,7 +60,16 @@ jobs:
             "$BT/aapt2" dump badging "$APK" || echo "aapt2 badging exit code: $?"
           done
 
+      - name: Keep the preview APK with the run (not published)
+        if: ${{ !inputs.publish }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: preview-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 7
+
       - name: Create release with APKs
+        if: ${{ inputs.publish }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
@@ -70,6 +84,7 @@ jobs:
       # mishandle. Also publish the same APKs as plain files committed to
       # the repo, so they can be fetched as single-hop, redirect-free URLs.
       - name: Publish APKs as plain raw-fetchable files
+        if: ${{ inputs.publish }}
         run: |
           mkdir -p dist
           cp app/build/outputs/apk/debug/app-debug.apk dist/app-debug.apk

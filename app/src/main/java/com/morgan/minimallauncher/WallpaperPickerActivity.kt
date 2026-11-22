@@ -155,6 +155,7 @@ class WallpaperPickerActivity : Activity() {
                 BitmapFactory.decodeResource(resources, photo.res, BitmapFactory.Options().apply { inSampleSize = sample })
             }
             is WallpaperLibrary.Photo.Local -> WallpaperLibrary.decodeFile(photo.file, width)
+            is WallpaperLibrary.Photo.Online -> WallpaperLibrary.hdReady(this, photo)?.let { WallpaperLibrary.decodeFile(it, width) }
         }
     } catch (e: Throwable) { null }
 

@@ -69,7 +69,7 @@ object AppTiles {
         cache.get(key)?.let { return it }
         // Drawn before (and the app hasn't updated since)? Read it back from disk - far quicker than drawing it again.
         val stamp = try { c.packageManager.getPackageInfo(app.packageName, 0).lastUpdateTime } catch (e: Exception) { 0L }
-        val file = java.io.File(java.io.File(c.cacheDir, "tiles").apply { mkdirs() }, "${app.packageName}_${w}x${h}_$stamp.png")
+        val file = java.io.File(java.io.File(c.cacheDir, "tiles").apply { mkdirs() }, "${app.packageName}_${w}x${h}_${stamp}_g2.png")
         if (file.exists()) android.graphics.BitmapFactory.decodeFile(file.path)?.let { cache.put(key, it); return it }
         val bmp = drawApp(c, app, w, h)
         cache.put(key, bmp)
@@ -97,7 +97,23 @@ object AppTiles {
             canvas.drawBitmap(icon, left, top, p)
             canvas.restore()
         }
+        finish(canvas, w, h)
         return bmp
+    }
+
+    /**
+     * The tvOS finish on every tile: a faint sheen across the top (light falling on glass) and a hairline edge, so
+     * dark tiles don't melt into the background and every tile reads as the same kind of object.
+     */
+    private fun finish(canvas: Canvas, w: Int, h: Int) {
+        val sheen = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = android.graphics.LinearGradient(0f, 0f, 0f, h * 0.55f, Color.argb(38, 255, 255, 255), Color.argb(0, 255, 255, 255), android.graphics.Shader.TileMode.CLAMP)
+        }
+        canvas.drawRect(0f, 0f, w.toFloat(), h * 0.55f, sheen)
+        val r = h * 0.135f
+        val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = (h / 70f).coerceAtLeast(1f); color = Color.argb(46, 255, 255, 255) }
+        val inset = edge.strokeWidth / 2
+        canvas.drawRoundRect(RectF(inset, inset, w - inset, h - inset), r, r, edge)
     }
 
     private fun banner(c: Context, app: AppEntry): Drawable? = try {
@@ -148,19 +164,40 @@ object AppTiles {
             val dst = Rect((w - size) / 2, (h - size) / 2, (w + size) / 2, (h + size) / 2)
             canvas.drawBitmap(logo, null, dst, Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
         } else {
-            canvas.drawColor(app.colour)
+            // The brand colour as a soft vertical gradient (lighter at the top), like a lit app tile.
+            val hsv = FloatArray(3); Color.colorToHSV(app.colour, hsv)
+            val lighter = Color.HSVToColor(floatArrayOf(hsv[0], hsv[1] * 0.92f, (hsv[2] * 1.18f + 0.04f).coerceAtMost(1f)))
+            val darker = Color.HSVToColor(floatArrayOf(hsv[0], hsv[1], hsv[2] * 0.78f))
+            canvas.drawPaint(Paint().apply { shader = android.graphics.LinearGradient(0f, 0f, 0f, h.toFloat(), lighter, darker, android.graphics.Shader.TileMode.CLAMP) })
             val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = app.textColour
                 textAlign = Paint.Align.CENTER
                 typeface = ResourcesCompat.getFont(c, R.font.inter_semibold) ?: Typeface.DEFAULT_BOLD
-                textSize = h * 0.26f
+                textSize = h * 0.24f
+                letterSpacing = -0.02f
             }
-            while (p.measureText(app.name) > w * 0.84f) p.textSize *= 0.92f
+            while (p.measureText(app.name) > w * 0.8f) p.textSize *= 0.92f
             val y = h / 2f - (p.descent() + p.ascent()) / 2f
             canvas.drawText(app.name, w / 2f, y, p)
         }
+        getBadge(c, canvas, w, h)
+        finish(canvas, w, h)
         cache.put(key, bmp)
         return bmp
+    }
+
+    /** A small "GET" pill in the corner of an app you don't have yet, like the App Store's button. */
+    private fun getBadge(c: Context, canvas: Canvas, w: Int, h: Int) {
+        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE; textSize = h * 0.12f; letterSpacing = 0.06f
+            typeface = ResourcesCompat.getFont(c, R.font.inter_semibold) ?: Typeface.DEFAULT_BOLD
+        }
+        val label = "GET"
+        val tw = p.measureText(label)
+        val ph = h * 0.2f; val pw = tw + ph * 1.1f
+        val r = RectF(w - pw - h * 0.08f, h * 0.08f, w - h * 0.08f, h * 0.08f + ph)
+        canvas.drawRoundRect(r, ph / 2, ph / 2, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(120, 0, 0, 0) })
+        canvas.drawText(label, r.centerX() - tw / 2, r.centerY() - (p.descent() + p.ascent()) / 2, p)
     }
 
     fun installedPackage(installed: Set<String>, app: StoreApp) = app.packages.firstOrNull { it in installed }

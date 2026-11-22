@@ -118,9 +118,15 @@ class MainActivity : AppCompatActivity() {
         ) { photoShowing ->
             wallpaperFront.visibility = if (photoShowing) View.GONE else View.VISIBLE
         }
+        // A light grade on the photos: a little richer colour and contrast, like Apple's wallpapers (not a filter look).
+        val grade = android.graphics.ColorMatrix().apply { setSaturation(1.12f) }
+        val gk = 1.06f; val gt = 128f * (1 - gk)
+        grade.postConcat(android.graphics.ColorMatrix(floatArrayOf(gk, 0f, 0f, 0f, gt, 0f, gk, 0f, 0f, gt, 0f, 0f, gk, 0f, gt, 0f, 0f, 0f, 1f, 0f)))
+        listOf(R.id.photoA, R.id.photoB).forEach { findViewById<ImageView>(it).colorFilter = android.graphics.ColorMatrixColorFilter(grade) }
         setupProfilePill()
         setupDockGlass()
-        rotator.onNewPhoto = { bmp -> updateDockBackdrop(bmp); fitClockTo(bmp) }
+        rotator.onNewPhoto = { bmp -> updateDockBackdrop(bmp); fitClockTo(bmp)
+            (clockText as? GlassClockView)?.setBackdrop(bmp, stage.width, stage.height) }
         dateText.letterSpacing = 0.02f
         widgets = HomeWidgets(this, findViewById(R.id.widgetLeft), findViewById(R.id.widgetRight),
             lights = { govDevices }, openLights = { openQuickSettings() })
@@ -362,7 +368,7 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) { 0.5f }
         findViewById<View>(R.id.topScrim)?.animate()?.alpha(((lum - 0.2f) / 0.5f).coerceIn(0.3f, 1f))?.setDuration(1200)?.start()
         val shade = (50 + lum * 120).toInt().coerceIn(40, 170)
-        clockText.setShadowLayer(dp(14).toFloat(), 0f, dp(2).toFloat(), android.graphics.Color.argb(shade, 0, 0, 0))
+        (clockText as? GlassClockView)?.setShadowStrength(shade * 2 / 3)
         dateText.setShadowLayer(dp(8).toFloat(), 0f, dp(1).toFloat(), android.graphics.Color.argb(shade, 0, 0, 0))
     }
 
@@ -376,7 +382,7 @@ class MainActivity : AppCompatActivity() {
      */
     private fun setupClockFont() {
         clockText.typeface = font(R.font.roboto_flex)
-        clockText.setFontVariationSettings("'wdth' 72, 'wght' 480, 'opsz' 144, 'YTFI' 788")
+        clockText.setFontVariationSettings(CLOCK_AXES)
     }
 
     private fun updateClock() {
@@ -425,7 +431,8 @@ class MainActivity : AppCompatActivity() {
         nightModeButton.isActivated = isNightMode()
         cinemaButton.isActivated = cinema
         // Cinema mode: a thin, warm, cinema-style clock.
-        clockText.setFontVariationSettings(if (cinema) "'wdth' 60, 'wght' 170, 'opsz' 144, 'YTFI' 788" else "'wdth' 72, 'wght' 480, 'opsz' 144, 'YTFI' 788")
+        clockText.setFontVariationSettings(if (cinema) "'wdth' 60, 'wght' 170, 'opsz' 144, 'YTFI' 788" else CLOCK_AXES)
+        (clockText as? GlassClockView)?.plain = cinema
         clockText.setTextColor(if (cinema) 0xE6F2E6D0.toInt() else clockColour())
         // The thin cinema digits change the clock's width: measure it again so no digit is cut off.
         clockText.text = clockText.text
@@ -818,17 +825,26 @@ class MainActivity : AppCompatActivity() {
         if (key == gridKey && rails.childCount > 0) return
         gridKey = key
         rails.removeAllViews()
-        val items: List<Any> = allApps + missing
         val w = dp(GRID_W); val h = dp(GRID_H)
         val side = dp((960 - GRID_COLS * GRID_W - (GRID_COLS - 1) * GRID_GAP) / 2)
         rails.setPadding(side, 0, side, dp(60))
-        var row: LinearLayout? = null
-        items.forEachIndexed { i, item ->
-            if (i % GRID_COLS == 0) {
-                row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; clipChildren = false; clipToPadding = false }
-                rails.addView(row, LinearLayout.LayoutParams(-1, -2).apply { if (i > 0) topMargin = dp(4) })
+        fun addRows(items: List<Any>) {
+            var row: LinearLayout? = null
+            items.forEachIndexed { i, item ->
+                if (i % GRID_COLS == 0) {
+                    row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; clipChildren = false; clipToPadding = false }
+                    rails.addView(row, LinearLayout.LayoutParams(-1, -2).apply { if (i > 0) topMargin = dp(4) })
+                }
+                row?.addView(gridCell(item, w, h), LinearLayout.LayoutParams(w, -2).apply { if (i % GRID_COLS > 0) marginStart = dp(GRID_GAP) })
             }
-            row?.addView(gridCell(item, w, h), LinearLayout.LayoutParams(w, -2).apply { if (i % GRID_COLS > 0) marginStart = dp(GRID_GAP) })
+        }
+        // Your apps, as on Apple TV; the ones you could get sit apart under their own heading, so the grid isn't
+        // mostly placeholders.
+        addRows(allApps)
+        if (missing.isNotEmpty()) {
+            rails.addView(label("Get More Apps", R.font.inter_semibold, 15f, 0xD9FFFFFF.toInt()),
+                LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(34); bottomMargin = dp(2); marginStart = dp(2) })
+            addRows(missing)
         }
         // Left/Right stop at the ends of each grid row instead of wrapping to another row.
         for (r in 0 until rails.childCount) {
@@ -1117,6 +1133,9 @@ class MainActivity : AppCompatActivity() {
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density + 0.5f).toInt()
 
     companion object {
+        /** The clock's Roboto Flex axes: heavier, wider, tall figures - solid enough for the glass to show through. */
+        const val CLOCK_AXES = "'wdth' 86, 'wght' 620, 'opsz' 144, 'YTFI' 788"
+
         private const val DOCK_GAP = 12
         private const val GRID_COLS = 6
         private const val GRID_W = 124
