@@ -32,12 +32,33 @@ class ScoreOverlay(private val c: Context) {
          * box does: while you're on them it slides out to the right, and comes back when you move away.
          */
         fun stepAside(on: Boolean) {
-            val col = current?.column ?: return
-            col.post {
-                col.animate().cancel()
-                col.animate().translationX(if (on) col.width.toFloat() * 1.1f else 0f).alpha(if (on) 0f else 1f)
-                    .setDuration(260).setInterpolator(Motion.standard).start()
-            }
+            val o = current ?: return
+            o.aside = on
+            o.slide(!on && o.peeking)
+        }
+    }
+
+    // Like an Apple TV Live Activity: it slides in when something happens, then gets out of the way.
+    @Volatile private var aside = false
+    @Volatile private var peeking = false
+    private var lastPeek = 0L
+    private var lastSig = ""
+    private val hide = Runnable { peeking = false; slide(false) }
+
+    /** Show for [ms], then slide away. */
+    private fun peek(ms: Long) {
+        peeking = true
+        lastPeek = System.currentTimeMillis()
+        main.removeCallbacks(hide); main.postDelayed(hide, ms)
+        slide(!aside)
+    }
+
+    private fun slide(show: Boolean) {
+        val col = column ?: return
+        col.post {
+            col.animate().cancel()
+            col.animate().translationX(if (show) 0f else col.width.toFloat() * 1.15f).alpha(if (show) 1f else 0f)
+                .setDuration(if (show) 420L else 360L).setInterpolator(Motion.standard).start()
         }
     }
 
@@ -56,6 +77,10 @@ class ScoreOverlay(private val c: Context) {
         for (id in rows.keys.toList()) if (cards.none { it.id == id }) rows.remove(id)?.let { r ->
             r.root.animate().alpha(0f).translationX(dp(c, 30f).toFloat()).setDuration(350).withEndAction { col.removeView(r.root) }.start()
         }
+        // When to show: a match appearing, a score changing, half/full time - and a short glance every 15 minutes.
+        val sig = cards.joinToString("|") { "${it.id}:${it.homeScore}-${it.awayScore}:${it.hideScore}:${it.clock.takeIf { c -> c.any { ch -> ch.isLetter() } }.orEmpty()}" }
+        val changed = sig != lastSig
+        lastSig = sig
         for (card in cards) {
             val r = rows[card.id] ?: makeRow(card).also { rows[card.id] = it; col.addView(it.root); slideIn(it.root) }
             setScore(r.home, if (card.hideScore) "–" else card.homeScore)
@@ -72,6 +97,11 @@ class ScoreOverlay(private val c: Context) {
                 "red" -> banner(r, "🟥  ${e.banner}", 0xFFC62828.toInt())
                 "ft" -> { pulse(r.card); banner(r, "🏁  ${e.banner}", 0xFF1F1F24.toInt(), hold = 20_000L) }
             }
+        }
+        when {
+            events.any { it.kind == "ft" } -> peek(22_000L)
+            events.isNotEmpty() || changed -> peek(10_000L)
+            !peeking && System.currentTimeMillis() - lastPeek > 15 * 60_000L -> peek(6_000L)
         }
     }
 
