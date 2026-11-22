@@ -1706,6 +1706,7 @@ class PlayerActivity : Activity() {
     /** Subtitles off but the file has some: load them hidden, so they can appear the moment the voices get buried. */
     private fun autoSubtitles(tracks: Tracks) {
         VirtualSurround.autoSubs = Prefs.bool(this, "auto_subs", true) && !live
+        VirtualSurround.nightAllowed = Prefs.bool(this, "night_sound", true)
         if (!VirtualSurround.autoSubs || autoSubsHidden || subsChosenByYou) return
         val p = player ?: return
         val hasText = tracks.groups.any { it.type == C.TRACK_TYPE_TEXT }
