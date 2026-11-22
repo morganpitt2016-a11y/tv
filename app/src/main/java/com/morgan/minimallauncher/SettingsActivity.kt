@@ -246,6 +246,13 @@ class SettingsActivity : AppCompatActivity() {
                 Prefs.setBool(this, "match_frame_rate", !Prefs.bool(this, "match_frame_rate", true)); refreshValues()
             }
             vrow("Audio Output", { audioOutput() }, chevron = true) { pickAudioOutput() }
+            vrow("Our Subtitles", { onOff(Prefs.bool(this, "our_subs", true)) }) { Prefs.setBool(this, "our_subs", !Prefs.bool(this, "our_subs", true)); refreshValues() }
+            vrow("OpenSubtitles Key", { if (OurSubtitles.isSetUp(this)) "Set" else "Not Set" }, chevron = true) { osInput("OpenSubtitles Key", "os_api_key", "From opensubtitles.com › your profile › API consumers › New consumer (free). Stays on this TV.", true) }
+            vrow("OpenSubtitles Account", { Prefs.string(this, "os_user")?.takeIf { it.isNotBlank() } ?: "Not Set" }, chevron = true) {
+                osInput("OpenSubtitles Username", "os_user", "Your free opensubtitles.com username: 20 subtitles a day instead of 5.", false) {
+                    osInput("OpenSubtitles Password", "os_pass", "Stays on this TV.", true)
+                }
+            }
             vrow("Audio Format", { formatName(Prefs.string(this, "audio_format") ?: "auto") }, chevron = true) { pickAudioFormat() }
             vrow("Speakers", { if (Prefs.string(this, "speakers") == "tv") "TV Speakers" else "Soundbar (Surround)" }, chevron = true) { pickSpeakers() }
             vrow("Enhance Dialogue", { dlgName(SoundProfile.dialogueLevel(this)) }, chevron = true) { pickDialogue() }
@@ -322,6 +329,7 @@ class SettingsActivity : AppCompatActivity() {
             vrow("Lights", { MagicHue.ip(this) ?: "Not found yet" }) { findMagicHue(thenTurnOn = false) }
         }
         footnote("Wallpaper Lights: on the home screen the room slowly takes on the colours of the photo showing. Pausing a film brings the lights up to a soft warm glow; pressing play lets the film's colours back in.")
+        footnote("Our Subtitles: when a film or episode has no subtitles in its file, the TV finds some - from this TV, then your shared subtitle library (every TV adds what it finds, so each title is only fetched once), then OpenSubtitles.com (free). Matched to the exact file where possible; Subtitles Earlier / Later in the subtitle menu fine-tunes the timing.")
         footnote("Auto Subtitles: when music or explosions drown out the voices (in 5.1 films and shows with subtitles), the subtitles appear for that line, then fade away. Night Sound: from 10 pm to 7 am loud bangs are evened out and quiet voices lifted. Still Watching?: late at night, after 90 minutes with nothing pressed, the TV checks - if you've nodded off, sound and lights fade over a minute, it pauses where you were, and the lights switch off.")
         footnote("Lights Style: Calm drifts gently and only reacts to big moments; Balanced follows the film and catches flashes like police lights; Intense reacts to every flicker.")
         footnote("Cinema Room: when a film starts the lights glide into its colours under a \"Now Showing\" card, notifications go quiet, and at the credits the house lights come up - then everything goes back as it was.")
@@ -493,6 +501,12 @@ class SettingsActivity : AppCompatActivity() {
             }
         }
         d.button("Done", GlassDialog.Style.BOLD).show()
+    }
+
+    private fun osInput(title: String, key: String, note: String, secret: Boolean, then: (() -> Unit)? = null) {
+        val d = GlassDialog(this).title(title).message(note).input(title.substringAfter("OpenSubtitles "), Prefs.string(this, key).orEmpty(), secret = secret)
+        d.button("Save", GlassDialog.Style.BOLD) { Prefs.setString(this, key, d.inputText.trim().ifBlank { null }); Prefs.setString(this, "os_token", null); refreshValues(); then?.invoke() }
+        d.button("Cancel").show()
     }
 
     private fun showApiKeyDialog() {

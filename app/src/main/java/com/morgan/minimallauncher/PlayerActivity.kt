@@ -141,6 +141,55 @@ class PlayerActivity : Activity() {
     // Auto Subtitles: the subtitles are loaded but hidden, and shown only while the voices are drowned out.
     private var autoSubsHidden = false
     private var subsChosenByYou = false
+    // Our own subtitles (OurSubtitles): for files without any, drawn by the player itself.
+    private var ourSubs: List<OurSubtitles.Line>? = null
+    private var ourSubsFor = ""
+    private var ourSubsOn = false
+    private var ourOffset = 0L
+    private var ourShown: OurSubtitles.Line? = null
+    private val ourTick = object : Runnable {
+        override fun run() {
+            val lines = ourSubs ?: return
+            val p = player ?: return
+            val pos = p.currentPosition + ourOffset
+            val now = lines.firstOrNull { pos in it.start..it.end }
+            if (now !== ourShown) {
+                ourShown = now
+                view.subtitleView?.setCues(if (now == null) emptyList() else listOf(androidx.media3.common.text.Cue.Builder().setText(now.text).build()))
+                if (now != null) {
+                    val line = now.text.replace('\n', ' ')
+                    if (transcript.lastOrNull()?.endsWith(line) != true) transcript += "[%d:%02d] %s".format(p.currentPosition / 60_000, (p.currentPosition / 1000) % 60, line)
+                }
+            }
+            val buried = VirtualSurround.autoSubs && SoundEvents.buriedUntil > android.os.SystemClock.uptimeMillis()
+            view.subtitleView?.visibility = if (ourSubsOn || buried || subsUntil > 0) View.VISIBLE else View.INVISIBLE
+            handler.postDelayed(this, 100)
+        }
+    }
+
+    /** The file has no subtitles: find ours (this TV, your library, then OpenSubtitles) - quietly, in the background. */
+    private fun fetchOurSubs(force: Boolean = false) {
+        if (live || (!force && !Prefs.bool(this, "our_subs", true))) return
+        val key = "$url|$curSeason|$curEpisode"
+        if (ourSubsFor == key && !force) return
+        ourSubsFor = key
+        val name = seriesTitle ?: titleText
+        val year = intent.getStringExtra(EXTRA_SUBTITLE)?.trim()?.toIntOrNull() ?: Regex("\\((19|20)\\d\\d\\)").find(titleText)?.value?.trim('(', ')')?.toIntOrNull() ?: 0
+        val season = if (seriesTitle != null) curSeason else 0; val ep = if (seriesTitle != null) curEpisode else 0
+        val u = url; val app = applicationContext
+        Bg.run {
+            val lines = try { OurSubtitles.find(app, u, name, year, season, ep) } catch (e: Exception) { null }
+            Diag.send(app, "player", "our subtitles for \"$name\"${if (season > 0) " S${season}E$ep" else ""}: ${if (lines != null) "${lines.size} lines, " else ""}${OurSubtitles.lastNote}")
+            runOnUiThread {
+                if (isDestroyed || ourSubsFor != key || lines == null) { if (force && lines == null) GlassUi.toast(this, "No subtitles found - ${OurSubtitles.lastNote}"); return@runOnUiThread }
+                ourSubs = lines; ourShown = null
+                val wanted = Prefs.string(this, ProfileManager.scope(this, "trk_t_${trackKey()}"))
+                ourSubsOn = force || (wanted != null && wanted != "off")
+                handler.removeCallbacks(ourTick); handler.post(ourTick)
+                if (force) GlassUi.toast(this, "Subtitles on")
+            }
+        }
+    }
     // Still watching?: late at night with nothing pressed for 90 minutes, check before fading out.
     private var lastKeyAt = android.os.SystemClock.uptimeMillis()
     private var sleepAsked = 0L
@@ -458,6 +507,9 @@ class PlayerActivity : Activity() {
                     (0 until g.length).firstOrNull { g.isTrackSelected(it) }?.let { matchFrameRate(g.getTrackFormat(it).frameRate) }
                 }
                 autoSubtitles(tracks)
+                // A new film or episode: the last one's subtitles go.
+                if (ourSubs != null && ourSubsFor != "$url|$curSeason|$curEpisode") { ourSubs = null; ourShown = null; handler.removeCallbacks(ourTick); view.subtitleView?.setCues(emptyList()) }
+                if (!live && tracks.groups.none { it.type == C.TRACK_TYPE_TEXT }) fetchOurSubs()
                 val audio = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
                 if (audio.isEmpty()) return
                 val selected = audio.firstOrNull { it.isSelected }?.let { g -> (0 until g.length).firstOrNull { g.isTrackSelected(it) }?.let { g.getTrackFormat(it) } }
@@ -697,7 +749,7 @@ class PlayerActivity : Activity() {
                 else if (houseLit && left > window + 60_000L) { houseLit = false; startColourSync() }
             }
             if (subsUntil > 0 && System.currentTimeMillis() > subsUntil) endTempSubs()
-            if (autoSubsHidden) view.subtitleView?.visibility =
+            if (autoSubsHidden && ourSubs == null) view.subtitleView?.visibility =
                 if (SoundEvents.buriedUntil > android.os.SystemClock.uptimeMillis() || subsUntil > 0) View.VISIBLE else View.INVISIBLE
             if (p != null && p.isPlaying && sleepAsked == 0L && Prefs.bool(this@PlayerActivity, "sleep_check", true)) {
                 val h = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
@@ -1349,11 +1401,23 @@ class PlayerActivity : Activity() {
         val p = player ?: return
         val list = choices(type)
         val d = GlassDialog(this).title(title).scrolling()
-        if (list.isEmpty()) d.message(if (type == C.TRACK_TYPE_TEXT) "This film has no subtitles in the file." else "Only one audio track.")
-        if (type == C.TRACK_TYPE_TEXT) d.button("Off") {
+        val ours = type == C.TRACK_TYPE_TEXT && list.isEmpty()
+        if (list.isEmpty() && !ours) d.message("Only one audio track.")
+        if (ours) d.message(when {
+            ourSubs != null -> "The file has none, so these come from your subtitle library."
+            OurSubtitles.isSetUp(this) -> "The file has no subtitles. Find some for it (free, then kept in your library for every TV)."
+            else -> "The file has no subtitles. To find some automatically, add a free OpenSubtitles account in Settings › Video and Audio."
+        })
+        if (type == C.TRACK_TYPE_TEXT) d.button("Off" + if (ours && !ourSubsOn) "  ✓" else "") {
             p.trackSelectionParameters = p.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
+            ourSubsOn = false
             rememberTrack(C.TRACK_TYPE_TEXT, "off")
         }
+        if (ours && ourSubs != null) {
+            d.button("English" + if (ourSubsOn) "  ✓" else "") { ourSubsOn = true; rememberTrack(C.TRACK_TYPE_TEXT, "en") }
+            d.button("Subtitles Earlier (½ s)") { ourOffset += 500; ourShown = null; GlassUi.toast(this, "Subtitles ${fmtOffset()}") }
+            d.button("Subtitles Later (½ s)") { ourOffset -= 500; ourShown = null; GlassUi.toast(this, "Subtitles ${fmtOffset()}") }
+        } else if (ours && OurSubtitles.isSetUp(this)) d.button("Find Subtitles", GlassDialog.Style.BOLD) { GlassUi.toast(this, "Looking for subtitles…"); fetchOurSubs(force = true) }
         for (c in list) d.button(c.label + if (c.group.isTrackSelected(c.index)) "  ✓" else "") {
             p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
                 .setTrackTypeDisabled(type, false)
@@ -1363,6 +1427,8 @@ class PlayerActivity : Activity() {
         d.button("Back") { options() }
         d.show()
     }
+
+    private fun fmtOffset() = if (ourOffset == 0L) "back in time" else "%+.1f s".format(ourOffset / 1000f)
 
     private fun rememberTrack(type: Int, language: String?) {
         if (type == C.TRACK_TYPE_TEXT) { subsChosenByYou = true; if (autoSubsHidden) { autoSubsHidden = false; view.subtitleView?.visibility = View.VISIBLE } }
@@ -1759,8 +1825,8 @@ class PlayerActivity : Activity() {
     private fun whatDidTheySay() {
         val p = player ?: return
         p.seekTo((p.currentPosition - 10_000L).coerceAtLeast(0))
-        val hasSubs = choices(C.TRACK_TYPE_TEXT).isNotEmpty()
-        if (hasSubs && subsUntil == 0L) {
+        val hasSubs = choices(C.TRACK_TYPE_TEXT).isNotEmpty() || ourSubs != null
+        if (hasSubs && subsUntil == 0L && ourSubs == null) {
             subsWereOff = p.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT) || choices(C.TRACK_TYPE_TEXT).none { it.group.isTrackSelected(it.index) }
             if (subsWereOff) p.trackSelectionParameters = p.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
                 .setPreferredTextLanguage(java.util.Locale.getDefault().language).build()
@@ -2077,10 +2143,11 @@ class PlayerActivity : Activity() {
             }
             "subs" -> {
                 val off = p?.trackSelectionParameters?.disabledTrackTypes?.contains(C.TRACK_TYPE_TEXT) != false
-                pill("Off", off) { p?.let { it.trackSelectionParameters = it.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build() }
+                pill("Off", off && !ourSubsOn) { ourSubsOn = false; p?.let { it.trackSelectionParameters = it.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build() }
                     rememberTrack(C.TRACK_TYPE_TEXT, "off"); fillInfo("subs") }
                 val list = choices(C.TRACK_TYPE_TEXT)
-                if (list.isEmpty()) row.addView(GlassUi.text(c, "No subtitles in this file", 13f, R.font.inter_medium, 0x99FFFFFF.toInt()))
+                if (list.isEmpty() && ourSubs != null) pill("English", ourSubsOn) { ourSubsOn = true; rememberTrack(C.TRACK_TYPE_TEXT, "en"); fillInfo("subs") }
+                else if (list.isEmpty()) row.addView(GlassUi.text(c, "No subtitles in this file", 13f, R.font.inter_medium, 0x99FFFFFF.toInt()))
                 for (ch in list) pill(ch.label, !off && ch.group.isTrackSelected(ch.index)) {
                     p?.let { it.trackSelectionParameters = it.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
                         .setOverrideForType(TrackSelectionOverride(ch.group.mediaTrackGroup, ch.index)).build() }
