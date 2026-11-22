@@ -38,6 +38,7 @@ class PlayerActivity : Activity() {
     private var videoNote = ""
     /** 10-bit, HDR or 4K video: the lights read the picture more gently so the decoder never goes short. */
     private var heavyVideo = false
+    private var tunnelled = false
     /** Talk to the Characters (pause, and the people on screen talk back) - and what's been said so far. */
     private var talk: CharacterTalk? = null
     private val transcript = ArrayList<String>()
@@ -413,6 +414,19 @@ class PlayerActivity : Activity() {
                 videoNote = "${format.width}x${format.height} ${format.sampleMimeType} ${format.codecs ?: ""} ${format.bitrate.takeIf { it > 0 }?.let { "${it / 1000} kbps" } ?: ""}".trim()
                 heavyVideo = format.width > 1920 || (format.codecs ?: "").startsWith("hvc1.2") || (format.codecs ?: "").startsWith("hev1.2") || format.colorInfo?.colorTransfer.let { it == androidx.media3.common.C.COLOR_TRANSFER_ST2084 || it == androidx.media3.common.C.COLOR_TRANSFER_HLG }
                 colourSync?.gentle = heavyVideo
+                // 10-bit / HDR on this Chromecast: the decoder copes, but converting every frame for the screen
+                // through the graphics chip doesn't (~7 dropped frames a second). Tunnelled playback hands the frames
+                // straight to the TV's video layer instead. The picture can't be read then, so the lights hold the
+                // film's colour (and 4D still reacts to the sound).
+                if (heavyVideo && !tunnelled) {
+                    tunnelled = true
+                    (player?.trackSelector as? androidx.media3.exoplayer.trackselection.DefaultTrackSelector)?.let { ts ->
+                        ts.setParameters(ts.buildUponParameters().setTunnelingEnabled(true))
+                    }
+                    colourSync?.pause()
+                    room?.hold()
+                    Diag.send(this@PlayerActivity, "player", "heavy video ($videoNote): tunnelled playback on, lights hold the film's colour")
+                }
             }
             override fun onAudioDecoderInitialized(eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, decoderName: String, initializedTimestampMs: Long, initializationDurationMs: Long) {
                 Diag.send(this@PlayerActivity, "player", "audio decoder $decoderName ready in ${initializationDurationMs} ms · \"$titleText\"")
@@ -711,6 +725,7 @@ class PlayerActivity : Activity() {
         val ip = MagicHue.ip(this)
         val r = room
         if (houseLit) return
+        if (tunnelled) { r?.hold(); return }
         // A film without TV Colour Lights: a dim glow in the film's colour stays for the film.
         if (r != null && !MagicHue.syncOn(this)) { r.hold(); return }
         if (!MagicHue.syncOn(this) || ip == null) return
