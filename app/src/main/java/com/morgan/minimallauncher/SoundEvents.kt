@@ -76,5 +76,7 @@ object SoundEvents {
     }
 
     private fun emit(kind: String) {
-        quietFor = 0f; tension = 0f val l = listener ?: return; main.post { l(kind) } }
+        quietFor = 0f; tension = 0f
+        val l = listener ?: return; main.post { l(kind) }
+    }
 }
