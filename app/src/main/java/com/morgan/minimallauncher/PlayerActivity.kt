@@ -361,7 +361,9 @@ class PlayerActivity : Activity() {
     private fun newPlayer(): ExoPlayer {
         // Start sooner than the defaults: a small buffer to begin with, then it fills while you watch.
         val load = androidx.media3.exoplayer.DefaultLoadControl.Builder()
-            .setBufferDurationsMs(if (live) 4_000 else 15_000, if (live) 30_000 else 60_000, if (live) 900 else 400, if (live) 3_000 else 1_500)
+            // Films and shows: start once 3 s is in hand, carry on after a stall once 6 s is, and keep up to 2 minutes
+            // ahead - big files over Starlink + VPN otherwise ran the buffer dry and stuttered stop-start.
+            .setBufferDurationsMs(if (live) 4_000 else 30_000, if (live) 30_000 else 120_000, if (live) 900 else 3_000, if (live) 3_000 else 6_000)
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
         // Files without a seek index (common with .ts/.mkv from providers) can still jump to a point.
@@ -533,7 +535,8 @@ class PlayerActivity : Activity() {
                 // Live picture stalling (for the TV's log): count it, and note which channel.
                 if (state == Player.STATE_BUFFERING && firstFrameLogged) {
                     stalls++
-                    if (stalls == 1 || stalls % 3 == 0) Diag.send(this@PlayerActivity, "player", "stall #$stalls on \"$titleText\" at ${(player?.currentPosition ?: 0) / 1000}s (live=$live, timeshift=${ts != null}, buffered ${((player?.bufferedPosition ?: 0) - (player?.currentPosition ?: 0)) / 1000}s ahead, lights=${colourSync != null})")
+                    val speed = androidx.media3.exoplayer.upstream.DefaultBandwidthMeter.getSingletonInstance(this@PlayerActivity).bitrateEstimate / 1000
+                    if (stalls == 1 || stalls % 3 == 0) Diag.send(this@PlayerActivity, "player", "stall #$stalls on \"$titleText\" at ${(player?.currentPosition ?: 0) / 1000}s (live=$live, timeshift=${ts != null}, buffered ${((player?.bufferedPosition ?: 0) - (player?.currentPosition ?: 0)) / 1000}s ahead, download ~$speed kbps, video ${videoNote}, lights=${colourSync != null})")
                 }
                 // Live pause buffer filled up (or the stream ended): start a fresh one from live.
                 if (state == Player.STATE_ENDED && live && ts != null) { ts?.stop(); ts = null; tsStart = 0L; start(url, resume = false); return }
