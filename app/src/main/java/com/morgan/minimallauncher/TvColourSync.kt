@@ -63,6 +63,9 @@ class TvColourSync(private val app: android.content.Context, private val surface
         bg.post(tick)
     }
 
+    /** A 4D Mode moment (see [SoundEvents]). */
+    fun impulse(kind: String) = bg.post { if (running) engine.impulse(kind) }
+
     /** Paused: hold the last colour. */
     fun pause() { running = false; bg.removeCallbacks(tick) }
 

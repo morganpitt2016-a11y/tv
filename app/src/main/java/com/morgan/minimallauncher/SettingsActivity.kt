@@ -308,6 +308,7 @@ class SettingsActivity : AppCompatActivity() {
                 if (MagicHue.ip(this) == null) findMagicHue(thenTurnOn = false)
                 else { Prefs.setBool(this, "cinema_room", !Prefs.bool(this, "cinema_room", true)); refreshValues() }
             }
+            vrow("4D Mode", { onOff(Prefs.bool(this, "fourd_mode", true)) }) { Prefs.setBool(this, "fourd_mode", !Prefs.bool(this, "fourd_mode", true)); refreshValues() }
             vrow("Lights", { MagicHue.ip(this) ?: "Not found yet" }) { findMagicHue(thenTurnOn = false) }
         }
         footnote("Cinema Room: when a film starts the lights glide into its colours under a \"Now Showing\" card, notifications go quiet, and at the credits the house lights come up - then everything goes back as it was.")

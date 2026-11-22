@@ -34,6 +34,10 @@ class PlayerActivity : Activity() {
     private lateinit var view: PlayerView
     /** TV Colour Lights: the Magic Hue lights follow the picture while it plays (Settings › Magic Hue Lights). */
     private var colourSync: TvColourSync? = null
+    /** Talk to the Characters (pause, and the people on screen talk back) - and what's been said so far. */
+    private var talk: CharacterTalk? = null
+    private val transcript = ArrayList<String>()
+    private var transcriptFor = ""
     /** A film: the room becomes the cinema (lights, quiet, house lights at the credits). */
     private var room: CinemaRoom? = null
     private var isFilm = false
@@ -401,6 +405,16 @@ class PlayerActivity : Activity() {
         val name0 = titleText
         VirtualSurround.onFirstSound = { ms -> Diag.send(applicationContext, "player", "first sound after ${ms} ms of decoded audio · \"$name0\"") }
         p.addListener(object : Player.Listener {
+            // Every line of dialogue as it's shown (when the file has subtitles), so the characters know what's been said.
+            override fun onCues(cueGroup: androidx.media3.common.text.CueGroup) {
+                val key = "$titleText|$curSeason|$curEpisode"
+                if (key != transcriptFor) { transcriptFor = key; transcript.clear() }
+                val line = cueGroup.cues.mapNotNull { it.text?.toString()?.trim() }.filter { it.isNotEmpty() }.joinToString(" ").replace('\n', ' ')
+                if (line.isBlank() || transcript.lastOrNull()?.endsWith(line) == true) return
+                val pos = player?.currentPosition ?: 0L
+                transcript += "[%d:%02d] %s".format(pos / 60_000, (pos / 1000) % 60, line)
+                if (transcript.size > 600) transcript.subList(0, transcript.size - 600).clear()
+            }
             override fun onTracksChanged(tracks: Tracks) {
                 // Match the TV's refresh rate to the film's frame rate (Apple TV's "Match Content"): smooth pans, no judder.
                 tracks.groups.firstOrNull { it.type == C.TRACK_TYPE_VIDEO && it.isSelected }?.let { g ->
@@ -687,12 +701,15 @@ class PlayerActivity : Activity() {
         if (sv == null) { Diag.send(this, "lights", "TV Colour Lights: no SurfaceView (${view.videoSurfaceView?.javaClass?.simpleName})"); return }
         if (colourSync == null) Diag.send(this, "lights", "TV Colour Lights starting → $ip")
         r?.handOver()
+        // 4D Mode: the room reacts to what it hears - explosions, gunshots, jump scares.
+        SoundEvents.listener = if (!live && Prefs.bool(this, "fourd_mode", true)) { kind -> if (!houseLit) colourSync?.impulse(kind) } else null
         (colourSync ?: (if (r != null) TvColourSync(applicationContext, sv, ip, shared = r.link, seed = r.current())
             else TvColourSync(applicationContext, sv, ip)).also { colourSync = it }).start()
     }
 
     override fun onStop() {
         super.onStop()
+        SoundEvents.listener = null
         colourSync?.stop(); colourSync = null
         room?.end(); room = null
         SoundbarWake.release("player")
@@ -943,7 +960,27 @@ class PlayerActivity : Activity() {
 
     private var nextDismissed = false
 
+    /** Pause, and talk to the people on screen. */
+    private fun startTalk() {
+        if (talk != null || live) return
+        player?.pause()
+        hidePauseInfo()
+        val ep = if (curSeason > 0) episodeList?.firstOrNull { it.season == curSeason && it.number == curEpisode } else null
+        val host = view.parent as? FrameLayout ?: return
+        talk = CharacterTalk(this, host, view.videoSurfaceView as? android.view.SurfaceView, seriesTitle ?: titleText, curSeason, curEpisode,
+            ep?.title, ep?.plot, player?.currentPosition ?: 0L, transcript.toList()) { talk = null }.also { it.start() }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        @Suppress("DEPRECATION") super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == CharacterTalk.LISTEN)
+            talk?.heard(if (resultCode == RESULT_OK) data?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)?.firstOrNull() else null)
+    }
+
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // Talking to the characters: Back closes it; everything else moves around its buttons.
+        talk?.let { t -> if (t.onKey(event)) return true; if (event.keyCode == KeyEvent.KEYCODE_BACK) return true; return super.dispatchKeyEvent(event) }
         // Paused with "You're watching" up: a press brings the controls back (and still does its job).
         if (event.action == KeyEvent.ACTION_DOWN && ::pauseInfo.isInitialized && pauseInfo.visibility == View.VISIBLE) {
             hidePauseInfo()
@@ -1932,6 +1969,7 @@ class PlayerActivity : Activity() {
                 body.addView(txt)
                 pill("Start Over") { hideInfoPanel(); player?.seekTo(0) }
                 pill("⟲ 10s with Subtitles") { hideInfoPanel(); whatDidTheySay() }
+                pill("Talk to the Characters") { hideInfoPanel(); startTalk() }
                 if (seriesTitle != null && curSeason > 0) pill("Episodes") { hideInfoPanel(); showStrip() }
                 if (queue.isNotEmpty()) pill("Next Episode") { hideInfoPanel(); playNext() }
                 pill("Sleep Timer · ${sleepLabel()}") { hideInfoPanel(); pickSleep() }

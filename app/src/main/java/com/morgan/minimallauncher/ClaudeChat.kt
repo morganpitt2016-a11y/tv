@@ -24,12 +24,22 @@ import com.anthropic.models.beta.messages.MessageCreateParams
  * decline a harmless request, the API retries it on another Claude model
  * instead of refusing.
  */
-class ClaudeChat(context: Context) {
+class ClaudeChat(
+    context: Context,
+    /** The conversation's instructions (the TV assistant by default; a character for Talk to the Characters). */
+    private val system: String = SYSTEM,
+    /**
+     * Quick, cheap, short replies: Claude Haiku 5.5 with thinking off and low effort - for spoken back-and-forth,
+     * where a reply must start in a second or two and costs a tiny fraction of a penny.
+     */
+    private val quick: Boolean = false,
+) {
 
     companion object {
         private const val PREFS = "claude"
         private const val KEY = "api_key"
         const val MODEL = "claude-opus-5-5"
+        const val QUICK_MODEL = "claude-haiku-5-5"
 
         private const val SYSTEM = "You are Claude, built into a TV home-screen app and talking to someone " +
             "on their sofa through a TV remote. Answer in plain text (no markdown, tables, bullet symbols or " +
@@ -67,14 +77,21 @@ class ClaudeChat(context: Context) {
         val turn = BetaMessageParam.ofUser(userText)
         val params = synchronized(history) {
             history += turn
-            MessageCreateParams.builder()
-                .model(MODEL)
-                .maxTokens(16000L)
-                .system(SYSTEM)
+            val b = MessageCreateParams.builder()
+                .system(system)
                 .messages(history.toList())
-                .addBeta(AnthropicBeta.of("server-side-fallback-2026-07-01"))
-                .putAdditionalBodyProperty("fallbacks", JsonValue.from("default"))
-                .build()
+            if (quick) {
+                // Haiku 5.5: thinking off (allowed at effort "high" or below) and low effort - replies start fast.
+                // (Haiku has no server-side refusal fallback; a refusal is handled as a failed reply.)
+                b.model(QUICK_MODEL).maxTokens(1024L)
+                    .putAdditionalBodyProperty("thinking", JsonValue.from(mapOf("type" to "disabled")))
+                    .putAdditionalBodyProperty("output_config", JsonValue.from(mapOf("effort" to "low")))
+            } else {
+                b.model(MODEL).maxTokens(16000L)
+                    .addBeta(AnthropicBeta.of("server-side-fallback-2026-07-01"))
+                    .putAdditionalBodyProperty("fallbacks", JsonValue.from("default"))
+            }
+            b.build()
         }
 
         return try {

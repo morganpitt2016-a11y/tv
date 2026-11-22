@@ -47,8 +47,32 @@ class ColourEngine(private val link: MagicHue.Sink) {
         }
     }
 
+    // 4D Mode: a flash holds the lights for a moment before the picture takes them back (with the usual glide).
+    private var holdUntil = 0L
+    private var redAt = 0L
+
+    /** A moment from 4D Mode: "boom" (fire), "bang" (white flash) or "scare" (blackout, then red). */
+    fun impulse(kind: String) {
+        val now = SystemClock.uptimeMillis()
+        when (kind) {
+            "boom" -> { r = 255f; g = 105f; b = 15f; level = 1f; holdUntil = now + 170 }
+            "bang" -> { r = 255f; g = 238f; b = 205f; level = 1f; holdUntil = now + 70 }
+            "scare" -> { level = 0f; holdUntil = now + 160; redAt = now + 140 }
+        }
+        sendNow()
+    }
+
+    private fun sendNow() {
+        val o0 = (r * level).toInt().coerceIn(0, 255); val o1 = (g * level).toInt().coerceIn(0, 255); val o2 = (b * level).toInt().coerceIn(0, 255)
+        sent[0] = o0; sent[1] = o1; sent[2] = o2
+        link.colour(o0, o1, o2)
+    }
+
     /** One frame. [px] is ARGB, [n] pixels long. */
     fun frame(px: IntArray, n: Int) {
+        val t0 = SystemClock.uptimeMillis()
+        if (redAt in 1..t0) { redAt = 0L; r = 255f; g = 0f; b = 0f; level = 1f; holdUntil = t0 + 350; sendNow(); return }
+        if (t0 < holdUntil) return
         var wr = 0.0; var wg = 0.0; var wb = 0.0; var wsum = 0.0; var lum = 0.0
         for (i in 0 until n) {
             val p = px[i]

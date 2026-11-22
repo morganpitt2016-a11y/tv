@@ -292,6 +292,7 @@ object VirtualSurround {
                     if (abs(dynGain - dynApplied) > 0.25f) { mid[7].lowShelf(fs, 60.0, dynGain.toDouble()); dynApplied = dynGain }
                 }
                 val mdRaw = md
+                SoundEvents.feed(mdRaw, fs)
                 for (b in mid) md = b.run(md)
                 if (tvSpeakers && surround) {
                     val low = vbLp.run(vbHp.run(mdRaw))

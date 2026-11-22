@@ -43,6 +43,8 @@ class VoiceActivity : AppCompatActivity() {
             s.contains("settings") -> { open(SettingsActivity::class.java); return }
             s.startsWith("open ") || s.startsWith("launch ") -> { openApp(s.substringAfter(' ')); return }
         }
+        // "Play the bit where Jim proposes to Pam": Claude works out the show, episode and moment, and it plays from there.
+        if (Regex("\\b(bit|scene|part|moment|episode) where\\b|\\bwhen .+ (proposes|dies|says|finds|meets|kisses|leaves)").containsMatchIn(s)) { playTheBit(raw); return }
         // "put X on", "switch to X", "change to X", "turn on X": a channel first, then a film or series.
         val chanWords = listOf("put on ", "put ", "switch to ", "change to ", "turn on ", "go to ", "channel ")
         val playWords = listOf("play ", "watch ", "start ", "show me ", "find ")
@@ -80,6 +82,48 @@ class VoiceActivity : AppCompatActivity() {
                     }
                     else -> search(raw)
                 }
+            }
+        }
+    }
+
+    /** "Play the bit where…": Claude names the episode and the minute; Dodgy Box plays it from just before then. */
+    private fun playTheBit(said: String) {
+        val app = applicationContext
+        if (ClaudeChat.getApiKey(app) == null) { GlassUi.toast(this, "Add your Anthropic API key in Settings › Claude first"); search(said); return }
+        GlassUi.toast(this, "Finding that moment…")
+        Bg.run {
+            val chat = ClaudeChat(app, "You know films and TV series in detail. You identify scenes people describe. Reply with JSON only.", quick = true)
+            val ask = "Someone asked their TV: \"$said\". Which scene is it? Reply with JSON only: " +
+                "{\"show\":\"series or film title\",\"film\":false,\"season\":1,\"episode\":1,\"minute\":12,\"second\":0,\"scene\":\"a few words describing the moment\"}. " +
+                "For a film set film true and season/episode 0. Give your best estimate of when in the episode it happens."
+            val text = (chat.send(ask) as? ClaudeChat.Reply.Text)?.text.orEmpty()
+            val o = try { org.json.JSONObject(text.substring(text.indexOf('{'), text.lastIndexOf('}') + 1)) } catch (e: Exception) { null }
+            if (o == null) { runOnUiThread { GlassUi.toast(this, "Couldn't place that scene - try describing it another way") }; return@run }
+            val show = o.optString("show"); val film = o.optBoolean("film"); val se = o.optInt("season"); val ep = o.optInt("episode")
+            val at = (o.optInt("minute") * 60 + o.optInt("second") - 15).coerceAtLeast(0)
+            val scene = o.optString("scene").ifBlank { "that moment" }
+            if (film) {
+                val v = try { Xtream.searchLibrary(app, show, 3).first.firstOrNull() } catch (e: Exception) { null }
+                runOnUiThread {
+                    if (v == null) { GlassUi.toast(this, "$show isn't on Dodgy Box"); return@runOnUiThread }
+                    val url = Xtream.vodUrl(app, v)
+                    Prefs.setInt(app, WatchHistory.posKey(app, url), at)
+                    PlayerActivity.play(this, url, Xtream.clean(v.name), live = false, subtitle = scene.replaceFirstChar { it.uppercase() }, eyebrow = "THE BIT WHERE…", image = v.icon)
+                    finish()
+                }
+                return@run
+            }
+            val found = try { Xtream.seriesEpisodes(app, show, 0) } catch (e: Exception) { null }
+            val list = found?.second.orEmpty()
+            val e = list.firstOrNull { it.season == se && it.number == ep }
+            runOnUiThread {
+                if (e == null) { GlassUi.toast(this, if (found == null) "$show isn't on Dodgy Box" else "$show S$se E$ep isn't on Dodgy Box"); return@runOnUiThread }
+                val url = Xtream.episodeUrl(app, e)
+                Prefs.setInt(app, WatchHistory.posKey(app, url), at)
+                val rest = list.dropWhile { it.id != e.id }.drop(1).map { Triple(Xtream.episodeUrl(app, it), it.season, it.number) }
+                PlayerActivity.play(this, url, show, live = false, subtitle = "S$se E$ep · ${scene.replaceFirstChar { it.uppercase() }}", eyebrow = "THE BIT WHERE…",
+                    series = show, queue = rest, image = e.image ?: found?.first?.cover, season = se, episode = ep)
+                finish()
             }
         }
     }
