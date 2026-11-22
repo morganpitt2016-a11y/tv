@@ -17,9 +17,12 @@ import kotlin.math.min
  */
 private const val FRAME_MS = 33L
 
-class TvColourSync(private val app: android.content.Context, private val surface: SurfaceView, host: String) {
-    private val link = MagicHue.Link(host) { msg -> Diag.send(app, "lights", msg) }
-    private val engine = ColourEngine(link)
+class TvColourSync(private val app: android.content.Context, private val surface: SurfaceView, host: String,
+                   shared: MagicHue.Link? = null, seed: IntArray? = null) {
+    /** A film's Cinema Room already holds the connection (and puts the lights back itself). */
+    private val owns = shared == null
+    private val link = shared ?: MagicHue.Link(host) { msg -> Diag.send(app, "lights", msg) }
+    private val engine = ColourEngine(link).also { e -> seed?.let { e.seed(it, 0.45f) } }
     private val px = IntArray(48 * 27)
     private var copies = 0; private var fails = 0
     private val thread = HandlerThread("tv-colour").apply { start() }
@@ -56,7 +59,7 @@ class TvColourSync(private val app: android.content.Context, private val surface
     fun start() {
         if (running) return
         running = true
-        if (!started) { started = true; link.begin(); startedAt = android.os.SystemClock.uptimeMillis() }
+        if (!started) { started = true; if (owns) link.begin(); startedAt = android.os.SystemClock.uptimeMillis() }
         bg.post(tick)
     }
 
@@ -66,7 +69,7 @@ class TvColourSync(private val app: android.content.Context, private val surface
     /** Leaving the player: the lights go back to how they were. */
     fun stop() {
         pause()
-        if (started) link.end()
+        if (started && owns) link.end()
         bg.post { frame.recycle(); thread.quitSafely() }
     }
 

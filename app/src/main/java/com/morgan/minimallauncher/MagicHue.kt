@@ -51,8 +51,11 @@ object MagicHue {
         return found.toList()
     }
 
+    /** Anything colours can be sent to. */
+    interface Sink { fun colour(r: Int, g: Int, b: Int) }
+
     /** A connection to one controller. All calls happen on its own thread, in order. */
-    class Link(private val host: String, private val log: (String) -> Unit = {}) {
+    class Link(private val host: String, private val log: (String) -> Unit = {}) : Sink {
         private val exec = Executors.newSingleThreadExecutor()
         private var sock: Socket? = null
         private var out: OutputStream? = null
@@ -105,7 +108,7 @@ object MagicHue {
         private fun drain() { try { val i = input ?: return; while (i.available() > 0) i.skip(i.available().toLong()) } catch (_: Exception) {} }
 
         /** The next colour to show. Only the newest is sent if the lights fall behind - never a queue of old ones. */
-        fun colour(r: Int, g: Int, b: Int) {
+        override fun colour(r: Int, g: Int, b: Int) {
             pending = intArrayOf(r, g, b)
             if (busy) return
             busy = true

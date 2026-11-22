@@ -304,8 +304,13 @@ class SettingsActivity : AppCompatActivity() {
                     MagicHue.setSync(this, !MagicHue.syncOn(this)); refreshValues()
                 }
             }
+            vrow("Cinema Room", { onOff(CinemaRoom.enabled(this)) }) {
+                if (MagicHue.ip(this) == null) findMagicHue(thenTurnOn = false)
+                else { Prefs.setBool(this, "cinema_room", !Prefs.bool(this, "cinema_room", true)); refreshValues() }
+            }
             vrow("Lights", { MagicHue.ip(this) ?: "Not found yet" }) { findMagicHue(thenTurnOn = false) }
         }
+        footnote("Cinema Room: when a film starts the lights glide into its colours under a \"Now Showing\" card, notifications go quiet, and at the credits the house lights come up - then everything goes back as it was.")
         footnote("While a film, show or channel plays in the launcher, your Magic Hue lights take on the colours on screen, then go back to how they were. Works with the launcher's own player (Dodgy Box, live TV, recordings) - Netflix and other apps don't let any app see their picture.")
 
         section("Copy to Another TV")

@@ -1,5 +1,6 @@
 package com.morgan.minimallauncher
 
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.os.SystemClock
 import kotlin.math.abs
@@ -15,13 +16,36 @@ import kotlin.math.min
  *
  * Fed with ARGB pixels (any small size) about 30 times a second; sends to the Magic Hue [MagicHue.Link].
  */
-class ColourEngine(private val link: MagicHue.Link) {
+class ColourEngine(private val link: MagicHue.Sink) {
     private var r = 0f; private var g = 0f; private var b = 0f
-    private var level = 0f            // smoothed scene brightness 0..1
-    private var lastBright = 0f
+    internal var level = 0f           // smoothed scene brightness 0..1
+    internal var lastBright = 0f
     private var lastAt = 0L
     private val sent = intArrayOf(-1, -1, -1)
     private val hsv = FloatArray(3)
+
+    /** Carry on from where the lights already are (no dip to black when taking over). */
+    fun seed(rgb: IntArray, brightness: Float) {
+        val m = max(rgb[0], max(rgb[1], rgb[2])).coerceAtLeast(1)
+        r = rgb[0] * 255f / m; g = rgb[1] * 255f / m; b = rgb[2] * 255f / m
+        level = brightness.coerceIn(0f, 1f)
+        lastAt = SystemClock.uptimeMillis()
+    }
+
+    companion object {
+        /** A picture's main colour, at full strength - the film's "palette" for the room. */
+        fun dominant(bmp: Bitmap): IntArray {
+            val small = Bitmap.createScaledBitmap(bmp, 32, 18, true)
+            val px = IntArray(32 * 18); small.getPixels(px, 0, 32, 0, 0, 32, 18)
+            if (small !== bmp) small.recycle()
+            val sink = object : MagicHue.Sink { var last = intArrayOf(255, 140, 70); override fun colour(r: Int, g: Int, b: Int) { last = intArrayOf(r, g, b) } }
+            val e = ColourEngine(sink)
+            e.level = 1f; e.lastBright = 1f
+            repeat(40) { e.frame(px, px.size) }          // let it settle on the picture's colour
+            val m = max(sink.last[0], max(sink.last[1], sink.last[2])).coerceAtLeast(1)
+            return intArrayOf(sink.last[0] * 255 / m, sink.last[1] * 255 / m, sink.last[2] * 255 / m)
+        }
+    }
 
     /** One frame. [px] is ARGB, [n] pixels long. */
     fun frame(px: IntArray, n: Int) {

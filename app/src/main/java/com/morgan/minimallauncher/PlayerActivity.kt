@@ -34,6 +34,11 @@ class PlayerActivity : Activity() {
     private lateinit var view: PlayerView
     /** TV Colour Lights: the Magic Hue lights follow the picture while it plays (Settings › Magic Hue Lights). */
     private var colourSync: TvColourSync? = null
+    /** A film: the room becomes the cinema (lights, quiet, house lights at the credits). */
+    private var room: CinemaRoom? = null
+    private var isFilm = false
+    private var curtainShownAt = 0L
+    private var houseLit = false
     private lateinit var banner: LinearLayout
     private lateinit var optionsPill: android.widget.TextView
     private lateinit var bannerTitle: android.widget.TextView
@@ -265,8 +270,20 @@ class PlayerActivity : Activity() {
                 }
             }
             if (art != null) col.addView(card, LinearLayout.LayoutParams(dp(c, 400f), dp(c, 225f)))
-            col.addView(GlassUi.text(c, (seriesTitle ?: titleText), 24f, R.font.inter_semibold).apply { maxLines = 2; gravity = Gravity.CENTER },
-                LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(c, 18f) })
+            // A film: "Now Showing", like the moment the cinema lights go down.
+            isFilm = !live && seriesTitle == null && intent.getStringExtra(EXTRA_EYEBROW) != "START OVER"
+            if (isFilm) col.addView(GlassUi.text(c, "NOW SHOWING", 12f, R.font.inter_semibold, 0xB3FFFFFF.toInt()).apply { letterSpacing = 0.32f; gravity = Gravity.CENTER },
+                LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(c, 22f) })
+            col.addView(GlassUi.text(c, (seriesTitle ?: titleText), if (isFilm) 30f else 24f, R.font.inter_semibold).apply { maxLines = 2; gravity = Gravity.CENTER },
+                LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(c, if (isFilm) 6f else 18f) })
+            if (isFilm) {
+                val year = Xtream.yearOf(titleText)?.toString().orEmpty()
+                val line = AvBadges.withBadges(c, year, titleText)
+                if (line.isNotBlank()) col.addView(GlassUi.text(c, "", 14f, R.font.inter_medium, 0xB3FFFFFF.toInt()).apply { text = line; gravity = Gravity.CENTER },
+                    LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(c, 6f) })
+                // The backdrop drifts slowly while it loads.
+                back.animate().scaleX(1.08f).scaleY(1.08f).setDuration(9000).start()
+            }
             intent.getStringExtra(EXTRA_SUBTITLE)?.takeIf { it.isNotBlank() }?.let {
                 col.addView(GlassUi.text(c, it, 14f, R.font.inter_medium, 0xB3FFFFFF.toInt()).apply { gravity = Gravity.CENTER },
                     LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(c, 4f) })
@@ -274,6 +291,15 @@ class PlayerActivity : Activity() {
             addView(col, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
         }
         root.addView(curtain, 1, FrameLayout.LayoutParams(-1, -1))
+        curtainShownAt = android.os.SystemClock.uptimeMillis()
+        // A film with the Magic Hue lights: the room starts turning into the cinema now, while the card is up.
+        val roomIp = MagicHue.ip(this)
+        if (isFilm && roomIp != null && CinemaRoom.enabled(this)) {
+            val r = CinemaRoom(applicationContext, roomIp).also { room = it }
+            val art = Prefs.string(this, "rart_$titleText") ?: image
+            if (art == null) r.begin(null)
+            else Bg.run { val b = try { ImageLoader.fetch(applicationContext, art, ImageLoader.ICON) } catch (_: Exception) { null }; runOnUiThread { if (room === r) r.begin(b) } }
+        }
         handler.postDelayed({ curtain?.let { c -> curtain = null; (c.parent as? ViewGroup)?.removeView(c) } }, 20_000)   // never stuck over the screen
         curSeason = intent.getIntExtra(EXTRA_SEASON, 0); curEpisode = intent.getIntExtra(EXTRA_EPISODE, 0)
         val qu = intent.getStringArrayExtra(EXTRA_Q_URLS); val qs = intent.getIntArrayExtra(EXTRA_Q_S); val qe = intent.getIntArrayExtra(EXTRA_Q_E)
@@ -415,7 +441,12 @@ class PlayerActivity : Activity() {
             }
             override fun onRenderedFirstFrame() {
                 if (player?.isPlaying == true || player?.playWhenReady == true) startColourSync()
-                curtain?.let { c -> curtain = null; c.animate().alpha(0f).setDuration(450).withEndAction { (c.parent as? ViewGroup)?.removeView(c) }.start() }
+                curtain?.let { c ->
+                    curtain = null
+                    // A film's "Now Showing" stays up at least 4 seconds - long enough for the room to change.
+                    val wait = if (isFilm) (4000 - (android.os.SystemClock.uptimeMillis() - curtainShownAt)).coerceAtLeast(0) else 0L
+                    c.animate().alpha(0f).setStartDelay(wait).setDuration(if (isFilm) 900 else 450).withEndAction { (c.parent as? ViewGroup)?.removeView(c) }.start()
+                }
                 // How long from pressing play to the picture (in the TV's timing log).
                 if (firstFrameLogged) return
                 firstFrameLogged = true
@@ -605,6 +636,13 @@ class PlayerActivity : Activity() {
                 else if (left > window) { nextDismissed = false; if (creditsMode) restoreFromCredits() }
                 if (creditsMode) creditsLine?.text = "Next episode in ${(left / 1000).coerceAtLeast(0)}s"
             }
+            // A film's credits: the house lights come up (and go down again if you go back into the film).
+            if (p != null && isFilm && room != null && p.duration > 0) {
+                val left = p.duration - p.currentPosition
+                val window = minOf(6 * 60_000L, p.duration / 12)
+                if (!houseLit && left in 1..window) { houseLit = true; colourSync?.pause(); room?.houseLights() }
+                else if (houseLit && left > window + 60_000L) { houseLit = false; startColourSync() }
+            }
             if (subsUntil > 0 && System.currentTimeMillis() > subsUntil) endTempSubs()
             if (p != null && !live && seriesTitle != null) {
                 val pos = p.currentPosition
@@ -640,16 +678,23 @@ class PlayerActivity : Activity() {
 
     private fun startColourSync() {
         val ip = MagicHue.ip(this)
+        val r = room
+        if (houseLit) return
+        // A film without TV Colour Lights: a dim glow in the film's colour stays for the film.
+        if (r != null && !MagicHue.syncOn(this)) { r.hold(); return }
         if (!MagicHue.syncOn(this) || ip == null) return
         val sv = view.videoSurfaceView as? android.view.SurfaceView
         if (sv == null) { Diag.send(this, "lights", "TV Colour Lights: no SurfaceView (${view.videoSurfaceView?.javaClass?.simpleName})"); return }
         if (colourSync == null) Diag.send(this, "lights", "TV Colour Lights starting → $ip")
-        (colourSync ?: TvColourSync(applicationContext, sv, ip).also { colourSync = it }).start()
+        r?.handOver()
+        (colourSync ?: (if (r != null) TvColourSync(applicationContext, sv, ip, shared = r.link, seed = r.current())
+            else TvColourSync(applicationContext, sv, ip)).also { colourSync = it }).start()
     }
 
     override fun onStop() {
         super.onStop()
         colourSync?.stop(); colourSync = null
+        room?.end(); room = null
         SoundbarWake.release("player")
         liveChannel = null
         handOffRecording()

@@ -77,18 +77,25 @@ object CinemaMode {
     fun hasDndAccess(c: android.content.Context) =
         c.getSystemService(NotificationManager::class.java).isNotificationPolicyAccessGranted
 
-    private fun setDnd(activity: MainActivity, on: Boolean) {
-        val nm = activity.getSystemService(NotificationManager::class.java)
-        if (!nm.isNotificationPolicyAccessGranted) return
+    /**
+     * Do Not Disturb on (remembering how it was under [key]) or back as it was. Returns true if it was already on
+     * before turning it on (so the caller shouldn't turn it off afterwards).
+     */
+    fun setDnd(c: android.content.Context, on: Boolean, key: String = "dnd_before"): Boolean {
+        val nm = c.getSystemService(NotificationManager::class.java)
+        if (!nm.isNotificationPolicyAccessGranted) return true
         try {
             if (on) {
-                Prefs.setInt(activity, "dnd_before", nm.currentInterruptionFilter)
+                val now = nm.currentInterruptionFilter
+                Prefs.setInt(c, key, now)
                 nm.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_PRIORITY)
+                return now != NotificationManager.INTERRUPTION_FILTER_ALL && now != NotificationManager.INTERRUPTION_FILTER_UNKNOWN
             } else {
-                val before = Prefs.int(activity, "dnd_before", NotificationManager.INTERRUPTION_FILTER_ALL)
+                val before = Prefs.int(c, key, NotificationManager.INTERRUPTION_FILTER_ALL)
                 nm.setInterruptionFilter(if (before == NotificationManager.INTERRUPTION_FILTER_UNKNOWN) NotificationManager.INTERRUPTION_FILTER_ALL else before)
             }
         } catch (e: Exception) {}
+        return false
     }
 
     // ---------- Lights ----------
