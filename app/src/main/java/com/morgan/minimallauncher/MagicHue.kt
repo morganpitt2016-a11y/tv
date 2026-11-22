@@ -52,7 +52,7 @@ object MagicHue {
     }
 
     /** A connection to one controller. All calls happen on its own thread, in order. */
-    class Link(private val host: String) {
+    class Link(private val host: String, private val log: (String) -> Unit = {}) {
         private val exec = Executors.newSingleThreadExecutor()
         private var sock: Socket? = null
         private var out: OutputStream? = null
@@ -70,7 +70,7 @@ object MagicHue {
                 val s = Socket(); s.tcpNoDelay = true; s.soTimeout = 1500
                 s.connect(InetSocketAddress(host, PORT), 1500)
                 sock = s; out = s.getOutputStream(); input = s.getInputStream(); true
-            } catch (e: Exception) { close(); false }
+            } catch (e: Exception) { log("Magic Hue: can't connect to $host (${e.javaClass.simpleName}: ${e.message})"); close(); false }
         }
 
         private fun send(vararg b: Int) {
@@ -91,6 +91,7 @@ object MagicHue {
                 if (n >= 9) before = Triple(r[2].toInt() and 0xFF == 0x23, r[3].toInt() and 0xFF, intArrayOf(r[6].toInt() and 0xFF, r[7].toInt() and 0xFF, r[8].toInt() and 0xFF))
             } catch (_: Exception) {}
             send(0x71, 0x23, 0x0F)
+            log("Magic Hue: connected, lights on (were ${if (before?.first == true) "on" else "off"})")
             try { input?.skip(input?.available()?.toLong() ?: 0) } catch (_: Exception) {}
         }
 

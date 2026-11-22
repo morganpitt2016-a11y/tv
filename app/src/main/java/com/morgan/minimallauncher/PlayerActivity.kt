@@ -414,6 +414,7 @@ class PlayerActivity : Activity() {
                 if (passthroughNow) { soundFx?.release(); soundFx = null }
             }
             override fun onRenderedFirstFrame() {
+                if (player?.isPlaying == true || player?.playWhenReady == true) startColourSync()
                 curtain?.let { c -> curtain = null; c.animate().alpha(0f).setDuration(450).withEndAction { (c.parent as? ViewGroup)?.removeView(c) }.start() }
                 // How long from pressing play to the picture (in the TV's timing log).
                 if (firstFrameLogged) return
@@ -640,8 +641,10 @@ class PlayerActivity : Activity() {
     private fun startColourSync() {
         val ip = MagicHue.ip(this)
         if (!MagicHue.syncOn(this) || ip == null) return
-        val sv = view.videoSurfaceView as? android.view.SurfaceView ?: return
-        (colourSync ?: TvColourSync(sv, ip).also { colourSync = it }).start()
+        val sv = view.videoSurfaceView as? android.view.SurfaceView
+        if (sv == null) { Diag.send(this, "lights", "TV Colour Lights: no SurfaceView (${view.videoSurfaceView?.javaClass?.simpleName})"); return }
+        if (colourSync == null) Diag.send(this, "lights", "TV Colour Lights starting → $ip")
+        (colourSync ?: TvColourSync(applicationContext, sv, ip).also { colourSync = it }).start()
     }
 
     override fun onStop() {

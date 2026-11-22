@@ -15,8 +15,9 @@ import kotlin.math.min
  * systems do it (vivid, well-lit areas count most; black bars and dark shadows barely count), smoothed so the room
  * doesn't flicker, and sent to the Magic Hue lights. Dark scenes dim the lights; bright ones lift them.
  */
-class TvColourSync(private val surface: SurfaceView, host: String) {
-    private val link = MagicHue.Link(host)
+class TvColourSync(private val app: android.content.Context, private val surface: SurfaceView, host: String) {
+    private val link = MagicHue.Link(host) { msg -> Diag.send(app, "lights", msg) }
+    private var copies = 0; private var fails = 0
     private val thread = HandlerThread("tv-colour").apply { start() }
     private val bg = Handler(thread.looper)
     private val frame = Bitmap.createBitmap(48, 27, Bitmap.Config.ARGB_8888)
@@ -31,8 +32,11 @@ class TvColourSync(private val surface: SurfaceView, host: String) {
             val holder = surface.holder
             if (holder.surface?.isValid == true && surface.width > 0) {
                 try {
-                    PixelCopy.request(surface, frame, { result -> if (result == PixelCopy.SUCCESS) analyse() }, bg)
-                } catch (_: Exception) {}
+                    PixelCopy.request(surface, frame, { result ->
+                        if (result == PixelCopy.SUCCESS) { copies++; analyse() } else fails++
+                        if (copies + fails == 25) Diag.send(app, "lights", "TV Colour Lights: $copies frames read, $fails failed (code $result), last colour ${sent.joinToString(",")}")
+                    }, bg)
+                } catch (e: Exception) { if (fails++ == 0) Diag.send(app, "lights", "PixelCopy error: ${e.message}") }
             }
             bg.postDelayed(this, 80)
         }
