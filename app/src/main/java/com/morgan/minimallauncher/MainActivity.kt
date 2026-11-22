@@ -44,6 +44,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var scenery: View
     private lateinit var ui: FrameLayout
     private lateinit var clockText: TextView
+    private val wallLights by lazy { WallpaperLights(applicationContext) }
+    private var lastPhoto: android.graphics.Bitmap? = null
     private lateinit var dateText: TextView
     private lateinit var profileSwitch: LinearLayout
     private lateinit var deviceRow: LinearLayout
@@ -125,7 +127,7 @@ class MainActivity : AppCompatActivity() {
         listOf(R.id.photoA, R.id.photoB).forEach { findViewById<ImageView>(it).colorFilter = android.graphics.ColorMatrixColorFilter(grade) }
         setupProfilePill()
         setupDockGlass()
-        rotator.onNewPhoto = { bmp -> updateDockBackdrop(bmp); fitClockTo(bmp)
+        rotator.onNewPhoto = { bmp -> updateDockBackdrop(bmp); fitClockTo(bmp); lastPhoto = bmp; wallLights.show(bmp)
             (clockText as? GlassClockView)?.setBackdrop(bmp, stage.width, stage.height) }
         dateText.letterSpacing = 0.02f
         widgets = HomeWidgets(this, findViewById(R.id.widgetLeft), findViewById(R.id.widgetRight),
@@ -231,6 +233,7 @@ class MainActivity : AppCompatActivity() {
         if (Perf.now() - lastSelfEnable > 30_000L) { lastSelfEnable = Perf.now(); SelfEnable.enableAll(this) }
         handler.post(clockTick)
         rotator.start()
+        lastPhoto?.let { wallLights.show(it) }
         widgets.start()
         refreshAll(onlyIfChanged = true)
         if (!Accounts.needsSetup(this)) Coach.firstRun(this)
@@ -263,6 +266,7 @@ class MainActivity : AppCompatActivity() {
         handler.removeCallbacks(startDimming)
         handler.removeCallbacks(startIdleScreen)
         rotator.stop()
+        wallLights.leave()
         widgets.stop()
         if (::claudePet.isInitialized) claudePet.pause()
         if (::dogPet.isInitialized) dogPet.pause()

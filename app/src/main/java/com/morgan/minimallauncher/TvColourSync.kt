@@ -67,6 +67,7 @@ class TvColourSync(private val app: android.content.Context, private val surface
     fun start() {
         if (running) return
         running = true
+        bg.removeCallbacks(glowTick)
         if (!started) { started = true; if (owns) link.begin(); startedAt = android.os.SystemClock.uptimeMillis() }
         bg.post(tick)
     }
@@ -74,8 +75,23 @@ class TvColourSync(private val app: android.content.Context, private val surface
     /** A 4D Mode moment (see [SoundEvents]). */
     fun impulse(kind: String) = bg.post { if (running) engine.impulse(kind) }
 
-    /** Paused: hold the last colour. */
-    fun pause() { running = false; bg.removeCallbacks(tick) }
+    // Paused by you: the room comes up to a soft warm glow, like a cinema's house lights between reels; pressing
+    // play lets the film's colours drift back in.
+    private val warm = intArrayOf(255, 150, 70)
+    private var glowSteps = 0
+    private val glowTick = object : Runnable {
+        override fun run() {
+            if (running) return
+            engine.glide(warm, 0.32f, 0.06f)
+            if (++glowSteps < 75) bg.postDelayed(this, 33)
+        }
+    }
+
+    /** Paused: hold the last colour - or, when you paused it, glow warm. */
+    fun pause(glow: Boolean = false) {
+        running = false; bg.removeCallbacks(tick); bg.removeCallbacks(glowTick)
+        if (glow && started) { glowSteps = 0; bg.postDelayed(glowTick, 400) }
+    }
 
     /** Leaving the player: the lights go back to how they were. */
     fun stop() {

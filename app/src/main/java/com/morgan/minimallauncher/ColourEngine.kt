@@ -254,6 +254,12 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
         link.colour(o0, o1, o2)
     }
 
+    /** Ease a step towards a set colour and brightness (the paused film's warm house lights). */
+    fun glide(rgb: IntArray, lvl: Float, k: Float) {
+        r += (rgb[0] - r) * k; g += (rgb[1] - g) * k; b += (rgb[2] - b) * k; level += (lvl - level) * k
+        send()
+    }
+
     /** Nothing on screen to follow (paused): ease down towards dark rather than holding the last colour. */
     fun idle() { frame(IntArray(1), 1, 1) }
 }

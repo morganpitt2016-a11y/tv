@@ -134,6 +134,9 @@ object MagicHue {
             exec.shutdown()
         }
 
+        /** Hang up without changing the lights (the next thing to use them carries on from here). */
+        fun hangUp() = exec.execute { close(); exec.shutdown() }
+
         private fun close() {
             try { sock?.close() } catch (_: Exception) {}
             sock = null; out = null; input = null

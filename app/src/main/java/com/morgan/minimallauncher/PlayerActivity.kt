@@ -538,9 +538,9 @@ class PlayerActivity : Activity() {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 // The sound has started: set the sound profile up now, when the real channel layout (stereo, 5.1…) is known.
                 if (isPlaying && fxFor != url) { fxFor = url; startSoundFx() }
-                if (isPlaying) startColourSync() else colourSync?.pause()
-                handler.removeCallbacks(showPause)
                 val pausedByYou = !isPlaying && !atItemEnd && scrubWasPlaying == null && player?.playWhenReady == false && player?.playbackState == Player.STATE_READY
+                if (isPlaying) startColourSync() else colourSync?.pause(glow = pausedByYou && !houseLit)
+                handler.removeCallbacks(showPause)
                 if (pausedByYou) handler.postDelayed(showPause, 1200) else hidePauseInfo()
                 // A new episode (or film) has started: clear any controls left over from the last one.
                 if (isPlaying && hideControlsOnStart) { hideControlsOnStart = false; view.hideController() }
