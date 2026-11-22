@@ -40,7 +40,8 @@ class RemoteServer(private val context: Context) {
 
         fun key(c: Context): String {
             Prefs.string(c, "remote_key")?.let { return it }
-            val k = (1..10).map { "abcdefghjkmnpqrstuvwxyz23456789".random() }.joinToString("")
+            val rnd = java.security.SecureRandom()   // unguessable, not just random-looking
+            val k = (1..16).map { "abcdefghjkmnpqrstuvwxyz23456789".let { a -> a[rnd.nextInt(a.length)] } }.joinToString("")
             Prefs.setString(c, "remote_key", k)
             return k
         }
