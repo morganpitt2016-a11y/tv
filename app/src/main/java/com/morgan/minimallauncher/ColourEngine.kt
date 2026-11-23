@@ -189,7 +189,8 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
         if (prevY.size >= n && counted > 0) {
             var d = 0f; var m = 0
             for (i in 0 until n) if (ys[i] >= 0f && prevY[i] >= 0f) { d += abs(ys[i] - prevY[i]); m++ }
-            val cut = m > 0 && d / m > 0.12f
+            // Read slowly (10-bit films), ordinary movement between reads looks like a cut - only trust it at full rate.
+            val cut = m > 0 && d / m > 0.12f && dt < 150f
             // A new shot: the lights change WITH the cut (a quick ~¼ s crossfade), not drifting in afterwards. Lights
             // falling out of step with the picture is what made Ambilight feel distracting in Philips' own tests.
             if (cut) cutUntil = now + 260
@@ -246,7 +247,9 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
                     accN++; accY += hsv[2]; if (rise > t.rise) flashN++
                 }
             }
-            if (hsv[1] < 0.2f) { neutral += ys[i]; continue }
+            // Murky, washed-out tones (most of a dark film) are neutral - boosting their faint tint just paints the
+            // room an odd teal or green. Only clearly coloured parts of the picture count as colour.
+            if (hsv[1] < 0.3f) { neutral += ys[i]; continue }
             val bin = ((hsv[0] / 20f).toInt()).coerceIn(0, 17)
             // Skin and warm interiors (soft orange) are in nearly every shot - they count for less, so the room isn't
             // orange all film; a real orange sunset or fire is far more saturated and still wins.
@@ -258,7 +261,7 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
         for (k in 1 until 18) if (binW[k] + 0.5 * (binW[(k + 17) % 18] + binW[(k + 1) % 18]) > binW[best] + 0.5 * (binW[(best + 17) % 18] + binW[(best + 1) % 18])) best = k
         var cw = 0.0; var cr = 0.0; var cg = 0.0; var cb = 0.0
         for (k in intArrayOf((best + 17) % 18, best, (best + 1) % 18)) { cw += binW[k]; cr += binR[k]; cg += binG[k]; cb += binB[k] }
-        if (cw > 0 && cw * 2.5 >= neutral * 0.5) richer(cr / cw, cg / cw, cb / cw)
+        if (cw > 0 && cw >= neutral * 0.35) richer(cr / cw, cg / cw, cb / cw)
         else if (wsum > 0) { richer(wr / wsum, wg / wsum, wb / wsum); hsv[1] = min(hsv[1], 0.15f) }
         else { hsv[0] = 0f; hsv[1] = 0f; hsv[2] = 1f }
         val neutralScene = hsv[1] <= 0.15f
@@ -302,7 +305,8 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
         }
 
         // Real brightness: black is black (no glow floor); perceptually spaced so dim scenes still read.
-        var targetLevel = if (bright < 0.018f) 0f else (bright * 1.5f).coerceIn(0f, 1f).pow(0.85f)
+        // Black is black: a dark scene (not just a pure black frame) leaves the room dark.
+        var targetLevel = if (bright < 0.045f) 0f else ((bright - 0.03f) * 1.55f).coerceIn(0f, 1f).pow(0.85f)
 
         // A flash in the picture, or a 4D sound cue: the bright part's colour, full strength, instantly.
         val flash = (hiY - lastHi > t.hiJump && hiY > 0.45f) || bright - lastBright > t.brJump

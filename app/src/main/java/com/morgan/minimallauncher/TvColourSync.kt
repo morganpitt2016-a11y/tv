@@ -98,7 +98,8 @@ class TvColourSync(private val app: android.content.Context, private val surface
     private val soundTick = object : Runnable {
         override fun run() {
             if (!running || !soundOnly) return
-            val target = (0.32f + 0.4f * SoundEvents.loudness + kick).coerceIn(0f, 1f)
+            // Quiet stretches go dark (no glow floor); the soundtrack lifts the room, bangs flash it.
+            val target = (0.6f * (SoundEvents.loudness - 0.15f).coerceAtLeast(0f) + kick).coerceIn(0f, 1f)
             if (++soundTicks % 600 == 0) Diag.send(app, "lights", "following the sound: loudness ${"%.2f".format(SoundEvents.loudness)}, level ${"%.2f".format(engine.level)}, colour ${palette.joinToString(",")}")
             engine.glide(palette, target, if (kick > 0.05f) 0.55f else 0.08f)
             kick *= 0.82f
