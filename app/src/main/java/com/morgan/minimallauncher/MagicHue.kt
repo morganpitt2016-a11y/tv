@@ -87,57 +87,91 @@ object MagicHue {
     interface Sink { fun colour(r: Int, g: Int, b: Int) }
 
     /** A connection to one controller. All calls happen on its own thread, in order. */
+    /**
+     * ONE connection to the controller, shared by everything that drives the lights (films, Cinema Room, wallpaper,
+     * soundscapes, calibration, Lights Down). These controllers jam when connections keep opening and closing on them,
+     * and when commands arrive faster than they can take them - so all of it goes down one line, paced.
+     */
+    private object Line {
+        var host: String? = null
+        var sock: Socket? = null
+        var out: OutputStream? = null
+        var input: InputStream? = null
+        var users = 0
+        var lastSend = 0L
+
+        @Synchronized fun ensure(h: String, log: (String) -> Unit): Boolean {
+            if (host == h && sock?.isConnected == true && sock?.isClosed == false) return true
+            drop()
+            return try {
+                val s = Socket(); s.tcpNoDelay = true; s.soTimeout = 1500
+                s.connect(InetSocketAddress(h, PORT), 1500)
+                host = h; sock = s; out = s.getOutputStream(); input = s.getInputStream(); true
+            } catch (e: Exception) { log("Magic Hue: can't connect to $h (${e.javaClass.simpleName}: ${e.message})"); drop(); false }
+        }
+
+        @Synchronized fun send(b: IntArray) {
+            // No more than ~25 commands a second: faster than that and the controller starts dropping or jamming.
+            val wait = 40L - (android.os.SystemClock.uptimeMillis() - lastSend)
+            if (wait > 0) Thread.sleep(wait)
+            val bytes = ByteArray(b.size + 1)
+            var sum = 0
+            for (i in b.indices) { bytes[i] = b[i].toByte(); sum += b[i] }
+            bytes[b.size] = (sum and 0xFF).toByte()
+            try { out?.write(bytes); out?.flush() } catch (e: Exception) { drop() }
+            lastSend = android.os.SystemClock.uptimeMillis()
+        }
+
+        @Synchronized fun state(): Triple<Boolean, Int, IntArray>? = try {
+            drain()
+            send(intArrayOf(0x81, 0x8A, 0x8B))
+            val r = ByteArray(14); var n = 0
+            while (n < 14) { val k = input!!.read(r, n, 14 - n); if (k < 0) break; n += k }
+            if (n >= 9) Triple(r[2].toInt() and 0xFF == 0x23, r[3].toInt() and 0xFF, intArrayOf(r[6].toInt() and 0xFF, r[7].toInt() and 0xFF, r[8].toInt() and 0xFF)) else null
+        } catch (_: Exception) { null }
+
+        @Synchronized fun drain() { try { val i = input ?: return; while (i.available() > 0) i.skip(i.available().toLong()) } catch (_: Exception) {} }
+
+        @Synchronized fun acquire() { users++ }
+        /** The last user gone: hang up a moment later (unless someone else picks the line up meanwhile). */
+        @Synchronized fun release() {
+            users = (users - 1).coerceAtLeast(0)
+            if (users == 0) Thread { Thread.sleep(3000); synchronized(this) { if (users == 0) drop() } }.start()
+        }
+
+        @Synchronized fun drop() {
+            try { sock?.close() } catch (_: Exception) {}
+            sock = null; out = null; input = null
+        }
+    }
+
     class Link(private val host: String, private val log: (String) -> Unit = {}) : Sink {
         private val exec = Executors.newSingleThreadExecutor()
-        private var sock: Socket? = null
-        private var out: OutputStream? = null
-        private var input: InputStream? = null
         @Volatile private var pending: IntArray? = null
         @Volatile private var busy = false
+        @Volatile private var holding = false
 
         /** How the lights were before we started (on/off and colour), to put them back afterwards. */
         var before: Triple<Boolean, Int, IntArray>? = null
             private set
 
         private fun ensure(): Boolean {
-            if (sock?.isConnected == true && sock?.isClosed == false) return true
-            return try {
-                val s = Socket(); s.tcpNoDelay = true; s.soTimeout = 1500
-                s.connect(InetSocketAddress(host, PORT), 1500)
-                sock = s; out = s.getOutputStream(); input = s.getInputStream(); true
-            } catch (e: Exception) { log("Magic Hue: can't connect to $host (${e.javaClass.simpleName}: ${e.message})"); close(); false }
+            if (!holding) { holding = true; Line.acquire() }
+            return Line.ensure(host, log)
         }
 
-        private fun send(vararg b: Int) {
-            val bytes = ByteArray(b.size + 1)
-            var sum = 0
-            for (i in b.indices) { bytes[i] = b[i].toByte(); sum += b[i] }
-            bytes[b.size] = (sum and 0xFF).toByte()
-            try { out?.write(bytes); out?.flush() } catch (e: Exception) { close() }
-        }
+        private fun send(vararg b: Int) = Line.send(b)
 
         /** Remember the current state, then switch the lights on. */
         fun begin(powerOn: Boolean = true) = exec.execute {
             if (!ensure()) return@execute
-            before = state()
+            before = Line.state()
             // Some controllers (AK001) report on/off unreliably, so just ask for "on" once and carry on.
             if (powerOn) send(0x71, 0x23, 0x0F)
             Thread.sleep(250)
-            drain()
+            Line.drain()
             log("Magic Hue: connected (colour before: ${before?.third?.joinToString(",")})")
         }
-
-        /** On/off, mode and colour as the controller reports them. */
-        private fun state(): Triple<Boolean, Int, IntArray>? = try {
-            drain()
-            send(0x81, 0x8A, 0x8B)
-            val r = ByteArray(14); var n = 0
-            while (n < 14) { val k = input!!.read(r, n, 14 - n); if (k < 0) break; n += k }
-            if (n >= 9) Triple(r[2].toInt() and 0xFF == 0x23, r[3].toInt() and 0xFF, intArrayOf(r[6].toInt() and 0xFF, r[7].toInt() and 0xFF, r[8].toInt() and 0xFF)) else null
-        } catch (_: Exception) { null }
-
-        /** Throw away replies we didn't wait for (the controller answers some commands). */
-        private fun drain() { try { val i = input ?: return; while (i.available() > 0) i.skip(i.available().toLong()) } catch (_: Exception) {} }
 
         /** The next colour to show. Only the newest is sent if the lights fall behind - never a queue of old ones. */
         override fun colour(r: Int, g: Int, b: Int) {
@@ -158,10 +192,10 @@ object MagicHue {
             } } catch (e: java.util.concurrent.RejectedExecutionException) { busy = false }   // hung up meanwhile
         }
 
-        /** Put the lights back to the colour they had, then hang up (on/off is left alone - it can't be trusted). */
         /** You fell asleep watching: when this hangs up, the lights switch off instead of going back as they were. */
         @Volatile var asleep = false
 
+        /** Put the lights back to the colour they had, then hang up (on/off is left alone - it can't be trusted). */
         fun end() = exec.execute {
             val b = before
             if (asleep) { if (ensure()) send(0x71, 0x24, 0x0F) }
@@ -174,9 +208,6 @@ object MagicHue {
         /** Hang up without changing the lights (the next thing to use them carries on from here). */
         fun hangUp() = exec.execute { close(); exec.shutdown() }
 
-        private fun close() {
-            try { sock?.close() } catch (_: Exception) {}
-            sock = null; out = null; input = null
-        }
+        private fun close() { if (holding) { holding = false; Line.release() } }
     }
 }
