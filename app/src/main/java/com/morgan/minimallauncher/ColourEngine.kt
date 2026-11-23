@@ -134,8 +134,8 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
             val sink = object : MagicHue.Sink { var last = intArrayOf(255, 140, 70); override fun colour(r: Int, g: Int, b: Int) { last = intArrayOf(r, g, b) } }
             val e = ColourEngine(sink)
             repeat(40) { e.frame(px, px.size, 32) }
-            val m = max(sink.last[0], max(sink.last[1], sink.last[2])).coerceAtLeast(1)
-            return intArrayOf(sink.last[0] * 255 / m, sink.last[1] * 255 / m, sink.last[2] * 255 / m)
+            // The colour itself, whatever the picture's brightness (a dark poster must still give its colour, not black).
+            return e.fullColour()
         }
 
         private fun y(p: Int) = (0.2126f * ((p shr 16) and 0xFF) + 0.7152f * ((p shr 8) and 0xFF) + 0.0722f * (p and 0xFF)) / 255f
@@ -391,6 +391,15 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
         if (!force && abs(o0 - sent[0]) + abs(o1 - sent[1]) + abs(o2 - sent[2]) < need) return
         sent[0] = o0; sent[1] = o1; sent[2] = o2
         link.colour(o0, o1, o2)
+    }
+
+    /** The current colour at full strength, as the LEDs show it (light, white-balanced). */
+    fun fullColour(): IntArray {
+        val w = wb
+        val c = floatArrayOf(lin(r) * w[0], lin(g) * w[1], lin(b) * w[2])
+        val m = maxOf(c[0], c[1], c[2])
+        if (m < 0.02f) return intArrayOf(255, 190, 140)
+        return IntArray(3) { i -> (c[i] / m * 255f).toInt().coerceIn(0, 255) }
     }
 
     /** Ease a step towards a set colour and brightness (the paused film's warm house lights). */

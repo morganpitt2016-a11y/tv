@@ -110,7 +110,7 @@ class TvColourSync(private val app: android.content.Context, private val surface
     private fun followSoundNow(colour: IntArray?) {
         // [colour] is LED output (light, white-balanced, from ColourEngine.dominant); the engine wants it as a screen
         // colour, so undo both before handing it over.
-        colour?.let { c ->
+        colour?.takeIf { maxOf(it[0], it[1], it[2]) >= 20 }?.let { c ->
             val w = ColourEngine.wb
             val raw = FloatArray(3) { i -> (c[i] / 255f / w[i]).coerceIn(0f, 1f) }
             val m = maxOf(raw[0], raw[1], raw[2]).coerceAtLeast(0.01f)
