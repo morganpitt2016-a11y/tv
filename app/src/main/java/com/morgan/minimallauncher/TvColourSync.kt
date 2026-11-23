@@ -24,7 +24,7 @@ class TvColourSync(private val app: android.content.Context, private val surface
     private val owns = shared == null
     private val link = shared ?: MagicHue.Link(host) { msg -> Diag.send(app, "lights", msg) }
     private val engine = ColourEngine(link, Prefs.int(app, "lights_style", 1).also { ColourEngine.loadWb(app) }).also { e -> seed?.let { e.seed(it, 0.45f) }
-        e.maxLevel = floatArrayOf(0.55f, 0.75f, 0.95f)[Prefs.int(app, "lights_bright", 1).coerceIn(0, 2)] }
+        e.maxLevel = floatArrayOf(0.6f, 0.85f, 1f)[Prefs.int(app, "lights_bright", 1).coerceIn(0, 2)] }
     private val px = IntArray(96 * 54)
     private var copies = 0; private var fails = 0
     private val thread = HandlerThread("tv-colour").apply { start() }
@@ -46,7 +46,7 @@ class TvColourSync(private val app: android.content.Context, private val surface
             try {
                 PixelCopy.request(surface, frame, { result ->
                     if (result == PixelCopy.SUCCESS) { copies++; analyse() } else fails++
-                    if (copies + fails == 150) Diag.send(app, "lights", "TV Colour Lights: $copies frames read in ${(android.os.SystemClock.uptimeMillis() - startedAt) / 1000.0}s, $fails failed")
+                    if (copies + fails == 150 || (copies + fails) % 1800 == 0) Diag.send(app, "lights", "TV Colour Lights: $copies frames read in ${(android.os.SystemClock.uptimeMillis() - startedAt) / 1000.0}s, $fails failed, level ${"%.2f".format(engine.level)}, gentle=$gentle")
                     // The picture always comes first: if reading a frame takes long (the TV is busy), or the video
                     // is heavy (10-bit / HDR / 4K), read less often.
                     val took = android.os.SystemClock.uptimeMillis() - t0
@@ -90,10 +90,12 @@ class TvColourSync(private val app: android.content.Context, private val surface
     @Volatile var soundOnly = false
     private var palette = intArrayOf(255, 214, 180)
     private var kick = 0f
+    private var soundTicks = 0
     private val soundTick = object : Runnable {
         override fun run() {
             if (!running || !soundOnly) return
-            val target = (0.12f + 0.45f * SoundEvents.loudness + kick).coerceIn(0f, 1f)
+            val target = (0.32f + 0.4f * SoundEvents.loudness + kick).coerceIn(0f, 1f)
+            if (++soundTicks % 600 == 0) Diag.send(app, "lights", "following the sound: loudness ${"%.2f".format(SoundEvents.loudness)}, level ${"%.2f".format(engine.level)}, colour ${palette.joinToString(",")}")
             engine.glide(palette, target, if (kick > 0.05f) 0.55f else 0.08f)
             kick *= 0.82f
             bg.postDelayed(this, 50)

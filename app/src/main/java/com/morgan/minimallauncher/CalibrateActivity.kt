@@ -30,7 +30,7 @@ class CalibrateActivity : Activity() {
     }
 
     private fun show() {
-        hint.text = "Make the lights' white match the screen's white\n◀ warmer   ▶ cooler   ▲ greener   ▼ pinker   ·   OK to save   ·   Back to cancel"
+        hint.text = "Make the lights' white match the screen's white  (red ${(wb[0] * 100).toInt()} · green ${(wb[1] * 100).toInt()} · blue ${(wb[2] * 100).toInt()})\n◀ warmer   ▶ cooler   ▲ greener   ▼ pinker   ·   OK to save   ·   Back to cancel   ·   Menu: reset"
         val k = 0.7f * 255f
         link?.colour((k * wb[0]).toInt().coerceIn(0, 255), (k * wb[1]).toInt().coerceIn(0, 255), (k * wb[2]).toInt().coerceIn(0, 255))
     }
@@ -41,14 +41,15 @@ class CalibrateActivity : Activity() {
             KeyEvent.KEYCODE_DPAD_RIGHT -> { wb[2] += 0.03f; wb[0] -= 0.015f }
             KeyEvent.KEYCODE_DPAD_UP -> wb[1] += 0.02f
             KeyEvent.KEYCODE_DPAD_DOWN -> wb[1] -= 0.02f
+            KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_INFO -> { wb[0] = 1f; wb[1] = 0.86f; wb[2] = 0.7f }
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
                 ColourEngine.saveWb(this, wb); GlassUi.toast(this, "Lights calibrated"); finish(); return true
             }
             else -> return super.onKeyDown(keyCode, event)
         }
         // Keep the strongest colour at full so the white stays as bright as it can be.
-        for (i in 0..2) wb[i] = wb[i].coerceIn(0.3f, 1.2f)
-        val m = maxOf(wb[0], wb[1], wb[2]); for (i in 0..2) wb[i] /= m
+        // Small steps within what can still look white: red 70-100 %, green 60-100 %, blue 45-100 %.
+        wb[0] = wb[0].coerceIn(0.7f, 1f); wb[1] = wb[1].coerceIn(0.6f, 1f); wb[2] = wb[2].coerceIn(0.45f, 1f)
         show()
         return true
     }

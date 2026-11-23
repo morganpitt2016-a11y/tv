@@ -111,7 +111,8 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
         @Volatile var wb = floatArrayOf(1f, 0.86f, 0.70f)
         fun loadWb(c: android.content.Context) {
             val s = Prefs.string(c, "lights_wb")?.split(",")?.mapNotNull { it.toFloatOrNull() }
-            if (s != null && s.size == 3) wb = s.toFloatArray()
+            // Kept within what still looks white (a runaway calibration once left the room purple and dark).
+            if (s != null && s.size == 3) wb = floatArrayOf(s[0].coerceIn(0.7f, 1f), s[1].coerceIn(0.6f, 1f), s[2].coerceIn(0.45f, 1f))
         }
         fun saveWb(c: android.content.Context, v: FloatArray) { wb = v.copyOf(); Prefs.setString(c, "lights_wb", v.joinToString(",")) }
 
@@ -372,19 +373,19 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
         // brightness gets the LEDs' own curve so dim scenes are dim and bright ones bright, like the screen.
         // Flashes and cues may use the full strip; everything else stays under the room ceiling.
         val cap = if (punch || SystemClock.uptimeMillis() < whiteUntil) 1f else maxLevel
-        val pwm = min(level, cap).coerceIn(0f, 1f).pow(1.6f) * 255f
+        val pwm = min(level, cap).coerceIn(0f, 1f).pow(1.3f) * 255f
         // Brightness compensation (as in Hyperion): white and yellow light two or three LED colours at once and swamp
         // the room, while a pure red or blue looks dim - so mixed colours are held back to keep every hue equally
         // bright, and saturated colours keep their punch.
         val lr = lin(r); val lg = lin(g); val lb = lin(b)
-        val comp = min(1f, 1.45f / (lr + lg + lb).coerceAtLeast(0.01f))
+        val comp = min(1f, 1.9f / (lr + lg + lb).coerceAtLeast(0.01f))
         // LED white balance (their blue and green run much stronger than their red), so white looks white.
         val w = wb
         var o0 = (lr * comp * w[0] * pwm + 0.5f).toInt().coerceIn(0, 255)
         var o1 = (lg * comp * w[1] * pwm + 0.5f).toInt().coerceIn(0, 255)
         var o2 = (lb * comp * w[2] * pwm + 0.5f).toInt().coerceIn(0, 255)
         // Below a few steps an 8-bit LED can't hold a colour (it jumps between hues): that's black.
-        if (max(o0, max(o1, o2)) < 3) { o0 = 0; o1 = 0; o2 = 0 }
+        if (max(o0, max(o1, o2)) < 2) { o0 = 0; o1 = 0; o2 = 0 }
         // Anti-flicker: in dark scenes a one-step change in one colour is visible as a hue wobble - wait for a real change.
         val need = if (max(o0, max(o1, o2)) < 24) 3 else 2
         if (!force && abs(o0 - sent[0]) + abs(o1 - sent[1]) + abs(o2 - sent[2]) < need) return
