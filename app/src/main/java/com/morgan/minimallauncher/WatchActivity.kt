@@ -612,7 +612,13 @@ class WatchActivity : AppCompatActivity() {
         override fun getItemViewType(position: Int) = if (position >= items.size) 1 else 0
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) = if (viewType == 1) moreCard!!(parent) else create(parent)
         override fun onBindViewHolder(holder: Holder, position: Int) {
-            if (position >= items.size) { holder.root.setOnClickListener { more?.invoke() }; return }
+            if (position >= items.size) {
+                holder.root.setOnClickListener { v ->
+                    Diag.send(v.context, "watch", "See More pressed")
+                    try { more?.invoke() } catch (e: Exception) { Diag.send(v.context, "watch", "See More failed: ${e.javaClass.simpleName}: ${e.message}") }
+                }
+                return
+            }
             holder.root.getTag(R.id.blur_anim)?.let { (it as? TextView)?.text = "${position + 1}" }
             bind(holder, items[position])
         }

@@ -167,7 +167,10 @@ internal fun WatchActivity.openCollection(title: String, sections: List<Triple<S
     val token = newBuild()
     showPlainHero("SEE ALL", title, "Everything, by category.")
     focusFirstLoaded = true
-    for ((key, name, load) in sections) titleRow(token, key, name, quietFail = true, load = load)
+    Diag.send(this, "watch", "See More opened \"$title\" with ${sections.size} sections, apps=${shorts().joinToString(",")}")
+    for ((key, name, load) in sections) titleRow(token, key, name, quietFail = true) { done ->
+        load { l -> if (key == sections.first().first) Diag.send(this, "watch", "See More \"$title\" first section: ${l?.size ?: "failed"} titles"); done(l) }
+    }
 }
 
 internal fun WatchActivity.closeCollection() {
