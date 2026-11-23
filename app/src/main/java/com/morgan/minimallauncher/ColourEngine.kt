@@ -29,9 +29,11 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
     private class Tune(val rise: Float, val pop: Float, val accMin: Int, val flashMin: Int, val confirm: Boolean,
                        val hiJump: Float, val brJump: Float, val up: Float, val down: Float, val drift: Float, val bigDrift: Float, val holdMs: Long)
     private val t = when (style) {
-        0 -> Tune(0.26f, 0.26f, 8, 6, true, 0.36f, 0.20f, 260f, 700f, 900f, 450f, 800L)
-        2 -> Tune(0.12f, 0.18f, 3, 2, false, 0.22f, 0.10f, 80f, 260f, 260f, 120f, 0L)
-        else -> Tune(0.18f, 0.22f, 5, 4, true, 0.30f, 0.16f, 180f, 500f, 600f, 300f, 500L)
+        // In sync with the picture: no holding colours back, and glides short enough to keep up (smoothing times are
+        // "about how long it takes to arrive"). Calm is gentler, Intense tighter.
+        0 -> Tune(0.26f, 0.26f, 8, 6, true, 0.36f, 0.20f, 150f, 350f, 350f, 220f, 0L)
+        2 -> Tune(0.12f, 0.18f, 3, 2, false, 0.22f, 0.10f, 40f, 100f, 90f, 60f, 0L)
+        else -> Tune(0.18f, 0.22f, 5, 4, true, 0.30f, 0.16f, 70f, 160f, 160f, 100f, 0L)
     }
     /**
      * The film's pace, as a multiplier on every glide: the genre sets where it starts (a drama drifts, an action film
@@ -90,6 +92,7 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
         val m = max(rgb[0], max(rgb[1], rgb[2])).coerceAtLeast(1)
         r = rgb[0] * 255f / m; g = rgb[1] * 255f / m; b = rgb[2] * 255f / m
         level = brightness.coerceIn(0f, 1f)
+        gR = r; gG = g; gB = b; gL = level
         lastAt = SystemClock.uptimeMillis()
     }
 
@@ -198,7 +201,7 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
             val a = dt / 45_000f
             cutRate += a * ((if (cut) 60_000f / dt else 0f) - cutRate)
             val dyn = (1.45f - (cutRate - 6f) / 24f * 0.7f).coerceIn(0.75f, 1.45f)
-            pace = (genrePace * dyn).coerceIn(0.7f, 2.2f)
+            pace = (genrePace * dyn).coerceIn(0.8f, 1.3f)
         }
 
         // The brightest tenth of the picture: its colour and brightness (the fireball, the lightning, the lamp).
@@ -342,16 +345,33 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
         val snap = flash || cue || accent || strike2                   // lands on the frame it happens
         // Flashes may go past the ceiling while they last; afterwards the level eases back under it.
         punch = snap || level > maxLevel + 0.02f && punch
-        if (snap) { level = targetLevel; r = tr; g = tg; b = tb; vl = 0f; vr = 0f; vg = 0f; vb = 0f }
+        gR = tr; gG = tg; gB = tb; gL = targetLevel
+        if (snap) { level = targetLevel; r = tr; g = tg; b = tb; vl = 0f; vr = 0f; vg = 0f; vb = 0f; lastStep = now; send() }
         else {
             val onCut = now < cutUntil
-            val sl = if (onCut) 0.09f else when { targetLevel > level -> t.up; targetLevel == 0f -> 200f; else -> t.down } * pace * 1.4f / 1000f
-            level = damp(level, targetLevel, 0, sl, dt / 1000f).coerceIn(0f, 1f)
+            stepL = if (onCut) 0.05f else when { targetLevel > level -> t.up; targetLevel == 0f -> 120f; else -> t.down } * pace / 1000f
             val jump = abs(tr - r) + abs(tg - g) + abs(tb - b)
-            // Within a shot: slow and steady (only real changes in the shot move the room); on a cut: quick.
-            val sc = if (onCut) 0.11f else (if (jump > 150f) t.bigDrift else t.drift) * pace * 1.6f / 1000f
-            r = damp(r, tr, 1, sc, dt / 1000f); g = damp(g, tg, 2, sc, dt / 1000f); b = damp(b, tb, 3, sc, dt / 1000f)
+            stepC = if (onCut) 0.05f else (if (jump > 150f) t.bigDrift else t.drift) * pace / 1000f
+            if (!driven) step()
         }
+    }
+
+    // The glide itself runs separately from the picture reads, ~25 times a second (see [driven]): the light moves
+    // smoothly between reads instead of in steps each time a frame arrives.
+    private var gR = 0f; private var gG = 0f; private var gB = 0f; private var gL = 0f
+    private var stepL = 0.1f; private var stepC = 0.15f
+    private var lastStep = 0L
+    /** True when something calls [step] on a steady beat (TV Colour Lights does); otherwise each frame steps once. */
+    @Volatile var driven = false
+
+    /** Move the light a step towards where the picture says it should be. */
+    fun step() {
+        val now = SystemClock.uptimeMillis()
+        val dt = if (lastStep == 0L) 0.04f else ((now - lastStep).coerceIn(1, 200)) / 1000f
+        lastStep = now
+        if (now < whiteUntil || now < blackUntil) return
+        level = damp(level, gL, 0, stepL, dt).coerceIn(0f, 1f)
+        r = damp(r, gR, 1, stepC, dt); g = damp(g, gG, 2, stepC, dt); b = damp(b, gB, 3, stepC, dt)
         send()
     }
 

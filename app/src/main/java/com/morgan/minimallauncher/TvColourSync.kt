@@ -75,8 +75,19 @@ class TvColourSync(private val app: android.content.Context, private val surface
         if (soundOnly) { if (!started) { started = true; if (owns) link.begin(); startedAt = android.os.SystemClock.uptimeMillis() }; bg.post(soundTick); return }
         val first = !started
         if (!started) { started = true; if (owns) link.begin(); startedAt = android.os.SystemClock.uptimeMillis() }
+        engine.driven = true
+        bg.removeCallbacks(stepTick); bg.post(stepTick)
         // Heavy video: let the film settle in (frame-rate switch, decoder warm-up) before reading its picture.
         if (first && gentle) bg.postDelayed(tick, 4000) else bg.post(tick)
+    }
+
+    // The light's glide, on a steady beat between picture reads (smooth, not stepping each time a frame arrives).
+    private val stepTick = object : Runnable {
+        override fun run() {
+            if (!running || soundOnly) return
+            engine.step()
+            bg.postDelayed(this, 40)
+        }
     }
 
     /** The film's genres set the lights' starting pace and the mood of its neutral scenes. */
@@ -110,7 +121,7 @@ class TvColourSync(private val app: android.content.Context, private val surface
     /** Back to reading the picture (the frame guard is trying again). */
     fun backToPicture() {
         soundOnly = false
-        bg.post { bg.removeCallbacks(soundTick); if (running) { bg.removeCallbacks(tick); bg.post(tick) } }
+        bg.post { bg.removeCallbacks(soundTick); if (running) { bg.removeCallbacks(tick); bg.post(tick); bg.removeCallbacks(stepTick); bg.post(stepTick) } }
     }
 
     /** Stop reading the picture; follow the sound in the film's [colour] instead. */
@@ -157,7 +168,7 @@ class TvColourSync(private val app: android.content.Context, private val surface
 
     /** Paused: hold the last colour - or, when you paused it, glow warm. */
     fun pause(glow: Boolean = false) {
-        running = false; bg.removeCallbacks(tick); bg.removeCallbacks(glowTick); bg.removeCallbacks(soundTick)
+        running = false; bg.removeCallbacks(tick); bg.removeCallbacks(glowTick); bg.removeCallbacks(soundTick); bg.removeCallbacks(stepTick)
         if (glow && started) { glowSteps = 0; bg.postDelayed(glowTick, 400) }
     }
 
