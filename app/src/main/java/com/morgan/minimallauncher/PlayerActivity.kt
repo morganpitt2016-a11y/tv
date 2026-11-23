@@ -524,7 +524,11 @@ class PlayerActivity : Activity() {
             override fun onTracksChanged(tracks: Tracks) {
                 // Match the TV's refresh rate to the film's frame rate (Apple TV's "Match Content"): smooth pans, no judder.
                 tracks.groups.firstOrNull { it.type == C.TRACK_TYPE_VIDEO && it.isSelected }?.let { g ->
-                    (0 until g.length).firstOrNull { g.isTrackSelected(it) }?.let { matchFrameRate(g.getTrackFormat(it).frameRate) }
+                    (0 until g.length).firstOrNull { g.isTrackSelected(it) }?.let {
+                        val fr = g.getTrackFormat(it).frameRate
+                        // Many files don't say their frame rate: measure it from the frames themselves instead.
+                        if (fr > 0f) matchFrameRate(fr) else measureFrameRate()
+                    }
                 }
                 autoSubtitles(tracks)
                 // A new film or episode: the last one's subtitles go.
@@ -1618,6 +1622,33 @@ class PlayerActivity : Activity() {
      * while it switches, as on Apple TV; Back to the menus puts it back to the usual rate.
      */
     private var matchedFps = 0f
+    /** Timestamps of the first frames, to work out a frame rate the file doesn't state (the TV shook at 60 Hz). */
+    private fun measureFrameRate() {
+        val p = player ?: return
+        if (live) return
+        val stamps = java.util.ArrayList<Long>()
+        p.setVideoFrameMetadataListener(object : androidx.media3.exoplayer.video.VideoFrameMetadataListener {
+            override fun onVideoFrameAboutToBeRendered(presentationTimeUs: Long, releaseTimeNs: Long, format: androidx.media3.common.Format, mediaFormat: android.media.MediaFormat?) {
+                synchronized(stamps) {
+                    if (stamps.size >= 90) return
+                    stamps += presentationTimeUs
+                    if (stamps.size < 90) return
+                }
+                val d = synchronized(stamps) { stamps.sorted().zipWithNext { a, b -> b - a }.filter { it in 5_000..100_000 }.sorted() }
+                if (d.size < 30) return
+                val median = d[d.size / 2].toDouble()
+                val raw = (1_000_000.0 / median).toFloat()
+                val standard = floatArrayOf(23.976f, 24f, 25f, 29.97f, 30f, 50f, 59.94f, 60f)
+                val fps = standard.minByOrNull { kotlin.math.abs(it - raw) }!!.takeIf { kotlin.math.abs(it - raw) / it < 0.01f } ?: raw
+                runOnUiThread {
+                    player?.clearVideoFrameMetadataListener(this)
+                    Diag.send(this@PlayerActivity, "player", "frame rate not in the file - measured %.3f fps".format(raw))
+                    matchFrameRate(fps)
+                }
+            }
+        })
+    }
+
     private fun matchFrameRate(fps: Float) {
         if (fps <= 0f || fps == matchedFps || !Prefs.bool(this, "match_frame_rate", true)) return
         matchedFps = fps

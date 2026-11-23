@@ -280,6 +280,7 @@ internal fun WatchActivity.dodgySearchRows(token: Int, query: String) {
  * type - all of it, then by category. Rows keep loading as you move along them.
  */
 internal fun WatchActivity.openProviderPage(p: WatchCatalog.Provider, type: String = providerType) {
+    Diag.send(this, "watch", "See More opened ${p.displayName} (${p.short}) ${type.lowercase()}s")
     if (collectionFrom == null) collectionFrom = tab
     tab = "collection"
     providerType = type
@@ -320,7 +321,7 @@ internal fun WatchActivity.pagedRow(token: Int, key: String, title: String, pack
         WatchCatalog.page(this, packages, types, genres, after = cursor) { list, next, total ->
             loading = false
             if (containerToken[host] != token || isDestroyed) return@page
-            if (list == null) { if (items.isEmpty()) host.removeView(r.view); finished = true; return@page }
+            if (list == null) { if (items.isEmpty()) host.removeView(r.view); finished = true; if (key == "all") Diag.send(this, "watch", "See More page: \"$title\" failed to load"); return@page }
             if (list.isEmpty() && items.isEmpty()) { host.removeView(r.view); finished = true; return@page }
             val first = items.isEmpty()
             items += list
