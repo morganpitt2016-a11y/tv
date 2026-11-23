@@ -23,7 +23,9 @@ class TvColourSync(private val app: android.content.Context, private val surface
     /** A film's Cinema Room already holds the connection (and puts the lights back itself). */
     private val owns = shared == null
     private val link = shared ?: MagicHue.Link(host) { msg -> Diag.send(app, "lights", msg) }
-    private val engine = ColourEngine(link, Prefs.int(app, "lights_style", 1).also { ColourEngine.loadWb(app) }).also { e -> seed?.let { e.seed(it, 0.45f) }
+    private val engine = ColourEngine(link, Prefs.int(app, "lights_style", 1).also { ColourEngine.loadWb(app) }).also { e ->
+        // [seed] is what the strip is showing (LED output): carry on from it as the same colour, not re-converted.
+        seed?.let { ColourEngine.fromLed(it).let { (screen, lvl) -> e.seed(screen, lvl) } }
         e.maxLevel = floatArrayOf(0.6f, 0.85f, 1f)[Prefs.int(app, "lights_bright", 1).coerceIn(0, 2)] }
     private val px = IntArray(96 * 54)
     private var copies = 0; private var fails = 0
@@ -106,11 +108,19 @@ class TvColourSync(private val app: android.content.Context, private val surface
     private var palette = intArrayOf(255, 214, 180)
     private var kick = 0f
     private var soundTicks = 0
+    /** Several real stills from the film: the room moves slowly between their colours (one every ~40 s). */
+    @Volatile private var looks: List<IntArray> = emptyList()
+    private var lookAt = 0L; private var lookI = 0
+    fun stills(colours: List<IntArray>) = bg.post { if (colours.isNotEmpty()) { looks = colours; lookI = 0; lookAt = 0L; palette = colours[0] } }
+
     private val soundTick = object : Runnable {
         override fun run() {
             if (!running || !soundOnly) return
-            // Quiet stretches go dark (no glow floor); the soundtrack lifts the room, bangs flash it.
-            val target = (0.6f * (SoundEvents.loudness - 0.15f).coerceAtLeast(0f) + kick).coerceIn(0f, 1f)
+            val now = android.os.SystemClock.uptimeMillis()
+            if (looks.size > 1 && now - lookAt > 40_000L) { lookAt = now; lookI = (lookI + 1) % looks.size; palette = looks[lookI] }
+            // A steady glow in the film's colours (we can't see how dark the scene is), lifted by the soundtrack when
+            // it's being heard, and flashed by bangs and booms.
+            val target = (0.3f + 0.35f * SoundEvents.loudness + kick).coerceIn(0f, 1f)
             if (++soundTicks % 600 == 0) Diag.send(app, "lights", "following the sound: loudness ${"%.2f".format(SoundEvents.loudness)}, level ${"%.2f".format(engine.level)}, colour ${palette.joinToString(",")}")
             engine.glide(palette, target, if (kick > 0.05f) 0.55f else 0.08f)
             kick *= 0.82f
@@ -130,20 +140,8 @@ class TvColourSync(private val app: android.content.Context, private val surface
         bg.post { followSoundNow(colour) }
     }
     private fun followSoundNow(colour: IntArray?) {
-        // Already read some of the picture? Its colour beats the poster's.
-        if (copies > 10) { palette = engine.screenColour(); bg.removeCallbacks(tick); if (running) { bg.removeCallbacks(soundTick); bg.post(soundTick) }; return }
-        // [colour] is LED output (light, white-balanced, from ColourEngine.dominant); the engine wants it as a screen
-        // colour, so undo both before handing it over.
-        colour?.takeIf { maxOf(it[0], it[1], it[2]) >= 20 }?.let { c ->
-            val w = ColourEngine.wb
-            val raw = FloatArray(3) { i -> (c[i] / 255f / w[i]).coerceIn(0f, 1f) }
-            val m = maxOf(raw[0], raw[1], raw[2]).coerceAtLeast(0.01f)
-            val p = IntArray(3) { i -> (255f * (raw[i] / m).toDouble().pow(1 / 1.8).toFloat()).toInt().coerceIn(0, 255) }
-            // A poster's colour is a hint, not the scene: soften it halfway into the film's mood white, so the room
-            // glows in the film's tone rather than sitting on a raw, saturated poster colour.
-            val tint = engine.neutralTint
-            palette = IntArray(3) { i -> ((p[i] + tint[i]) / 2) }
-        }
+        // [colour] is the film's own colour (a screen colour, from ColourEngine.dominant) - used as it is.
+        colour?.let { palette = it }
         bg.removeCallbacks(tick)
         if (running) { bg.removeCallbacks(soundTick); bg.post(soundTick) }
     }

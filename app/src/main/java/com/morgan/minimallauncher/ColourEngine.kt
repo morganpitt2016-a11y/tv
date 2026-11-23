@@ -56,7 +56,7 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
     private var r = 0f; private var g = 0f; private var b = 0f     // current colour at full strength
     internal var level = 0f                                         // current brightness 0..1
     internal var lastBright = 0f                                    // last scene brightness
-    private var lastHi = 0f                                         // last highlight brightness
+    internal var lastHi = 0f                                        // last highlight brightness
     private var lastAt = 0L
     private val sent = intArrayOf(-1, -1, -1)
     private val hsv = FloatArray(3)
@@ -135,11 +135,34 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
             val small = Bitmap.createScaledBitmap(bmp, 32, 18, true)
             val px = IntArray(32 * 18); small.getPixels(px, 0, 32, 0, 0, 32, 18)
             if (small !== bmp) small.recycle()
-            val sink = object : MagicHue.Sink { var last = intArrayOf(255, 140, 70); override fun colour(r: Int, g: Int, b: Int) { last = intArrayOf(r, g, b) } }
-            val e = ColourEngine(sink)
-            repeat(40) { e.frame(px, px.size, 32) }
-            // The colour itself, whatever the picture's brightness (a dark poster must still give its colour, not black).
-            return e.fullColour()
+            val e = ColourEngine(object : MagicHue.Sink { override fun colour(r: Int, g: Int, b: Int) {} })
+            // One look at the picture, as a scene - not as a "flash" (the first frame used to count as one and give the
+            // colour of its brightest tenth: the title text or the sky - the "stuck blue" and "stuck white").
+            e.lastBright = 1f; e.lastHi = 1f
+            e.frame(px, px.size, 32)
+            val m = maxOf(e.gR, e.gG, e.gB)
+            if (m < 5f) return intArrayOf(255, 214, 180)
+            return intArrayOf((e.gR / m * 255f).toInt(), (e.gG / m * 255f).toInt(), (e.gB / m * 255f).toInt())
+        }
+
+        /** A screen colour at [level] as the strip should be sent it (the same maths as the film lights use). */
+        fun toLed(screen: IntArray, level: Float): IntArray {
+            fun lin(x: Int) = (x / 255f).coerceIn(0f, 1f).pow(1.8f)
+            val lr = lin(screen[0]); val lg = lin(screen[1]); val lb = lin(screen[2])
+            val comp = min(1f, 1.9f / (lr + lg + lb).coerceAtLeast(0.01f))
+            val pwm = level.coerceIn(0f, 1f).pow(1.3f) * 255f
+            val w = wb
+            return intArrayOf((lr * comp * w[0] * pwm).toInt().coerceIn(0, 255), (lg * comp * w[1] * pwm).toInt().coerceIn(0, 255), (lb * comp * w[2] * pwm).toInt().coerceIn(0, 255))
+        }
+
+        /** The other way: what the strip is showing, as a screen colour and level (to carry on from it smoothly). */
+        fun fromLed(led: IntArray): Pair<IntArray, Float> {
+            val w = wb
+            val raw = FloatArray(3) { i -> (led[i] / 255f / w[i]).coerceIn(0f, 1f) }
+            val m = maxOf(raw[0], raw[1], raw[2])
+            if (m < 0.005f) return intArrayOf(255, 214, 180) to 0f
+            val screen = IntArray(3) { i -> (255.0 * (raw[i] / m).toDouble().pow(1 / 1.8)).toInt().coerceIn(0, 255) }
+            return screen to m.toDouble().pow(1 / 1.3).toFloat().coerceIn(0f, 1f)
         }
 
         private fun y(p: Int) = (0.2126f * ((p shr 16) and 0xFF) + 0.7152f * ((p shr 8) and 0xFF) + 0.0722f * (p and 0xFF)) / 255f
@@ -367,7 +390,7 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
 
     // The glide itself runs separately from the picture reads, ~25 times a second (see [driven]): the light moves
     // smoothly between reads instead of in steps each time a frame arrives.
-    private var gR = 0f; private var gG = 0f; private var gB = 0f; private var gL = 0f
+    internal var gR = 0f; internal var gG = 0f; internal var gB = 0f; private var gL = 0f
     private var stepL = 0.1f; private var stepC = 0.15f
     private var lastStep = 0L
     /** True when something calls [step] on a steady beat (TV Colour Lights does); otherwise each frame steps once. */

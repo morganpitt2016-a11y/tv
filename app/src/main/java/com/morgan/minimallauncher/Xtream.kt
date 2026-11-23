@@ -781,6 +781,19 @@ object Xtream {
         return eps.asReversed().firstNotNullOfOrNull { AvBadges.parse(it.optJSONObject("info")) }
     }
 
+    /** Real stills from the film or show (the provider's backdrops), for the lights when the picture can't be read. */
+    fun stills(c: Context, title: String, year: Int, show: Boolean): List<String> {
+        val info = try {
+            if (!show) findVod(c, title, year)?.let { org.json.JSONObject(apiGet(c, "get_vod_info", "&vod_id=${it.id}", 15_000)).optJSONObject("info") }
+            else seriesCandidates(c, title, year).firstOrNull()?.let { org.json.JSONObject(apiGet(c, "get_series_info", "&series_id=${it.id}", 20_000)).optJSONObject("info") }
+        } catch (e: Exception) { null } ?: return emptyList()
+        val out = mutableListOf<String>()
+        info.optJSONArray("backdrop_path")?.let { a -> for (i in 0 until a.length()) a.optString(i).takeIf { it.startsWith("http") }?.let { out += it } }
+        info.optString("backdrop_path").takeIf { it.startsWith("http") }?.let { out += it }
+        listOf("movie_image", "cover_big", "cover").forEach { k -> info.optString(k).takeIf { it.startsWith("http") }?.let { out += it } }
+        return out.distinct().take(10)
+    }
+
     fun findSeries(c: Context, title: String, year: Int): Series? = seriesCandidates(c, title, year).firstOrNull()
 
     /**

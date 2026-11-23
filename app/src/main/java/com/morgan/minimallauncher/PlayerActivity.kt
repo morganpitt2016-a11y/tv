@@ -490,7 +490,7 @@ class PlayerActivity : Activity() {
                 heavyVideo = format.width > 1920 || (format.codecs ?: "").startsWith("hvc1.2") || (format.codecs ?: "").startsWith("hev1.2") || format.colorInfo?.colorTransfer.let { it == androidx.media3.common.C.COLOR_TRANSFER_ST2084 || it == androidx.media3.common.C.COLOR_TRANSFER_HLG }
                 val codecs = format.codecs ?: ""
                 bigHevc = (codecs.startsWith("hvc1") || codecs.startsWith("hev1") || format.sampleMimeType == "video/hevc") && format.width >= 1900
-                colourSync?.gentle = heavyVideo || bigHevc
+                if (heavyVideo || bigHevc) colourSync?.gentle = true
                 // 10-bit / HDR on this Chromecast: the decoder copes, but converting every frame for the screen
                 // through the graphics chip doesn't (~7 dropped frames a second). Tunnelled playback hands the frames
                 // straight to the TV's video layer instead. The picture can't be read then, so the lights hold the
@@ -683,6 +683,7 @@ class PlayerActivity : Activity() {
         liveChannel = if (live) titleText else null
         val p = player ?: newPlayer().also { player = it; view.player = it }   // changing channel reuses the player
         p.stop()
+        if (u != lastStartUrl) { lastStartUrl = u; freshTitle(p) }
         val useTs = live && tsOffFor != u && Prefs.bool(this, "timeshift_on", true) && u.substringBefore('?').endsWith(".ts")
         if (useTs) {
             if (ts?.url != u) { ts?.stop(); ts = Timeshift(applicationContext, u).also { it.start() }; tsStart = 0L }
@@ -798,12 +799,6 @@ class PlayerActivity : Activity() {
             val cs = colourSync
             val nowT = android.os.SystemClock.uptimeMillis()
             if (p != null && !p.isPlaying) settleUntil = nowT + 10_000L
-            // Following the sound because of dropped frames: try the picture again after a while (1, then 3, then 9 min).
-            if (pictureFirst && !tunnelled && cs != null && nowT - pictureFirstAt > pictureRetryMs) {
-                pictureFirst = false; pictureRetryMs *= 3; settleUntil = nowT + 10_000L; recentDrops.clear()
-                cs.backToPicture()
-                Diag.send(this@PlayerActivity, "player", "picture first: trying the picture again on \"$titleText\"")
-            }
             if (p != null && !tunnelled && p.isPlaying && ticks > 8) {
                 val dcnt = p.videoDecoderCounters?.let { it.ensureUpdated(); it.droppedBufferCount } ?: -1
                 if (dcnt >= 0 && nowT < settleUntil) { lastDropCount = dcnt; recentDrops.clear() }
@@ -816,11 +811,11 @@ class PlayerActivity : Activity() {
                     // Reading slowly already: a dropped frame now and then is the TV, not the lights - only act on a lot.
                     if (recentDrops.sumOf { it.second } >= (if (cs?.slowRead == true) 12 else 6)) {
                         recentDrops.clear()
-                        if (cs == null || cs.soundOnly) tunnelNow("still dropping frames on \"$titleText\" ($videoNote)")
-                        else if (cs.gentle && !cs.slowRead) { cs.slowRead = true; Diag.send(this@PlayerActivity, "player", "picture first: frames dropped on \"$titleText\" - lights read ~2½ times a second") }
-                        else if (!cs.gentle) { cs.gentle = true; Diag.send(this@PlayerActivity, "player", "picture first: frames dropped on \"$titleText\" ($videoNote) - lights read more gently") }
-                        else { pictureFirst = true; pictureFirstAt = android.os.SystemClock.uptimeMillis(); cs.followSound(room?.palette ?: posterColour); startColourSync()
-                            Diag.send(this@PlayerActivity, "player", "picture first: still dropping frames on \"$titleText\" - lights now follow the sound") }
+                        // Only ever reads the picture less often - never changes mode or playback mid-film.
+                        if (cs != null && !cs.soundOnly) {
+                            if (!cs.gentle) { cs.gentle = true; Diag.send(this@PlayerActivity, "player", "picture first: frames dropped on \"$titleText\" - lights read ~12 times a second") }
+                            else if (!cs.slowRead) { cs.slowRead = true; Diag.send(this@PlayerActivity, "player", "picture first: still dropping on \"$titleText\" - lights read ~2½ times a second") }
+                        }
                     }
                 }
             }
@@ -844,6 +839,20 @@ class PlayerActivity : Activity() {
         saveProgress()
     }
 
+    private var lastStartUrl: String? = null
+
+    /** A new film, episode or channel: nothing about the last one carries over (tunnelling, lights mode, guard). */
+    private fun freshTitle(p: ExoPlayer) {
+        if (tunnelled) (p.trackSelector as? androidx.media3.exoplayer.trackselection.DefaultTrackSelector)?.let { ts ->
+            ts.setParameters(ts.buildUponParameters().setTunnelingEnabled(false))
+        }
+        tunnelled = false; heavyVideo = false; bigHevc = false; tenBitVideo = false
+        pictureFirst = false; pictureRetryMs = 60_000L; recentDrops.clear(); lastDropCount = -1
+        settleUntil = android.os.SystemClock.uptimeMillis() + 10_000L
+        SoundEvents.loudness = 0f
+        colourSync?.let { cs -> cs.gentle = false; cs.slowRead = false; if (cs.soundOnly) cs.backToPicture() }
+    }
+
     /** Hand the video straight to the TV's video layer (no frame conversion): smooth heavy video, but the picture can
      *  no longer be read, so the lights follow the soundtrack in the film's colour. */
     private fun tunnelNow(why: String) {
@@ -854,7 +863,22 @@ class PlayerActivity : Activity() {
         }
         colourSync?.followSound(room?.palette ?: posterColour)
         if (colourSync == null) room?.hold()
-        Diag.send(this, "player", "$why: tunnelled playback on, lights follow the soundtrack in the film's colour")
+        Diag.send(this, "player", "$why: tunnelled playback on, lights follow the film's stills and soundtrack")
+        loadStills()
+    }
+
+    /** The film's own stills (from the provider), each turned into its scene colour, for the lights to move between. */
+    private fun loadStills() {
+        val name = seriesTitle ?: titleText
+        val year = intent.getStringExtra(EXTRA_SUBTITLE)?.trim()?.toIntOrNull() ?: 0
+        val show = seriesTitle != null
+        val app = applicationContext
+        Bg.run {
+            val urls = try { Xtream.stills(app, name, year, show) } catch (e: Exception) { emptyList() }
+            val colours = urls.mapNotNull { u -> try { ImageLoader.fetch(app, u, ImageLoader.ICON)?.let { ColourEngine.dominant(it) } } catch (e: Exception) { null } }
+            Diag.send(app, "lights", "stills for \"$name\": ${colours.size} of ${urls.size} (${colours.joinToString(" ") { it.joinToString(",") }})")
+            runOnUiThread { if (!isDestroyed && tunnelled) colourSync?.stills(colours) }
+        }
     }
 
     private fun startColourSync() {
@@ -1666,6 +1690,7 @@ class PlayerActivity : Activity() {
             }
             if (best.modeId == cur.modeId) return
             window.attributes = window.attributes.apply { preferredDisplayModeId = best.modeId }
+            settleUntil = android.os.SystemClock.uptimeMillis() + 10_000L
             Diag.send(this, "player", "frame rate %.3f → TV %.3f Hz (was %.2f) · \"%s\"".format(fps, best.refreshRate, cur.refreshRate, titleText))
         } catch (e: Throwable) { Diag.send(this, "player", "frame rate match failed: ${e.message}") }
     }

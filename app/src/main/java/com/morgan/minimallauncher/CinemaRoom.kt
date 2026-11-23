@@ -37,11 +37,12 @@ class CinemaRoom(private val app: Context, host: String) {
     fun begin(artwork: Bitmap?) {
         link.begin()
         artwork?.let { palette = ColourEngine.dominant(it) }
-        bg.postDelayed({
+        // Tagged "fade" so the film's own lights can cancel it when they take over (it used to keep fading underneath).
+        bg.postAtTime({
             // Start from how the lights were (read by begin() on the link's own thread a moment ago).
             link.before?.third?.let { cur = floatArrayOf(it[0].toFloat(), it[1].toFloat(), it[2].toFloat()) }
             fadeTo(scaled(palette, 0.45f), 3000)
-        }, 500)
+        }, "fade", android.os.SystemClock.uptimeMillis() + 500)
         dndWasOn = CinemaMode.setDnd(app, true, "film_dnd_before")
     }
 
@@ -64,7 +65,8 @@ class CinemaRoom(private val app: Context, host: String) {
         thread.quitSafely()
     }
 
-    private fun scaled(c: IntArray, k: Float) = intArrayOf((c[0] * k).toInt(), (c[1] * k).toInt(), (c[2] * k).toInt())
+    // The palette is a screen colour; the strip gets it through the same maths (white balance, LED curve) as the film.
+    private fun scaled(c: IntArray, k: Float) = ColourEngine.toLed(c, k)
 
     /** A smooth glide to [to] over [ms], ~30 steps a second, eased in and out. */
     private fun fadeTo(to: IntArray, ms: Long) {

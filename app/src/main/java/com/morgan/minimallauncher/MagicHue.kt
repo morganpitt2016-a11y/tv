@@ -189,6 +189,8 @@ object MagicHue {
                         send(0x41, c[0], c[1], c[2], 0x00, 0xF0, 0x0F)
                     }
                 } finally { busy = false }
+                // A colour that arrived while we were finishing: send it too (it used to be lost).
+                pending?.let { c -> colour(c[0], c[1], c[2]) }
             } } catch (e: java.util.concurrent.RejectedExecutionException) { busy = false }   // hung up meanwhile
         }
 
