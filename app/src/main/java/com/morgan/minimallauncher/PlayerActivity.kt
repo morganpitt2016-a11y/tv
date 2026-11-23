@@ -46,6 +46,10 @@ class PlayerActivity : Activity() {
     private var lastDropCount = -1
     private val recentDrops = ArrayDeque<Pair<Long, Int>>()
     private var posterColour: IntArray? = null
+    /** Dropped frames right after starting, skipping or resuming are the TV settling in - not the lights' fault. */
+    private var settleUntil = 0L
+    private var pictureFirstAt = 0L
+    private var pictureRetryMs = 60_000L
     /** Talk to the Characters (pause, and the people on screen talk back) - and what's been said so far. */
     private var talk: CharacterTalk? = null
     private val transcript = ArrayList<String>()
@@ -605,7 +609,7 @@ class PlayerActivity : Activity() {
                     Prefs.setInt(this@PlayerActivity, introKey(), (new.positionMs / 1000).toInt())
                 }
                 skippingIntro = false
-                if (reason == Player.DISCONTINUITY_REASON_SEEK) startWatch?.let { handler.removeCallbacks(it) }
+                if (reason == Player.DISCONTINUITY_REASON_SEEK) { startWatch?.let { handler.removeCallbacks(it) }; settleUntil = android.os.SystemClock.uptimeMillis() + 10_000L }
                 if (reason == Player.DISCONTINUITY_REASON_SEEK && atItemEnd && player?.currentMediaItemIndex == 0) atItemEnd = false   // went back into it
             }
             override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -783,9 +787,18 @@ class PlayerActivity : Activity() {
             // Picture first: if reading the picture for the lights costs the film frames, read it more gently; if it
             // still does, stop reading and let the lights follow the sound for the rest of this film.
             val cs = colourSync
+            val nowT = android.os.SystemClock.uptimeMillis()
+            if (p != null && !p.isPlaying) settleUntil = nowT + 10_000L
+            // Following the sound because of dropped frames: try the picture again after a while (1, then 3, then 9 min).
+            if (pictureFirst && !tunnelled && cs != null && nowT - pictureFirstAt > pictureRetryMs) {
+                pictureFirst = false; pictureRetryMs *= 3; settleUntil = nowT + 10_000L; recentDrops.clear()
+                cs.backToPicture()
+                Diag.send(this@PlayerActivity, "player", "picture first: trying the picture again on \"$titleText\"")
+            }
             if (p != null && !tunnelled && p.isPlaying && ticks > 8) {
                 val dcnt = p.videoDecoderCounters?.let { it.ensureUpdated(); it.droppedBufferCount } ?: -1
-                if (dcnt >= 0) {
+                if (dcnt >= 0 && nowT < settleUntil) { lastDropCount = dcnt; recentDrops.clear() }
+                else if (dcnt >= 0) {
                     val d = if (lastDropCount in 0..dcnt) dcnt - lastDropCount else 0
                     lastDropCount = dcnt
                     val now = android.os.SystemClock.uptimeMillis()
@@ -795,7 +808,7 @@ class PlayerActivity : Activity() {
                         recentDrops.clear()
                         if (cs == null || cs.soundOnly) tunnelNow("still dropping frames on \"$titleText\" ($videoNote)")
                         else if (!cs.gentle) { cs.gentle = true; Diag.send(this@PlayerActivity, "player", "picture first: frames dropped on \"$titleText\" ($videoNote) - lights read more gently") }
-                        else { pictureFirst = true; cs.followSound(room?.palette ?: posterColour); startColourSync()
+                        else { pictureFirst = true; pictureFirstAt = android.os.SystemClock.uptimeMillis(); cs.followSound(room?.palette ?: posterColour); startColourSync()
                             Diag.send(this@PlayerActivity, "player", "picture first: still dropping frames on \"$titleText\" - lights now follow the sound") }
                     }
                 }

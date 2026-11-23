@@ -71,8 +71,10 @@ class TvColourSync(private val app: android.content.Context, private val surface
         running = true
         bg.removeCallbacks(glowTick)
         if (soundOnly) { if (!started) { started = true; if (owns) link.begin(); startedAt = android.os.SystemClock.uptimeMillis() }; bg.post(soundTick); return }
+        val first = !started
         if (!started) { started = true; if (owns) link.begin(); startedAt = android.os.SystemClock.uptimeMillis() }
-        bg.post(tick)
+        // Heavy video: let the film settle in (frame-rate switch, decoder warm-up) before reading its picture.
+        if (first && gentle) bg.postDelayed(tick, 4000) else bg.post(tick)
     }
 
     /** The film's genres set the lights' starting pace and the mood of its neutral scenes. */
@@ -100,6 +102,12 @@ class TvColourSync(private val app: android.content.Context, private val surface
             kick *= 0.82f
             bg.postDelayed(this, 50)
         }
+    }
+
+    /** Back to reading the picture (the frame guard is trying again). */
+    fun backToPicture() {
+        soundOnly = false
+        bg.post { bg.removeCallbacks(soundTick); if (running) { bg.removeCallbacks(tick); bg.post(tick) } }
     }
 
     /** Stop reading the picture; follow the sound in the film's [colour] instead. */
