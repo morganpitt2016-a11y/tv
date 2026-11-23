@@ -138,7 +138,11 @@ class TvColourSync(private val app: android.content.Context, private val surface
             val w = ColourEngine.wb
             val raw = FloatArray(3) { i -> (c[i] / 255f / w[i]).coerceIn(0f, 1f) }
             val m = maxOf(raw[0], raw[1], raw[2]).coerceAtLeast(0.01f)
-            palette = IntArray(3) { i -> (255f * (raw[i] / m).toDouble().pow(1 / 1.8).toFloat()).toInt().coerceIn(0, 255) }
+            val p = IntArray(3) { i -> (255f * (raw[i] / m).toDouble().pow(1 / 1.8).toFloat()).toInt().coerceIn(0, 255) }
+            // A poster's colour is a hint, not the scene: soften it halfway into the film's mood white, so the room
+            // glows in the film's tone rather than sitting on a raw, saturated poster colour.
+            val tint = engine.neutralTint
+            palette = IntArray(3) { i -> ((p[i] + tint[i]) / 2) }
         }
         bg.removeCallbacks(tick)
         if (running) { bg.removeCallbacks(soundTick); bg.post(soundTick) }

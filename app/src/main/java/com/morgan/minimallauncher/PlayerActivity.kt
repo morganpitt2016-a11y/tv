@@ -500,7 +500,9 @@ class PlayerActivity : Activity() {
                 val tenBit = codecs.startsWith("hvc1.2") || codecs.startsWith("hev1.2")
                 tenBitVideo = tenBit
                 colourSync?.slowRead = tenBit
-                val needsTunnel = format.width > 1920 || (tenBit && format.width >= 1600) ||
+                // Any 10-bit file: even read 2-3 times a second for the lights it dropped a frame every few seconds
+                // (Percy Jackson, 720p) - the picture comes first, so it plays tunnelled and the lights follow the sound.
+                val needsTunnel = format.width > 1920 || tenBit ||
                     format.colorInfo?.colorTransfer.let { it == androidx.media3.common.C.COLOR_TRANSFER_ST2084 || it == androidx.media3.common.C.COLOR_TRANSFER_HLG }
                 if (needsTunnel && !tunnelled) tunnelNow("heavy video ($videoNote)")
             }
