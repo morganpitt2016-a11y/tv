@@ -39,6 +39,13 @@ class PlayerActivity : Activity() {
     /** 10-bit, HDR or 4K video: the lights read the picture more gently so the decoder never goes short. */
     private var heavyVideo = false
     private var tunnelled = false
+    /** Big HEVC: the lights read the picture gently from the start. */
+    private var bigHevc = false
+    /** Reading the picture cost this film frames: the lights follow the sound instead, for the rest of it. */
+    private var pictureFirst = false
+    private var lastDropCount = -1
+    private val recentDrops = ArrayDeque<Pair<Long, Int>>()
+    private var posterColour: IntArray? = null
     /** Talk to the Characters (pause, and the people on screen talk back) - and what's been said so far. */
     private var talk: CharacterTalk? = null
     private val transcript = ArrayList<String>()
@@ -366,6 +373,13 @@ class PlayerActivity : Activity() {
             else Bg.run { val b = try { ImageLoader.fetch(applicationContext, art, ImageLoader.ICON) } catch (_: Exception) { null }; runOnUiThread { if (room === r) r.begin(b) } }
         }
         handler.postDelayed({ curtain?.let { c -> curtain = null; (c.parent as? ViewGroup)?.removeView(c) } }, 20_000)   // never stuck over the screen
+        // The artwork's main colour: what the lights hold when they follow the sound instead of the picture.
+        if (!live) (Prefs.string(this, "rart_${seriesTitle ?: titleText}") ?: image)?.let { art ->
+            Bg.run {
+                val c = try { ImageLoader.fetch(applicationContext, art, ImageLoader.ICON)?.let { ColourEngine.dominant(it) } } catch (_: Exception) { null }
+                runOnUiThread { posterColour = c }
+            }
+        }
         curSeason = intent.getIntExtra(EXTRA_SEASON, 0); curEpisode = intent.getIntExtra(EXTRA_EPISODE, 0)
         val qu = intent.getStringArrayExtra(EXTRA_Q_URLS); val qs = intent.getIntArrayExtra(EXTRA_Q_S); val qe = intent.getIntArrayExtra(EXTRA_Q_E)
         if (qu != null && qs != null && qe != null) for (i in qu.indices) queue.addLast(Queued(qu[i], qs[i], qe[i]))
@@ -469,7 +483,9 @@ class PlayerActivity : Activity() {
             override fun onVideoInputFormatChanged(eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, format: androidx.media3.common.Format, decoderReuseEvaluation: androidx.media3.exoplayer.DecoderReuseEvaluation?) {
                 videoNote = "${format.width}x${format.height} ${format.sampleMimeType} ${format.codecs ?: ""} ${format.bitrate.takeIf { it > 0 }?.let { "${it / 1000} kbps" } ?: ""}".trim()
                 heavyVideo = format.width > 1920 || (format.codecs ?: "").startsWith("hvc1.2") || (format.codecs ?: "").startsWith("hev1.2") || format.colorInfo?.colorTransfer.let { it == androidx.media3.common.C.COLOR_TRANSFER_ST2084 || it == androidx.media3.common.C.COLOR_TRANSFER_HLG }
-                colourSync?.gentle = heavyVideo
+                val codecs = format.codecs ?: ""
+                bigHevc = (codecs.startsWith("hvc1") || codecs.startsWith("hev1") || format.sampleMimeType == "video/hevc") && format.width >= 1900
+                colourSync?.gentle = heavyVideo || bigHevc
                 // 10-bit / HDR on this Chromecast: the decoder copes, but converting every frame for the screen
                 // through the graphics chip doesn't (~7 dropped frames a second). Tunnelled playback hands the frames
                 // straight to the TV's video layer instead. The picture can't be read then, so the lights hold the
@@ -479,9 +495,9 @@ class PlayerActivity : Activity() {
                     (player?.trackSelector as? androidx.media3.exoplayer.trackselection.DefaultTrackSelector)?.let { ts ->
                         ts.setParameters(ts.buildUponParameters().setTunnelingEnabled(true))
                     }
-                    colourSync?.pause()
-                    room?.hold()
-                    Diag.send(this@PlayerActivity, "player", "heavy video ($videoNote): tunnelled playback on, lights hold the film's colour")
+                    colourSync?.followSound(room?.palette ?: posterColour)
+                    if (colourSync == null) room?.hold()
+                    Diag.send(this@PlayerActivity, "player", "heavy video ($videoNote): tunnelled playback on, lights follow the soundtrack in the film's colour")
                 }
             }
             override fun onAudioDecoderInitialized(eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, decoderName: String, initializedTimestampMs: Long, initializationDurationMs: Long) {
@@ -767,6 +783,25 @@ class PlayerActivity : Activity() {
                 if (show && skipView.visibility != View.VISIBLE) { skipView.alpha = 0f; skipView.visibility = View.VISIBLE; skipView.animate().alpha(1f).setDuration(300).start() }
                 else if (!show && skipView.visibility == View.VISIBLE) skipView.animate().alpha(0f).setDuration(400).withEndAction { skipView.visibility = View.GONE }.start()
             }
+            // Picture first: if reading the picture for the lights costs the film frames, read it more gently; if it
+            // still does, stop reading and let the lights follow the sound for the rest of this film.
+            val cs = colourSync
+            if (p != null && cs != null && !cs.soundOnly && p.isPlaying && ticks > 8) {
+                val dcnt = p.videoDecoderCounters?.let { it.ensureUpdated(); it.droppedBufferCount } ?: -1
+                if (dcnt >= 0) {
+                    val d = if (lastDropCount in 0..dcnt) dcnt - lastDropCount else 0
+                    lastDropCount = dcnt
+                    val now = android.os.SystemClock.uptimeMillis()
+                    if (d > 0) recentDrops.addLast(now to d)
+                    while (recentDrops.isNotEmpty() && now - recentDrops.first().first > 10_000L) recentDrops.removeFirst()
+                    if (recentDrops.sumOf { it.second } >= 6) {
+                        recentDrops.clear()
+                        if (!cs.gentle) { cs.gentle = true; Diag.send(this@PlayerActivity, "player", "picture first: frames dropped on \"$titleText\" ($videoNote) - lights read more gently") }
+                        else { pictureFirst = true; cs.followSound(room?.palette ?: posterColour); startColourSync()
+                            Diag.send(this@PlayerActivity, "player", "picture first: still dropping frames on \"$titleText\" - lights now follow the sound") }
+                    }
+                }
+            }
             if (++ticks % 15 == 0) saveProgress()
             // Let the other TV know what's on here (for its "On the other TV" corner).
             if ((ticks == 5 || ticks % 180 == 0) && player?.isPlaying == true) {
@@ -791,19 +826,23 @@ class PlayerActivity : Activity() {
         val ip = MagicHue.ip(this)
         val r = room
         if (houseLit) return
-        if (tunnelled) { r?.hold(); return }
         // A film without TV Colour Lights: a dim glow in the film's colour stays for the film.
         if (r != null && !MagicHue.syncOn(this)) { r.hold(); return }
-        if (!MagicHue.syncOn(this) || ip == null || !MagicHue.allowed(this)) return
+        if (!MagicHue.syncOn(this) || ip == null || !MagicHue.allowed(this)) { if (tunnelled) r?.hold(); return }
         val sv = view.videoSurfaceView as? android.view.SurfaceView
         if (sv == null) { Diag.send(this, "lights", "TV Colour Lights: no SurfaceView (${view.videoSurfaceView?.javaClass?.simpleName})"); return }
         if (colourSync == null) Diag.send(this, "lights", "TV Colour Lights starting → $ip")
         r?.handOver()
-        // 4D Mode: the room reacts to what it hears - explosions, gunshots, jump scares.
-        SoundEvents.listener = if (!live && Prefs.bool(this, "fourd_mode", true)) { kind -> if (!houseLit) colourSync?.impulse(kind) } else null
-        (colourSync ?: (if (r != null) TvColourSync(applicationContext, sv, ip, shared = r.link, seed = r.current())
-            else TvColourSync(applicationContext, sv, ip)).also { colourSync = it; it.gentle = heavyVideo
-                it.mood(Prefs.string(this, ResumeStore.keyOf("genres", seriesTitle ?: titleText)).orEmpty()) }).start()
+        // 4D Mode: the room reacts to what it hears - explosions, gunshots, jump scares. (When the lights follow the
+        // sound, the soundtrack is listened to even with 4D Mode off - its loudness drives them.)
+        val fourD = !live && Prefs.bool(this, "fourd_mode", true)
+        SoundEvents.listener = if (fourD || tunnelled || pictureFirst) { kind -> if (!houseLit && fourD) colourSync?.impulse(kind) } else null
+        val cs = colourSync ?: (if (r != null) TvColourSync(applicationContext, sv, ip, shared = r.link, seed = r.current())
+            else TvColourSync(applicationContext, sv, ip)).also { colourSync = it; it.gentle = heavyVideo || bigHevc
+                it.mood(Prefs.string(this, ResumeStore.keyOf("genres", seriesTitle ?: titleText)).orEmpty()) }
+        // Tunnelled (10-bit) films can't be read at all, and some films drop frames if they are: follow the sound.
+        if ((tunnelled || pictureFirst) && !cs.soundOnly) cs.followSound(r?.palette ?: posterColour)
+        cs.start()
     }
 
     override fun onStop() {

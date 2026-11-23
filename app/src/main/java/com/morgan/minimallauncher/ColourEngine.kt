@@ -107,6 +107,14 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
             }
         }
 
+        /** The strip's white balance (red, green, blue gains), from Lights Calibration; LEDs run blue-heavy by default. */
+        @Volatile var wb = floatArrayOf(1f, 0.86f, 0.70f)
+        fun loadWb(c: android.content.Context) {
+            val s = Prefs.string(c, "lights_wb")?.split(",")?.mapNotNull { it.toFloatOrNull() }
+            if (s != null && s.size == 3) wb = s.toFloatArray()
+        }
+        fun saveWb(c: android.content.Context, v: FloatArray) { wb = v.copyOf(); Prefs.setString(c, "lights_wb", v.joinToString(",")) }
+
         /** The white a neutral scene takes, by genre (see [neutralTint]). */
         fun tintFor(genres: String): IntArray {
             val g = genres.lowercase()
@@ -371,9 +379,10 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
         val lr = lin(r); val lg = lin(g); val lb = lin(b)
         val comp = min(1f, 1.45f / (lr + lg + lb).coerceAtLeast(0.01f))
         // LED white balance (their blue and green run much stronger than their red), so white looks white.
-        var o0 = (lr * comp * pwm + 0.5f).toInt().coerceIn(0, 255)
-        var o1 = (lg * comp * 0.86f * pwm + 0.5f).toInt().coerceIn(0, 255)
-        var o2 = (lb * comp * 0.70f * pwm + 0.5f).toInt().coerceIn(0, 255)
+        val w = wb
+        var o0 = (lr * comp * w[0] * pwm + 0.5f).toInt().coerceIn(0, 255)
+        var o1 = (lg * comp * w[1] * pwm + 0.5f).toInt().coerceIn(0, 255)
+        var o2 = (lb * comp * w[2] * pwm + 0.5f).toInt().coerceIn(0, 255)
         // Below a few steps an 8-bit LED can't hold a colour (it jumps between hues): that's black.
         if (max(o0, max(o1, o2)) < 3) { o0 = 0; o1 = 0; o2 = 0 }
         // Anti-flicker: in dark scenes a one-step change in one colour is visible as a hue wobble - wait for a real change.

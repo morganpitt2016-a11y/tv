@@ -125,7 +125,7 @@ object Soundscape {
                     else -> { val lv = 0.08f + 0.5f * waveEnv; floatArrayOf(25f * lv, 150f * lv, 185f * lv) }
                 }
                 evEnergy *= 0.4f
-                link.colour((c[0] * fade).toInt().coerceIn(0, 255), (c[1] * 0.86f * fade).toInt().coerceIn(0, 255), (c[2] * 0.7f * fade).toInt().coerceIn(0, 255))
+                link.colour((c[0] * ColourEngine.wb[0] * fade).toInt().coerceIn(0, 255), (c[1] * ColourEngine.wb[1] * fade).toInt().coerceIn(0, 255), (c[2] * ColourEngine.wb[2] * fade).toInt().coerceIn(0, 255))
             }
             if (stopping && fade <= 0f) break
             if (!stopping && thread !== Thread.currentThread()) break

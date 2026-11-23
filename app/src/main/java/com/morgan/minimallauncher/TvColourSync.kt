@@ -8,6 +8,7 @@ import android.view.PixelCopy
 import android.view.SurfaceView
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.pow
 
 /**
  * TV Colour Lights: about 30 times a second, a tiny copy of the picture playing in the launcher's player is read
@@ -22,7 +23,7 @@ class TvColourSync(private val app: android.content.Context, private val surface
     /** A film's Cinema Room already holds the connection (and puts the lights back itself). */
     private val owns = shared == null
     private val link = shared ?: MagicHue.Link(host) { msg -> Diag.send(app, "lights", msg) }
-    private val engine = ColourEngine(link, Prefs.int(app, "lights_style", 1)).also { e -> seed?.let { e.seed(it, 0.45f) }
+    private val engine = ColourEngine(link, Prefs.int(app, "lights_style", 1).also { ColourEngine.loadWb(app) }).also { e -> seed?.let { e.seed(it, 0.45f) }
         e.maxLevel = floatArrayOf(0.55f, 0.75f, 0.95f)[Prefs.int(app, "lights_bright", 1).coerceIn(0, 2)] }
     private val px = IntArray(96 * 54)
     private var copies = 0; private var fails = 0
@@ -38,7 +39,7 @@ class TvColourSync(private val app: android.content.Context, private val surface
     // (never piling up), aiming for one every FRAME_MS.
     private val tick = object : Runnable {
         override fun run() {
-            if (!running) return
+            if (!running || soundOnly) return
             val holder = surface.holder
             if (holder.surface?.isValid != true || surface.width <= 0) { bg.postDelayed(this, 200); return }
             val t0 = android.os.SystemClock.uptimeMillis()
@@ -69,6 +70,7 @@ class TvColourSync(private val app: android.content.Context, private val surface
         if (running) return
         running = true
         bg.removeCallbacks(glowTick)
+        if (soundOnly) { if (!started) { started = true; if (owns) link.begin(); startedAt = android.os.SystemClock.uptimeMillis() }; bg.post(soundTick); return }
         if (!started) { started = true; if (owns) link.begin(); startedAt = android.os.SystemClock.uptimeMillis() }
         bg.post(tick)
     }
@@ -77,7 +79,44 @@ class TvColourSync(private val app: android.content.Context, private val surface
     fun mood(genres: String) { bg.post { engine.genrePace = ColourEngine.paceFor(genres); engine.neutralTint = ColourEngine.tintFor(genres) } }
 
     /** A 4D Mode moment (see [SoundEvents]). */
-    fun impulse(kind: String) = bg.post { if (running) engine.impulse(kind) }
+    fun impulse(kind: String) = bg.post {
+        if (!running) return@post
+        if (soundOnly) kick = max(kick, when (kind) { "boom" -> 0.6f; "scare" -> 0.9f; else -> 0.35f }) else engine.impulse(kind)
+    }
+
+    // ---------- When the picture can't be read (tunnelled 10-bit films, or reading it would cost the film frames) ----
+    // The lights hold the film's colour and breathe with its soundtrack: louder scenes lift the room, quiet ones let it
+    // settle, and bangs and booms flash it.
+    @Volatile var soundOnly = false
+    private var palette = intArrayOf(255, 214, 180)
+    private var kick = 0f
+    private val soundTick = object : Runnable {
+        override fun run() {
+            if (!running || !soundOnly) return
+            val target = (0.12f + 0.45f * SoundEvents.loudness + kick).coerceIn(0f, 1f)
+            engine.glide(palette, target, if (kick > 0.05f) 0.55f else 0.08f)
+            kick *= 0.82f
+            bg.postDelayed(this, 50)
+        }
+    }
+
+    /** Stop reading the picture; follow the sound in the film's [colour] instead. */
+    fun followSound(colour: IntArray?) {
+        soundOnly = true
+        bg.post { followSoundNow(colour) }
+    }
+    private fun followSoundNow(colour: IntArray?) {
+        // [colour] is LED output (light, white-balanced, from ColourEngine.dominant); the engine wants it as a screen
+        // colour, so undo both before handing it over.
+        colour?.let { c ->
+            val w = ColourEngine.wb
+            val raw = FloatArray(3) { i -> (c[i] / 255f / w[i]).coerceIn(0f, 1f) }
+            val m = maxOf(raw[0], raw[1], raw[2]).coerceAtLeast(0.01f)
+            palette = IntArray(3) { i -> (255f * (raw[i] / m).toDouble().pow(1 / 1.8).toFloat()).toInt().coerceIn(0, 255) }
+        }
+        bg.removeCallbacks(tick)
+        if (running) { bg.removeCallbacks(soundTick); bg.post(soundTick) }
+    }
 
     // Paused by you: the room comes up to a soft warm glow, like a cinema's house lights between reels; pressing
     // play lets the film's colours drift back in.
@@ -103,7 +142,7 @@ class TvColourSync(private val app: android.content.Context, private val surface
 
     /** Paused: hold the last colour - or, when you paused it, glow warm. */
     fun pause(glow: Boolean = false) {
-        running = false; bg.removeCallbacks(tick); bg.removeCallbacks(glowTick)
+        running = false; bg.removeCallbacks(tick); bg.removeCallbacks(glowTick); bg.removeCallbacks(soundTick)
         if (glow && started) { glowSteps = 0; bg.postDelayed(glowTick, 400) }
     }
 

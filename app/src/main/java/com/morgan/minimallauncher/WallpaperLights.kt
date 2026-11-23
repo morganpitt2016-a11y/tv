@@ -26,7 +26,8 @@ class WallpaperLights(private val c: Context) {
             val col = try { ColourEngine.dominant(bmp) } catch (e: Exception) { return@run }
             // Calm and dim enough to sit behind a home screen: about 40%, white-balanced for the strip.
             val m = max(col[0], max(col[1], col[2])).coerceAtLeast(1)
-            val t = intArrayOf(col[0] * 102 / m, col[1] * 102 * 86 / 100 / m, col[2] * 102 * 70 / 100 / m)
+            // (dominant() already includes the strip's white balance)
+            val t = intArrayOf(col[0] * 102 / m, col[1] * 102 / m, col[2] * 102 / m)
             val l = synchronized(this) { if (my != gen) return@run; link ?: MagicHue.Link(ip).also { it.begin(); link = it } }
             target = t
             if (cur[0] < 0) { l.before?.third?.let { b -> cur[0] = b[0].toFloat(); cur[1] = b[1].toFloat(); cur[2] = b[2].toFloat() } ?: run { cur[0] = t[0].toFloat(); cur[1] = t[1].toFloat(); cur[2] = t[2].toFloat() } }

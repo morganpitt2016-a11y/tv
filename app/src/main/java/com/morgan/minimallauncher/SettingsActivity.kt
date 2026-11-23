@@ -319,6 +319,7 @@ class SettingsActivity : AppCompatActivity() {
                 else { Prefs.setBool(this, "cinema_room", !Prefs.bool(this, "cinema_room", true)); refreshValues() }
             }
             vrow("Wallpaper Lights", { onOff(Prefs.bool(this, "wallpaper_lights", true)) }) { Prefs.setBool(this, "wallpaper_lights", !Prefs.bool(this, "wallpaper_lights", true)); refreshValues() }
+            vrow("Calibrate Lights", { "" }, chevron = true) { startActivity(android.content.Intent(this, CalibrateActivity::class.java)) }
             vrow("Lights Brightness", { arrayOf("Low", "Medium", "High")[Prefs.int(this, "lights_bright", 1).coerceIn(0, 2)] }) {
                 Prefs.setInt(this, "lights_bright", (Prefs.int(this, "lights_bright", 1) + 1) % 3); refreshValues()
             }
@@ -334,6 +335,7 @@ class SettingsActivity : AppCompatActivity() {
         footnote("Wallpaper Lights: on the home screen the room slowly takes on the colours of the photo showing. Pausing a film brings the lights up to a soft warm glow; pressing play lets the film's colours back in.")
         footnote("Our Subtitles: when a film or episode has no subtitles in its file, the TV finds some - from this TV, then your shared subtitle library (every TV adds what it finds, so each title is only fetched once), then OpenSubtitles.com (free). Matched to the exact file where possible; Subtitles Earlier / Later in the subtitle menu fine-tunes the timing.")
         footnote("Auto Subtitles: when music or explosions drown out the voices (in 5.1 films and shows with subtitles), the subtitles appear for that line, then fade away. Night Sound: from 10 pm to 7 am loud bangs are evened out and quiet voices lifted. Still Watching?: late at night, after 90 minutes with nothing pressed, the TV checks - if you've nodded off, sound and lights fade over a minute, it pauses where you were, and the lights switch off.")
+        footnote("Calibrate Lights: the screen turns white and the lights show their white beside it - make them match with the remote (the wall's paint and the strip itself tint the light). Films the TV can't read the picture of (10-bit, or ones that would drop frames) get lights that follow the soundtrack in the film's colour instead.")
         footnote("Lights Down: in Night Mode and Cinema Mode the Magic Hue lights switch off and the Govee strip drops to its lowest glow; they come back as they were when both are off.")
         footnote("Lights Style: Calm drifts gently and only reacts to big moments; Balanced follows the film and catches flashes like police lights; Intense reacts to every flicker.")
         footnote("Cinema Room: when a film starts the lights glide into its colours under a \"Now Showing\" card, notifications go quiet, and at the credits the house lights come up - then everything goes back as it was.")

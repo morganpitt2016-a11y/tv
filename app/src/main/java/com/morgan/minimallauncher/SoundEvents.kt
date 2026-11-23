@@ -21,6 +21,8 @@ object SoundEvents {
     @Volatile var tension = 0f
     /** Steady hiss across the top of the sound for a few seconds - rain (or a storm) in the scene. */
     @Volatile var rain = false
+    /** 0..1: how loud the film is right now (~½ s), for lights that follow the sound when the picture can't be read. */
+    @Volatile var loudness = 0f
     private var aHi = 0f; private var hiLow = 0f; private var hiP = 0f; private var aHiP = 0f
     private var quietFor = 0f; private var rainFor = 0f; private var hiSlow = 0f
 
@@ -77,6 +79,7 @@ object SoundEvents {
         val f = db(fast); val s = db(slow); val q = db(quiet)
         val lf = db(lowFast); val ls = db(lowSlow)
         val dt = 240f / rate
+        loudness = ((s + 50f) / 40f).coerceIn(0f, 1f)
         // Suspense: quiet and steady for a while (no sudden sounds) - builds over ~20 s, gone the moment it's loud.
         if (s < -36f && f - s < 6f) quietFor += dt else if (f > -22f || f - s > 9f) quietFor = 0f
         tension = ((quietFor - 4f) / 20f).coerceIn(0f, 1f)
