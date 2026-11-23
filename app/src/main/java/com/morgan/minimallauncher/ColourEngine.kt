@@ -33,7 +33,7 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
         // "about how long it takes to arrive"). Calm is gentler, Intense tighter.
         0 -> Tune(0.26f, 0.26f, 8, 6, true, 0.36f, 0.20f, 150f, 350f, 350f, 220f, 0L)
         2 -> Tune(0.12f, 0.18f, 3, 2, false, 0.22f, 0.10f, 40f, 100f, 90f, 60f, 0L)
-        else -> Tune(0.18f, 0.22f, 5, 4, true, 0.30f, 0.16f, 70f, 160f, 160f, 100f, 0L)
+        else -> Tune(0.20f, 0.24f, 6, 5, true, 0.30f, 0.16f, 110f, 260f, 280f, 160f, 0L)
     }
     /**
      * The film's pace, as a multiplier on every glide: the genre sets where it starts (a drama drifts, an action film
@@ -73,6 +73,7 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
     private var vr = 0f; private var vg = 0f; private var vb = 0f; private var vl = 0f
     // Light from the picture's edges spills onto the wall around the TV, so the edges count a bit more (Ambilight).
     private var edgeW = FloatArray(0); private var edgeFor = 0
+    private val binN = IntArray(18); private var litN = 0
     private val binW = DoubleArray(18); private val binR = DoubleArray(18); private val binG = DoubleArray(18); private val binB = DoubleArray(18)
 
     // 4D Mode: while a sound cue's window is open, the lights follow the frame's brightest part at full strength.
@@ -230,12 +231,14 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
             hsv[2] = 1f
         }
         java.util.Arrays.fill(binW, 0.0); java.util.Arrays.fill(binR, 0.0); java.util.Arrays.fill(binG, 0.0); java.util.Arrays.fill(binB, 0.0)
+        java.util.Arrays.fill(binN, 0); litN = 0
         var neutral = 0.0
         java.util.Arrays.fill(accW, 0.0); java.util.Arrays.fill(accR, 0.0); java.util.Arrays.fill(accG, 0.0); java.util.Arrays.fill(accB, 0.0)
         var accN = 0; var flashN = 0; var accY = 0f
         val havePrev = prevY.size >= n
         for (i in 0 until n) {
             if (ys[i] < 0.04f) continue
+            litN++
             val p = px[i]
             val pr = (p shr 16) and 0xFF; val pg = (p shr 8) and 0xFF; val pb = p and 0xFF
             Color.RGBToHSV(pr, pg, pb, hsv)
@@ -258,13 +261,17 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
             // orange all film; a real orange sunset or fire is far more saturated and still wins.
             val skin = hsv[0] in 5f..45f && hsv[1] < 0.55f
             val wgt = (hsv[1] * hsv[2] * ew(i) * (if (skin) 0.35f else 1f)).toDouble()
-            binW[bin] += wgt; binR[bin] += pr * wgt; binG[bin] += pg * wgt; binB[bin] += pb * wgt
+            binW[bin] += wgt; binR[bin] += pr * wgt; binG[bin] += pg * wgt; binB[bin] += pb * wgt; binN[bin]++
         }
         var best = 0
         for (k in 1 until 18) if (binW[k] + 0.5 * (binW[(k + 17) % 18] + binW[(k + 1) % 18]) > binW[best] + 0.5 * (binW[(best + 17) % 18] + binW[(best + 1) % 18])) best = k
         var cw = 0.0; var cr = 0.0; var cg = 0.0; var cb = 0.0
         for (k in intArrayOf((best + 17) % 18, best, (best + 1) % 18)) { cw += binW[k]; cr += binR[k]; cg += binG[k]; cb += binB[k] }
-        if (cw > 0 && cw >= neutral * 0.35) richer(cr / cw, cg / cw, cb / cw)
+        // How much of the lit picture that colour covers: a red costume filling the frame makes a red room; a small red
+        // thing in the corner only tints it. (One strip can't show several colours, but it can show them in proportion.)
+        val cover = if (litN > 0) (binN[(best + 17) % 18] + binN[best] + binN[(best + 1) % 18]).toFloat() / litN else 0f
+        val coverK = ((cover - 0.06f) / 0.34f).coerceIn(0f, 1f).let { it * it * (3 - 2 * it) }
+        if (cw > 0 && cw >= neutral * 0.35 && coverK > 0f) { richer(cr / cw, cg / cw, cb / cw); hsv[1] *= coverK }
         else if (wsum > 0) { richer(wr / wsum, wg / wsum, wb / wsum); hsv[1] = min(hsv[1], 0.15f) }
         else { hsv[0] = 0f; hsv[1] = 0f; hsv[2] = 1f }
         val neutralScene = hsv[1] <= 0.15f
@@ -277,7 +284,9 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
         // pulses, then hands back to the scene when it stops (the car's driven off).
         var accent = false
         var ab = -10
-        if (accN >= t.accMin && flashN >= t.flashMin && accN < counted / 3) {
+        // Flashing lights only count in darker scenes (police lights at night, muzzle flashes) - in a normal lit scene
+        // bright colourful things moving about aren't flashes, and chasing them made the room flicker.
+        if (bright < 0.28f && accN >= t.accMin && flashN >= t.flashMin && accN < counted / 3) {
             ab = 0
             for (k in 1 until 18) if (accW[k] + 0.5 * (accW[(k + 17) % 18] + accW[(k + 1) % 18]) > accW[ab] + 0.5 * (accW[(ab + 17) % 18] + accW[(ab + 1) % 18])) ab = k
         }
@@ -349,9 +358,9 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
         if (snap) { level = targetLevel; r = tr; g = tg; b = tb; vl = 0f; vr = 0f; vg = 0f; vb = 0f; lastStep = now; send() }
         else {
             val onCut = now < cutUntil
-            stepL = if (onCut) 0.05f else when { targetLevel > level -> t.up; targetLevel == 0f -> 120f; else -> t.down } * pace / 1000f
+            stepL = if (onCut) 0.09f else when { targetLevel > level -> t.up; targetLevel == 0f -> 120f; else -> t.down } * pace / 1000f
             val jump = abs(tr - r) + abs(tg - g) + abs(tb - b)
-            stepC = if (onCut) 0.05f else (if (jump > 150f) t.bigDrift else t.drift) * pace / 1000f
+            stepC = if (onCut) 0.1f else (if (jump > 150f) t.bigDrift else t.drift) * pace / 1000f
             if (!driven) step()
         }
     }
