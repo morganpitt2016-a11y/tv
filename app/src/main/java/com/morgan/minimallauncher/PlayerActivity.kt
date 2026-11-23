@@ -490,15 +490,12 @@ class PlayerActivity : Activity() {
                 // through the graphics chip doesn't (~7 dropped frames a second). Tunnelled playback hands the frames
                 // straight to the TV's video layer instead. The picture can't be read then, so the lights hold the
                 // film's colour (and 4D still reacts to the sound).
-                if (heavyVideo && !tunnelled) {
-                    tunnelled = true
-                    (player?.trackSelector as? androidx.media3.exoplayer.trackselection.DefaultTrackSelector)?.let { ts ->
-                        ts.setParameters(ts.buildUponParameters().setTunnelingEnabled(true))
-                    }
-                    colourSync?.followSound(room?.palette ?: posterColour)
-                    if (colourSync == null) room?.hold()
-                    Diag.send(this@PlayerActivity, "player", "heavy video ($videoNote): tunnelled playback on, lights follow the soundtrack in the film's colour")
-                }
+                // Only big 10-bit (1080p and up), HDR or 4K needs it - a 720p 10-bit film plays fine normally, so the lights
+                // can still follow its picture (and the frame guard below tunnels it later if it ever can't keep up).
+                val tenBit = codecs.startsWith("hvc1.2") || codecs.startsWith("hev1.2")
+                val needsTunnel = format.width > 1920 || (tenBit && format.width >= 1600) ||
+                    format.colorInfo?.colorTransfer.let { it == androidx.media3.common.C.COLOR_TRANSFER_ST2084 || it == androidx.media3.common.C.COLOR_TRANSFER_HLG }
+                if (needsTunnel && !tunnelled) tunnelNow("heavy video ($videoNote)")
             }
             override fun onAudioDecoderInitialized(eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, decoderName: String, initializedTimestampMs: Long, initializationDurationMs: Long) {
                 Diag.send(this@PlayerActivity, "player", "audio decoder $decoderName ready in ${initializationDurationMs} ms · \"$titleText\"")
@@ -786,7 +783,7 @@ class PlayerActivity : Activity() {
             // Picture first: if reading the picture for the lights costs the film frames, read it more gently; if it
             // still does, stop reading and let the lights follow the sound for the rest of this film.
             val cs = colourSync
-            if (p != null && cs != null && !cs.soundOnly && p.isPlaying && ticks > 8) {
+            if (p != null && !tunnelled && p.isPlaying && ticks > 8) {
                 val dcnt = p.videoDecoderCounters?.let { it.ensureUpdated(); it.droppedBufferCount } ?: -1
                 if (dcnt >= 0) {
                     val d = if (lastDropCount in 0..dcnt) dcnt - lastDropCount else 0
@@ -796,7 +793,8 @@ class PlayerActivity : Activity() {
                     while (recentDrops.isNotEmpty() && now - recentDrops.first().first > 10_000L) recentDrops.removeFirst()
                     if (recentDrops.sumOf { it.second } >= 6) {
                         recentDrops.clear()
-                        if (!cs.gentle) { cs.gentle = true; Diag.send(this@PlayerActivity, "player", "picture first: frames dropped on \"$titleText\" ($videoNote) - lights read more gently") }
+                        if (cs == null || cs.soundOnly) tunnelNow("still dropping frames on \"$titleText\" ($videoNote)")
+                        else if (!cs.gentle) { cs.gentle = true; Diag.send(this@PlayerActivity, "player", "picture first: frames dropped on \"$titleText\" ($videoNote) - lights read more gently") }
                         else { pictureFirst = true; cs.followSound(room?.palette ?: posterColour); startColourSync()
                             Diag.send(this@PlayerActivity, "player", "picture first: still dropping frames on \"$titleText\" - lights now follow the sound") }
                     }
@@ -820,6 +818,19 @@ class PlayerActivity : Activity() {
     override fun onPause() {
         super.onPause()
         saveProgress()
+    }
+
+    /** Hand the video straight to the TV's video layer (no frame conversion): smooth heavy video, but the picture can
+     *  no longer be read, so the lights follow the soundtrack in the film's colour. */
+    private fun tunnelNow(why: String) {
+        if (tunnelled) return
+        tunnelled = true
+        (player?.trackSelector as? androidx.media3.exoplayer.trackselection.DefaultTrackSelector)?.let { ts ->
+            ts.setParameters(ts.buildUponParameters().setTunnelingEnabled(true))
+        }
+        colourSync?.followSound(room?.palette ?: posterColour)
+        if (colourSync == null) room?.hold()
+        Diag.send(this, "player", "$why: tunnelled playback on, lights follow the soundtrack in the film's colour")
     }
 
     private fun startColourSync() {
