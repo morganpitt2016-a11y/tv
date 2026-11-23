@@ -794,7 +794,7 @@ class PlayerActivity : Activity() {
         if (tunnelled) { r?.hold(); return }
         // A film without TV Colour Lights: a dim glow in the film's colour stays for the film.
         if (r != null && !MagicHue.syncOn(this)) { r.hold(); return }
-        if (!MagicHue.syncOn(this) || ip == null) return
+        if (!MagicHue.syncOn(this) || ip == null || !MagicHue.allowed(this)) return
         val sv = view.videoSurfaceView as? android.view.SurfaceView
         if (sv == null) { Diag.send(this, "lights", "TV Colour Lights: no SurfaceView (${view.videoSurfaceView?.javaClass?.simpleName})"); return }
         if (colourSync == null) Diag.send(this, "lights", "TV Colour Lights starting → $ip")

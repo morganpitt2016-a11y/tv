@@ -44,7 +44,7 @@ object Prefs {
 
     // Cinema
     fun cinemaApp(c: Context) = string(c, "cinema_app")
-    fun cinemaLights(c: Context) = bool(c, "cinema_lights", false)
+    fun cinemaLights(c: Context) = bool(c, "cinema_lights", true)
     fun cinemaDnd(c: Context) = bool(c, "cinema_dnd", true)
     fun cinemaOn(c: Context) = bool(c, "cinema_on", false)
 }

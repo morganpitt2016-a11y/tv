@@ -19,7 +19,7 @@ import android.os.HandlerThread
  */
 class CinemaRoom(private val app: Context, host: String) {
     companion object {
-        fun enabled(c: Context) = MagicHue.ip(c) != null && Prefs.bool(c, "cinema_room", true)
+        fun enabled(c: Context) = MagicHue.ip(c) != null && Prefs.bool(c, "cinema_room", true) && MagicHue.allowed(c)
         private val HOUSE = intArrayOf(255, 170, 95)      // warm white, as the LEDs show it
     }
 

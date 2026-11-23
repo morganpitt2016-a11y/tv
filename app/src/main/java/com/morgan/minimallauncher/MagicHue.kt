@@ -26,6 +26,38 @@ object MagicHue {
     fun ip(c: Context): String? = Prefs.string(c, KEY_IP)
     fun setIp(c: Context, ip: String?) = Prefs.setString(c, KEY_IP, ip)
     fun syncOn(c: Context) = Prefs.bool(c, KEY_SYNC, false) && ip(c) != null
+    /** Cinema Mode has switched the lights off: nothing turns them back on until it ends. */
+    fun allowed(c: Context) = !(Prefs.cinemaOn(c) && Prefs.cinemaLights(c))
+
+    /** Cinema Mode: remember the lights' colour, then switch them off. */
+    fun switchOff(c: Context) {
+        val host = ip(c) ?: return
+        val app = c.applicationContext
+        Thread {
+            val l = Link(host)
+            l.begin(powerOn = false)
+            Thread.sleep(700)
+            l.before?.third?.let { Prefs.setString(app, "mh_before", it.joinToString(",")) }
+            l.asleep = true
+            l.end()
+        }.start()
+    }
+
+    /** Cinema Mode over: switch the lights back on in the colour they had. */
+    fun switchBackOn(c: Context) {
+        val host = ip(c) ?: return
+        val app = c.applicationContext
+        val saved = Prefs.string(app, "mh_before")?.split(",")?.mapNotNull { it.trim().toIntOrNull() }?.takeIf { it.size == 3 } ?: return
+        Prefs.setString(app, "mh_before", null)
+        Thread {
+            val l = Link(host)
+            l.begin()
+            Thread.sleep(500)
+            l.colour(saved[0], saved[1], saved[2])
+            Thread.sleep(400)
+            l.hangUp()
+        }.start()
+    }
     fun setSync(c: Context, on: Boolean) = Prefs.setBool(c, KEY_SYNC, on)
 
     /** Every Magic Hue controller answering on this network: IP addresses (blocking, about 2 seconds). */
@@ -85,11 +117,11 @@ object MagicHue {
         }
 
         /** Remember the current state, then switch the lights on. */
-        fun begin() = exec.execute {
+        fun begin(powerOn: Boolean = true) = exec.execute {
             if (!ensure()) return@execute
             before = state()
             // Some controllers (AK001) report on/off unreliably, so just ask for "on" once and carry on.
-            send(0x71, 0x23, 0x0F)
+            if (powerOn) send(0x71, 0x23, 0x0F)
             Thread.sleep(250)
             drain()
             log("Magic Hue: connected (colour before: ${before?.third?.joinToString(",")})")

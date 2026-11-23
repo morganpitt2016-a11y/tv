@@ -31,7 +31,7 @@ object CinemaMode {
         Prefs.setBool(activity, "cinema_on", true)
         activity.applyDimming(animate = true)
         if (Prefs.cinemaDnd(activity)) setDnd(activity, true)
-        if (Prefs.cinemaLights(activity)) dimLights(activity)
+        if (Prefs.cinemaLights(activity)) { dimLights(activity); MagicHue.switchOff(activity) }
         intro(activity) {
             // Straight into Watch → Films (All Films), ready to pick something.
             activity.startActivity(android.content.Intent(activity, WatchActivity::class.java)
@@ -46,6 +46,7 @@ object CinemaMode {
         activity.applyDimming(animate = true)
         setDnd(activity, false)
         restoreLights(activity)
+        MagicHue.switchBackOn(activity)
         GlassUi.toast(activity, "Cinema mode off")
     }
 
@@ -108,7 +109,7 @@ object CinemaMode {
             val saved = JSONObject()
             for (d in lights) {
                 saved.put(d.deviceId, GoveeHelper.readBrightness(app, d) ?: 100)
-                GoveeHelper.setBrightness(app, d, 12)
+                GoveeHelper.setBrightness(app, d, 2)          // as low as it goes and still on: just a glow behind the screen
             }
             Prefs.setString(app, "cinema_lights_before", saved.toString())
         }.start()

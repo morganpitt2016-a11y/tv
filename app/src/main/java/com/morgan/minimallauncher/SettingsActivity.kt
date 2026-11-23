@@ -194,7 +194,7 @@ class SettingsActivity : AppCompatActivity() {
                     Prefs.setBool(this, "cinema_dnd", !Prefs.cinemaDnd(this)); refreshValues()
                 }
             }
-            vrow("Dim Govee Lights", { onOff(Prefs.cinemaLights(this)) }) { Prefs.setBool(this, "cinema_lights", !Prefs.cinemaLights(this)); refreshValues() }
+            vrow("Lights Down", { onOff(Prefs.cinemaLights(this)) }) { Prefs.setBool(this, "cinema_lights", !Prefs.cinemaLights(this)); refreshValues() }
         }
         footnote("The film button on the home screen dims everything, silences notifications, dims your lights to 12%, shows a cinema clock and opens Watch on All Films. Press it again to undo.")
 

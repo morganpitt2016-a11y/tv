@@ -28,7 +28,7 @@ object Soundscape {
         val k = kind(c)
         if (k == "off" || running) return
         running = true
-        val ip = if (MagicHue.syncOn(c)) MagicHue.ip(c) else null
+        val ip = if (MagicHue.syncOn(c) && MagicHue.allowed(c)) MagicHue.ip(c) else null
         thread = Thread({ try { play(k, ip) } catch (_: Exception) {} finally { if (thread === Thread.currentThread()) running = false } }, "soundscape").apply { isDaemon = true; start() }
     }
 

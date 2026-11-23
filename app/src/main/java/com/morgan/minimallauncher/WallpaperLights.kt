@@ -15,7 +15,7 @@ class WallpaperLights(private val c: Context) {
     @Volatile private var target: IntArray? = null
     @Volatile private var gen = 0
 
-    fun enabled() = MagicHue.syncOn(c) && Prefs.bool(c, "wallpaper_lights", true)
+    fun enabled() = MagicHue.syncOn(c) && Prefs.bool(c, "wallpaper_lights", true) && MagicHue.allowed(c)
 
     /** A new photo is showing (or home came back): glide to its colour. */
     fun show(bmp: Bitmap?) {
