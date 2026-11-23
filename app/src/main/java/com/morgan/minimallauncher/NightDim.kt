@@ -18,7 +18,7 @@ object NightDim {
     fun adjust(c: Context, delta: Int): Int {
         val n = (level(c) + delta).coerceIn(MIN, MAX)
         Prefs.setInt(c, "night_level", n)
-        if (!isOn(c)) Prefs.setBool(c, "night_mode", true)
+        if (!isOn(c)) { Prefs.setBool(c, "night_mode", true); RoomLights.down(c) }
         apply(c)
         return n
     }
@@ -27,6 +27,7 @@ object NightDim {
 
     fun set(c: Context, on: Boolean) {
         Prefs.setBool(c, "night_mode", on)
+        if (on) RoomLights.down(c) else RoomLights.up(c)
         apply(c)
     }
 

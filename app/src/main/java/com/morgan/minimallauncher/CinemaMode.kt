@@ -31,7 +31,7 @@ object CinemaMode {
         Prefs.setBool(activity, "cinema_on", true)
         activity.applyDimming(animate = true)
         if (Prefs.cinemaDnd(activity)) setDnd(activity, true)
-        if (Prefs.cinemaLights(activity)) { dimLights(activity); MagicHue.switchOff(activity) }
+        RoomLights.down(activity)
         intro(activity) {
             // Straight into Watch → Films (All Films), ready to pick something.
             activity.startActivity(android.content.Intent(activity, WatchActivity::class.java)
@@ -45,8 +45,7 @@ object CinemaMode {
         Prefs.setBool(activity, "cinema_on", false)
         activity.applyDimming(animate = true)
         setDnd(activity, false)
-        restoreLights(activity)
-        MagicHue.switchBackOn(activity)
+        RoomLights.up(activity)
         GlassUi.toast(activity, "Cinema mode off")
     }
 
@@ -97,30 +96,6 @@ object CinemaMode {
             }
         } catch (e: Exception) {}
         return false
-    }
-
-    // ---------- Lights ----------
-
-    private fun dimLights(activity: MainActivity) {
-        val lights = activity.lights().filter { it.isOn }
-        if (lights.isEmpty()) return
-        val app = activity.applicationContext
-        Thread {
-            val saved = JSONObject()
-            for (d in lights) {
-                saved.put(d.deviceId, GoveeHelper.readBrightness(app, d) ?: 100)
-                GoveeHelper.setBrightness(app, d, 2)          // as low as it goes and still on: just a glow behind the screen
-            }
-            Prefs.setString(app, "cinema_lights_before", saved.toString())
-        }.start()
-    }
-
-    private fun restoreLights(activity: MainActivity) {
-        val saved = try { JSONObject(Prefs.string(activity, "cinema_lights_before") ?: return) } catch (e: Exception) { return }
-        val lights = activity.lights().filter { saved.has(it.deviceId) }
-        val app = activity.applicationContext
-        Prefs.setString(activity, "cinema_lights_before", null)
-        Thread { for (d in lights) GoveeHelper.setBrightness(app, d, saved.optInt(d.deviceId, 100)) }.start()
     }
 
     // ---------- Cinema-style clock ----------

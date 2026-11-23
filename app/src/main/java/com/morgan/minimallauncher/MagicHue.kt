@@ -27,7 +27,7 @@ object MagicHue {
     fun setIp(c: Context, ip: String?) = Prefs.setString(c, KEY_IP, ip)
     fun syncOn(c: Context) = Prefs.bool(c, KEY_SYNC, false) && ip(c) != null
     /** Cinema Mode has switched the lights off: nothing turns them back on until it ends. */
-    fun allowed(c: Context) = !(Prefs.cinemaOn(c) && Prefs.cinemaLights(c))
+    fun allowed(c: Context) = !RoomLights.isDown(c)
 
     /** Cinema Mode: remember the lights' colour, then switch them off. */
     fun switchOff(c: Context) {
