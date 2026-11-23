@@ -22,7 +22,8 @@ class TvColourSync(private val app: android.content.Context, private val surface
     /** A film's Cinema Room already holds the connection (and puts the lights back itself). */
     private val owns = shared == null
     private val link = shared ?: MagicHue.Link(host) { msg -> Diag.send(app, "lights", msg) }
-    private val engine = ColourEngine(link, Prefs.int(app, "lights_style", 1)).also { e -> seed?.let { e.seed(it, 0.45f) } }
+    private val engine = ColourEngine(link, Prefs.int(app, "lights_style", 1)).also { e -> seed?.let { e.seed(it, 0.45f) }
+        e.maxLevel = floatArrayOf(0.55f, 0.75f, 0.95f)[Prefs.int(app, "lights_bright", 1).coerceIn(0, 2)] }
     private val px = IntArray(96 * 54)
     private var copies = 0; private var fails = 0
     private val thread = HandlerThread("tv-colour").apply { start() }
@@ -72,8 +73,8 @@ class TvColourSync(private val app: android.content.Context, private val surface
         bg.post(tick)
     }
 
-    /** The film's genre sets the lights' starting pace (see [ColourEngine.genrePace]). */
-    fun genrePace(p: Float) { engine.genrePace = p }
+    /** The film's genres set the lights' starting pace and the mood of its neutral scenes. */
+    fun mood(genres: String) { bg.post { engine.genrePace = ColourEngine.paceFor(genres); engine.neutralTint = ColourEngine.tintFor(genres) } }
 
     /** A 4D Mode moment (see [SoundEvents]). */
     fun impulse(kind: String) = bg.post { if (running) engine.impulse(kind) }

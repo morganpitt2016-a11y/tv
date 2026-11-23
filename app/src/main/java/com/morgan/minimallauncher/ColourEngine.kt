@@ -39,6 +39,13 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
      * conversation glides slowly; a chase keeps up. Flashes, lightning and police lights still land instantly.
      */
     var genrePace = 1f
+    /** Neutral (grey/white) scenes take the film's mood: a touch cooler for horror and thrillers ("tense"), a touch
+     *  warmer for comedy, family and romance ("cosy") - after Philips Research's atmosphere studies. */
+    var neutralTint = intArrayOf(255, 255, 255)
+    /** Room light ceiling, 0..1 (Settings › Lights Brightness): bias lighting should sit well under the screen. */
+    var maxLevel = 0.8f
+    private var cutUntil = 0L
+    private var punch = false                                       // a flash, cue or lightning: allowed past the ceiling
     private var cutRate = 12f                                       // picture cuts a minute, smoothed
     private var pace = 1f
     private var pendingBin = -10                                    // a flashing light must show on two frames running
@@ -97,6 +104,16 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
                 Regex("drama|romance|documentary|history|biograph|music").containsMatchIn(g) -> 1.5f
                 Regex("comedy|family|kids").containsMatchIn(g) -> 1.1f
                 else -> 1f
+            }
+        }
+
+        /** The white a neutral scene takes, by genre (see [neutralTint]). */
+        fun tintFor(genres: String): IntArray {
+            val g = genres.lowercase()
+            return when {
+                Regex("horror|thriller|mystery|sci").containsMatchIn(g) -> intArrayOf(215, 230, 255)
+                Regex("comedy|family|romance|kids|animation|music").containsMatchIn(g) -> intArrayOf(255, 225, 190)
+                else -> intArrayOf(255, 245, 235)
             }
         }
 
@@ -164,6 +181,9 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
             var d = 0f; var m = 0
             for (i in 0 until n) if (ys[i] >= 0f && prevY[i] >= 0f) { d += abs(ys[i] - prevY[i]); m++ }
             val cut = m > 0 && d / m > 0.12f
+            // A new shot: the lights change WITH the cut (a quick ~¼ s crossfade), not drifting in afterwards. Lights
+            // falling out of step with the picture is what made Ambilight feel distracting in Philips' own tests.
+            if (cut) cutUntil = now + 260
             // ~45 s memory: each frame nudges the rate towards "this frame's cut, per minute".
             val a = dt / 45_000f
             cutRate += a * ((if (cut) 60_000f / dt else 0f) - cutRate)
@@ -232,8 +252,10 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
         if (cw > 0 && cw * 2.5 >= neutral * 0.5) richer(cr / cw, cg / cw, cb / cw)
         else if (wsum > 0) { richer(wr / wsum, wg / wsum, wb / wsum); hsv[1] = min(hsv[1], 0.15f) }
         else { hsv[0] = 0f; hsv[1] = 0f; hsv[2] = 1f }
+        val neutralScene = hsv[1] <= 0.15f
         var c = Color.HSVToColor(hsv)
         tr = Color.red(c).toFloat(); tg = Color.green(c).toFloat(); tb = Color.blue(c).toFloat()
+        if (neutralScene) { tr = tr * 0.5f + neutralTint[0] * 0.5f; tg = tg * 0.5f + neutralTint[1] * 0.5f; tb = tb * 0.5f + neutralTint[2] * 0.5f }
 
         // A flashing light in the picture, however small (a few pixels of a police car's light bar is enough): it
         // takes the room - full colour, snapping instantly from red to blue - and holds through the dark between
@@ -265,7 +287,7 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
             // The scene's colour settles: a new colour is kept for a moment before another can replace it, so busy
             // shots don't flick the room back and forth.
             val moved = heldR < 0 || abs(tr - heldR) + abs(tg - heldG) + abs(tb - heldB) > 60f
-            if (moved && (heldR < 0 || now - heldAt >= (t.holdMs * pace).toLong())) { heldR = tr; heldG = tg; heldB = tb; heldAt = now }
+            if (moved && (heldR < 0 || now < cutUntil || now - heldAt >= (t.holdMs * pace).toLong())) { heldR = tr; heldG = tg; heldB = tb; heldAt = now }
             else if (!moved) { heldR = tr; heldG = tg; heldB = tb }
             else { tr = heldR; tg = heldG; tb = heldB }
         }
@@ -305,12 +327,16 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
         System.arraycopy(ys, 0, prevY, 0, n)
 
         val snap = flash || cue || accent || strike2                   // lands on the frame it happens
+        // Flashes may go past the ceiling while they last; afterwards the level eases back under it.
+        punch = snap || level > maxLevel + 0.02f && punch
         if (snap) { level = targetLevel; r = tr; g = tg; b = tb; vl = 0f; vr = 0f; vg = 0f; vb = 0f }
         else {
-            val sl = when { targetLevel > level -> t.up; targetLevel == 0f -> 200f; else -> t.down } * pace * 1.4f / 1000f
+            val onCut = now < cutUntil
+            val sl = if (onCut) 0.09f else when { targetLevel > level -> t.up; targetLevel == 0f -> 200f; else -> t.down } * pace * 1.4f / 1000f
             level = damp(level, targetLevel, 0, sl, dt / 1000f).coerceIn(0f, 1f)
             val jump = abs(tr - r) + abs(tg - g) + abs(tb - b)
-            val sc = (if (jump > 150f) t.bigDrift else t.drift) * pace * 1.4f / 1000f
+            // Within a shot: slow and steady (only real changes in the shot move the room); on a cut: quick.
+            val sc = if (onCut) 0.11f else (if (jump > 150f) t.bigDrift else t.drift) * pace * 1.6f / 1000f
             r = damp(r, tr, 1, sc, dt / 1000f); g = damp(g, tg, 2, sc, dt / 1000f); b = damp(b, tb, 3, sc, dt / 1000f)
         }
         send()
@@ -336,11 +362,20 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
         // The screen's colours are gamma-encoded; LEDs make light in proportion to what they're sent. So the colour goes
         // to the strip as real light (an orange stays orange instead of turning yellow, skin stays warm, not pale), and
         // brightness gets the LEDs' own curve so dim scenes are dim and bright ones bright, like the screen.
-        val pwm = level.coerceIn(0f, 1f).pow(1.6f) * 255f
+        // Flashes and cues may use the full strip; everything else stays under the room ceiling.
+        val cap = if (punch || SystemClock.uptimeMillis() < whiteUntil) 1f else maxLevel
+        val pwm = min(level, cap).coerceIn(0f, 1f).pow(1.6f) * 255f
+        // Brightness compensation (as in Hyperion): white and yellow light two or three LED colours at once and swamp
+        // the room, while a pure red or blue looks dim - so mixed colours are held back to keep every hue equally
+        // bright, and saturated colours keep their punch.
+        val lr = lin(r); val lg = lin(g); val lb = lin(b)
+        val comp = min(1f, 1.45f / (lr + lg + lb).coerceAtLeast(0.01f))
         // LED white balance (their blue and green run much stronger than their red), so white looks white.
-        val o0 = (lin(r) * pwm + 0.5f).toInt().coerceIn(0, 255)
-        val o1 = (lin(g) * 0.86f * pwm + 0.5f).toInt().coerceIn(0, 255)
-        val o2 = (lin(b) * 0.70f * pwm + 0.5f).toInt().coerceIn(0, 255)
+        var o0 = (lr * comp * pwm + 0.5f).toInt().coerceIn(0, 255)
+        var o1 = (lg * comp * 0.86f * pwm + 0.5f).toInt().coerceIn(0, 255)
+        var o2 = (lb * comp * 0.70f * pwm + 0.5f).toInt().coerceIn(0, 255)
+        // Below a few steps an 8-bit LED can't hold a colour (it jumps between hues): that's black.
+        if (max(o0, max(o1, o2)) < 3) { o0 = 0; o1 = 0; o2 = 0 }
         // Anti-flicker: in dark scenes a one-step change in one colour is visible as a hue wobble - wait for a real change.
         val need = if (max(o0, max(o1, o2)) < 24) 3 else 2
         if (!force && abs(o0 - sent[0]) + abs(o1 - sent[1]) + abs(o2 - sent[2]) < need) return

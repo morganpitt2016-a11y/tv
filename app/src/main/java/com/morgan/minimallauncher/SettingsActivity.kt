@@ -319,6 +319,9 @@ class SettingsActivity : AppCompatActivity() {
                 else { Prefs.setBool(this, "cinema_room", !Prefs.bool(this, "cinema_room", true)); refreshValues() }
             }
             vrow("Wallpaper Lights", { onOff(Prefs.bool(this, "wallpaper_lights", true)) }) { Prefs.setBool(this, "wallpaper_lights", !Prefs.bool(this, "wallpaper_lights", true)); refreshValues() }
+            vrow("Lights Brightness", { arrayOf("Low", "Medium", "High")[Prefs.int(this, "lights_bright", 1).coerceIn(0, 2)] }) {
+                Prefs.setInt(this, "lights_bright", (Prefs.int(this, "lights_bright", 1) + 1) % 3); refreshValues()
+            }
             vrow("Lights Style", { arrayOf("Calm", "Balanced", "Intense")[Prefs.int(this, "lights_style", 1).coerceIn(0, 2)] }) {
                 Prefs.setInt(this, "lights_style", (Prefs.int(this, "lights_style", 1) + 1) % 3); refreshValues()
             }

@@ -803,7 +803,7 @@ class PlayerActivity : Activity() {
         SoundEvents.listener = if (!live && Prefs.bool(this, "fourd_mode", true)) { kind -> if (!houseLit) colourSync?.impulse(kind) } else null
         (colourSync ?: (if (r != null) TvColourSync(applicationContext, sv, ip, shared = r.link, seed = r.current())
             else TvColourSync(applicationContext, sv, ip)).also { colourSync = it; it.gentle = heavyVideo
-                it.genrePace(ColourEngine.paceFor(Prefs.string(this, ResumeStore.keyOf("genres", seriesTitle ?: titleText)).orEmpty())) }).start()
+                it.mood(Prefs.string(this, ResumeStore.keyOf("genres", seriesTitle ?: titleText)).orEmpty()) }).start()
     }
 
     override fun onStop() {
