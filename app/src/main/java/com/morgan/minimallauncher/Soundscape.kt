@@ -131,6 +131,7 @@ object Soundscape {
             if (!stopping && thread !== Thread.currentThread()) break
         }
         track.stop(); track.release()
-        link?.end()
+        // Replaced by a newer soundscape: let go without putting the lights back (the new one is using them).
+        if (thread === Thread.currentThread()) link?.end() else link?.hangUp()
     }
 }

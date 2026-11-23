@@ -112,7 +112,8 @@ object MagicHue {
             pending = intArrayOf(r, g, b)
             if (busy) return
             busy = true
-            exec.execute {
+            if (exec.isShutdown) { busy = false; return }
+            try { exec.execute {
                 try {
                     while (true) {
                         val c = pending ?: break
@@ -122,7 +123,7 @@ object MagicHue {
                         send(0x41, c[0], c[1], c[2], 0x00, 0xF0, 0x0F)
                     }
                 } finally { busy = false }
-            }
+            } } catch (e: java.util.concurrent.RejectedExecutionException) { busy = false }   // hung up meanwhile
         }
 
         /** Put the lights back to the colour they had, then hang up (on/off is left alone - it can't be trusted). */

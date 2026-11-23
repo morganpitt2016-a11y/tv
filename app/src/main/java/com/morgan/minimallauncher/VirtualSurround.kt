@@ -345,7 +345,9 @@ object VirtualSurround {
                     envLow = if (lpk > envLow) atk * envLow + (1 - atk) * lpk else rel * envLow + (1 - rel) * lpk
                     val dbl = 20 * log10(envLow.coerceAtLeast(1e-6f))
                     val gl = if (dbl > -16f) 10f.pow(-(dbl + 16f) * (1f - 1f / 2f) / 20f) else 1f   // gentler on the bass: it keeps its punch
-                    lowL *= gl * makeup; lowR *= gl * makeup
+                    // At night the bass gets no make-up gain (it's the boom that wakes people).
+                    val lowMakeup = if (night) 1f else makeup
+                    lowL *= gl * lowMakeup; lowR *= gl * lowMakeup
                     l = highL * g * makeup; r = highR * g * makeup
                 } else { l = highL; r = highR }
                 // The bass band's own limiter: keeps the boom under -4.4 dBFS, so it never pushes the whole mix down.

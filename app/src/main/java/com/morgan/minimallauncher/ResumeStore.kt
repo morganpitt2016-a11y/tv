@@ -15,7 +15,7 @@ object ResumeStore {
     private fun key(c: Context) = ProfileManager.scope(c, "resume_v1")
 
     /** The same film or show whatever the listing calls it: "Insidious" and "Insidious (2011)" are one entry. */
-    fun keyOf(kind: String, name: String) = kind + ":" + name.lowercase().replace(Regex("[\\s(\\[]*(19|20)\\d\\d[)\\]]*\\s*$"), "").replace(Regex("[^a-z0-9]+"), "")
+    fun keyOf(kind: String, name: String) = kind + ":" + name.lowercase().replace(Regex("\\s*[(\\[](19|20)\\d\\d[)\\]]\\s*$"), "").replace(Regex("[^a-z0-9]+"), "")
 
     @Volatile private var memoRaw: String? = null
     @Volatile private var memo: List<Item> = emptyList()

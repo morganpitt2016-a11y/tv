@@ -2,6 +2,7 @@ package com.morgan.minimallauncher
 
 import android.os.Handler
 import android.os.Looper
+import kotlin.math.abs
 import kotlin.math.log10
 
 /**
@@ -21,7 +22,7 @@ object SoundEvents {
     /** Steady hiss across the top of the sound for a few seconds - rain (or a storm) in the scene. */
     @Volatile var rain = false
     private var aHi = 0f; private var hiLow = 0f; private var hiP = 0f; private var aHiP = 0f
-    private var quietFor = 0f; private var rainFor = 0f
+    private var quietFor = 0f; private var rainFor = 0f; private var hiSlow = 0f
 
     /** Auto Subtitles: until when the voices are being drowned out (music, explosions) - 0 when they're clear. */
     @Volatile var buriedUntil = 0L
@@ -81,7 +82,9 @@ object SoundEvents {
         tension = ((quietFor - 4f) / 20f).coerceIn(0f, 1f)
         // Rain: most of the sound's energy is high hiss, steadily, at a moderate level.
         val hiShare = hiP / slow.coerceAtLeast(1e-9f)
-        if (hiShare > 0.3f && s in -48f..-14f) rainFor += dt else rainFor = (rainFor - 2 * dt).coerceAtLeast(0f)
+        // Steady too (rain is a constant hiss; cymbals, applause and crowds come and go).
+        hiSlow += 0.05f * (hiShare - hiSlow)
+        if (hiShare > 0.38f && abs(hiShare - hiSlow) < 0.08f && s in -48f..-14f) rainFor += dt else rainFor = (rainFor - 2 * dt).coerceAtLeast(0f)
         rain = rainFor > 3f
         when {
             // Long quiet, then suddenly very loud: the jump scare.

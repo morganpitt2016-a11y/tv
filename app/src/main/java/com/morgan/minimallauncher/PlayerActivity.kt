@@ -808,7 +808,7 @@ class PlayerActivity : Activity() {
 
     override fun onStop() {
         super.onStop()
-        SoundEvents.listener = null
+        SoundEvents.listener = null; SoundEvents.tension = 0f; SoundEvents.rain = false
         colourSync?.stop(); colourSync = null
         room?.end(); room = null
         SoundbarWake.release("player")
@@ -1812,6 +1812,7 @@ class PlayerActivity : Activity() {
     }
 
     private fun stillHere() {
+        lastKeyAt = android.os.SystemClock.uptimeMillis()
         if (sleepAsked == 0L) return
         sleepAsked = 0L
         handler.removeCallbacks(sleepFade)

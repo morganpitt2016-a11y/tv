@@ -31,7 +31,7 @@ object OurSubtitles {
     fun isSetUp(c: Context) = apiKey(c) != null
 
     fun key(title: String, year: Int, season: Int, episode: Int, lang: String): String {
-        val t = title.lowercase().replace(Regex("[\\s(\\[]*(19|20)\\d\\d[)\\]]*\\s*$"), "").replace(Regex("[^a-z0-9]+"), "")
+        val t = title.lowercase().replace(Regex("\\s*[(\\[](19|20)\\d\\d[)\\]]\\s*$"), "").replace(Regex("[^a-z0-9]+"), "")
         return if (season > 0) "$t-s${season}e$episode-$lang" else "$t-${if (year > 0) year else 0}-$lang"
     }
 
@@ -43,7 +43,9 @@ object OurSubtitles {
         if (f.exists()) { lastNote = "on this TV"; return parse(f.readText()) }
         libGet(k)?.let { save(f, it); lastNote = "from your library"; return parse(it) }
         val api = apiKey(c) ?: run { lastNote = "OpenSubtitles isn't set up"; return null }
-        val hash = try { movieHash(url) } catch (e: Exception) { null }
+        // The exact-file hash needs two short reads from the provider - only for direct files, never for Dodgy Box
+        // (it limits connections and could cut off the film you're watching).
+        val hash = if (url.contains("/movie/") || url.contains("/series/")) null else try { movieHash(url) } catch (e: Exception) { null }
         val q = sortedMapOf<String, String>()
         q["languages"] = lang
         if (hash != null) q["moviehash"] = hash
