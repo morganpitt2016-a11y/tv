@@ -1272,13 +1272,30 @@ class PlayerActivity : Activity() {
 
     // ---------- Subtitles, audio, picture, speed ----------
 
-    private class Choice(val group: Tracks.Group, val index: Int, val label: String)
+    private data class Choice(val group: Tracks.Group, val index: Int, val label: String)
 
+    /**
+     * Track names the Apple TV way - "English", "English (SDH)", "French (Forced)", "English · 5.1", "Commentary" -
+     * not the file's own labels (release-group tags, "eng.srt", "Track 3").
+     */
     private fun trackLabel(f: androidx.media3.common.Format, n: Int): String {
-        val lang = f.language?.takeIf { it.isNotBlank() && it != "und" }?.let { java.util.Locale(it).displayLanguage }?.takeIf { it.isNotBlank() }
-        val base = f.label?.takeIf { it.isNotBlank() } ?: lang ?: "Track $n"
-        val extra = if (f.channelCount > 2) " · ${if (f.channelCount == 6) "5.1" else "${f.channelCount}ch"}" else ""
-        return base + extra
+        val raw = f.label.orEmpty()
+        val lower = raw.lowercase()
+        val lang = f.language?.takeIf { it.isNotBlank() && it != "und" }?.let { java.util.Locale(it).getDisplayLanguage(java.util.Locale.UK) }?.takeIf { it.isNotBlank() }
+            ?: Regex("(?i)\\b(english|french|spanish|german|italian|portuguese|dutch|polish|arabic|turkish|greek|hindi|japanese|korean|chinese|swedish|danish|norwegian|finnish)\\b").find(raw)?.value?.replaceFirstChar { it.uppercase() }
+        val tags = mutableListOf<String>()
+        val isText = f.sampleMimeType?.let { androidx.media3.common.MimeTypes.isText(it) } == true || f.channelCount <= 0 && f.sampleRate <= 0
+        if (isText) {
+            if (f.selectionFlags and C.SELECTION_FLAG_FORCED != 0 || "forced" in lower || "signs" in lower) tags += "Forced"
+            else if (f.roleFlags and C.ROLE_FLAG_DESCRIBES_MUSIC_AND_SOUND != 0 || Regex("\\b(sdh|cc|hi|hearing)\\b").containsMatchIn(lower)) tags += "SDH"
+        } else {
+            if ("commentary" in lower || f.roleFlags and C.ROLE_FLAG_COMMENTARY != 0) tags += "Commentary"
+            if (f.roleFlags and C.ROLE_FLAG_DESCRIBES_VIDEO != 0 || "audio description" in lower || Regex("\\bad\\b").containsMatchIn(lower)) tags += "Audio Description"
+        }
+        val base = lang ?: if (tags.isNotEmpty()) "" else "Track $n"
+        val name = (base + if (tags.isNotEmpty()) (if (base.isEmpty()) tags.joinToString(", ") else " (${tags.joinToString(", ")})") else "").trim()
+        val extra = if (f.channelCount > 2) " · ${if (f.channelCount == 6) "5.1" else if (f.channelCount == 8) "7.1" else "${f.channelCount}ch"}" else ""
+        return name + extra
     }
 
     private fun choices(type: Int): List<Choice> {
@@ -1286,7 +1303,9 @@ class PlayerActivity : Activity() {
         player?.currentTracks?.groups?.filter { it.type == type }?.forEach { g ->
             for (i in 0 until g.length) if (g.isTrackSupported(i)) out += Choice(g, i, trackLabel(g.getTrackFormat(i), out.size + 1))
         }
-        return out
+        // Two tracks with the same name: number the later ones ("English", "English 2").
+        val seen = HashMap<String, Int>()
+        return out.map { c -> val k = (seen[c.label] ?: 0) + 1; seen[c.label] = k; if (k == 1) c else c.copy(label = "${c.label} $k") }
     }
 
     private fun selectedLabel(type: Int, off: String?): String {
@@ -1444,8 +1463,8 @@ class PlayerActivity : Activity() {
         val ours = type == C.TRACK_TYPE_TEXT && list.isEmpty()
         if (list.isEmpty() && !ours) d.message("Only one audio track.")
         if (ours) d.message(when {
-            ourSubs != null -> "The file has none, so these come from your subtitle library."
-            OurSubtitles.isSetUp(this) -> "The file has no subtitles. Find some for it (free, then kept in your library for every TV)."
+            ourSubs != null -> "The file has none, so these are Morgan's Subtitles - from your own subtitle library."
+            OurSubtitles.isSetUp(this) -> "The file has no subtitles. Find Morgan's Subtitles for it (free, then kept in your library for every TV)."
             else -> "The file has no subtitles. To find some automatically, add a free OpenSubtitles account in Settings › Video and Audio."
         })
         if (type == C.TRACK_TYPE_TEXT) d.button("Off" + if (ours && !ourSubsOn) "  ✓" else "") {
@@ -1454,7 +1473,7 @@ class PlayerActivity : Activity() {
             rememberTrack(C.TRACK_TYPE_TEXT, "off")
         }
         if (ours && ourSubs != null) {
-            d.button("English" + if (ourSubsOn) "  ✓" else "") { ourSubsOn = true; rememberTrack(C.TRACK_TYPE_TEXT, "en") }
+            d.button("Morgan's Subtitles" + if (ourSubsOn) "  ✓" else "") { ourSubsOn = true; rememberTrack(C.TRACK_TYPE_TEXT, "en") }
             d.button("Subtitles Earlier (½ s)") { ourOffset += 500; ourShown = null; GlassUi.toast(this, "Subtitles ${fmtOffset()}") }
             d.button("Subtitles Later (½ s)") { ourOffset -= 500; ourShown = null; GlassUi.toast(this, "Subtitles ${fmtOffset()}") }
         } else if (ours && OurSubtitles.isSetUp(this)) d.button("Find Subtitles", GlassDialog.Style.BOLD) { GlassUi.toast(this, "Looking for subtitles…"); fetchOurSubs(force = true) }
@@ -2187,7 +2206,7 @@ class PlayerActivity : Activity() {
                 pill("Off", off && !ourSubsOn) { ourSubsOn = false; p?.let { it.trackSelectionParameters = it.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build() }
                     rememberTrack(C.TRACK_TYPE_TEXT, "off"); fillInfo("subs") }
                 val list = choices(C.TRACK_TYPE_TEXT)
-                if (list.isEmpty() && ourSubs != null) pill("English", ourSubsOn) { ourSubsOn = true; rememberTrack(C.TRACK_TYPE_TEXT, "en"); fillInfo("subs") }
+                if (list.isEmpty() && ourSubs != null) pill("Morgan's Subtitles", ourSubsOn) { ourSubsOn = true; rememberTrack(C.TRACK_TYPE_TEXT, "en"); fillInfo("subs") }
                 else if (list.isEmpty()) row.addView(GlassUi.text(c, "No subtitles in this file", 13f, R.font.inter_medium, 0x99FFFFFF.toInt()))
                 for (ch in list) pill(ch.label, !off && ch.group.isTrackSelected(ch.index)) {
                     p?.let { it.trackSelectionParameters = it.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)

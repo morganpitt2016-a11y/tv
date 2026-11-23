@@ -246,7 +246,7 @@ class SettingsActivity : AppCompatActivity() {
                 Prefs.setBool(this, "match_frame_rate", !Prefs.bool(this, "match_frame_rate", true)); refreshValues()
             }
             vrow("Audio Output", { audioOutput() }, chevron = true) { pickAudioOutput() }
-            vrow("Our Subtitles", { onOff(Prefs.bool(this, "our_subs", true)) }) { Prefs.setBool(this, "our_subs", !Prefs.bool(this, "our_subs", true)); refreshValues() }
+            vrow("Morgan's Subtitles", { onOff(Prefs.bool(this, "our_subs", true)) }) { Prefs.setBool(this, "our_subs", !Prefs.bool(this, "our_subs", true)); refreshValues() }
             vrow("OpenSubtitles Key", { if (OurSubtitles.isSetUp(this)) "Set" else "Not Set" }, chevron = true) { osInput("OpenSubtitles Key", "os_api_key", "From opensubtitles.com › your profile › API consumers › New consumer (free). Stays on this TV.", true) }
             vrow("OpenSubtitles Account", { Prefs.string(this, "os_user")?.takeIf { it.isNotBlank() } ?: "Not Set" }, chevron = true) {
                 osInput("OpenSubtitles Username", "os_user", "Your free opensubtitles.com username: 20 subtitles a day instead of 5.", false) {
@@ -333,7 +333,7 @@ class SettingsActivity : AppCompatActivity() {
             vrow("Lights", { MagicHue.ip(this) ?: "Not found yet" }) { findMagicHue(thenTurnOn = false) }
         }
         footnote("Wallpaper Lights: on the home screen the room slowly takes on the colours of the photo showing. Pausing a film brings the lights up to a soft warm glow; pressing play lets the film's colours back in.")
-        footnote("Our Subtitles: when a film or episode has no subtitles in its file, the TV finds some - from this TV, then your shared subtitle library (every TV adds what it finds, so each title is only fetched once), then OpenSubtitles.com (free). Matched to the exact file where possible; Subtitles Earlier / Later in the subtitle menu fine-tunes the timing.")
+        footnote("Morgan's Subtitles: when a film or episode has no subtitles in its file, the TV finds some - from this TV, then your shared subtitle library (every TV adds what it finds, so each title is only fetched once), then OpenSubtitles.com (free). Matched to the exact file where possible; Subtitles Earlier / Later in the subtitle menu fine-tunes the timing.")
         footnote("Auto Subtitles: when music or explosions drown out the voices (in 5.1 films and shows with subtitles), the subtitles appear for that line, then fade away. Night Sound: from 10 pm to 7 am loud bangs are evened out and quiet voices lifted. Still Watching?: late at night, after 90 minutes with nothing pressed, the TV checks - if you've nodded off, sound and lights fade over a minute, it pauses where you were, and the lights switch off.")
         footnote("Calibrate Lights: the screen turns white and the lights show their white beside it - make them match with the remote (the wall's paint and the strip itself tint the light). Films the TV can't read the picture of (10-bit, or ones that would drop frames) get lights that follow the soundtrack in the film's colour instead.")
         footnote("Lights Down: in Night Mode and Cinema Mode the Magic Hue lights switch off and the Govee strip drops to its lowest glow; they come back as they were when both are off.")
