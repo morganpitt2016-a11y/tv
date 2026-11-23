@@ -393,6 +393,13 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
         link.colour(o0, o1, o2)
     }
 
+    /** The current colour as a screen colour at full strength (what [glide] takes). */
+    fun screenColour(): IntArray {
+        val m = maxOf(r, g, b)
+        if (m < 5f) return intArrayOf(255, 214, 180)
+        return intArrayOf((r / m * 255f).toInt(), (g / m * 255f).toInt(), (b / m * 255f).toInt())
+    }
+
     /** The current colour at full strength, as the LEDs show it (light, white-balanced). */
     fun fullColour(): IntArray {
         val w = wb

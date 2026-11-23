@@ -41,6 +41,7 @@ class PlayerActivity : Activity() {
     private var tunnelled = false
     /** Big HEVC: the lights read the picture gently from the start. */
     private var bigHevc = false
+    private var tenBitVideo = false
     /** Reading the picture cost this film frames: the lights follow the sound instead, for the rest of it. */
     private var pictureFirst = false
     private var lastDropCount = -1
@@ -497,6 +498,8 @@ class PlayerActivity : Activity() {
                 // Only big 10-bit (1080p and up), HDR or 4K needs it - a 720p 10-bit film plays fine normally, so the lights
                 // can still follow its picture (and the frame guard below tunnels it later if it ever can't keep up).
                 val tenBit = codecs.startsWith("hvc1.2") || codecs.startsWith("hev1.2")
+                tenBitVideo = tenBit
+                colourSync?.slowRead = tenBit
                 val needsTunnel = format.width > 1920 || (tenBit && format.width >= 1600) ||
                     format.colorInfo?.colorTransfer.let { it == androidx.media3.common.C.COLOR_TRANSFER_ST2084 || it == androidx.media3.common.C.COLOR_TRANSFER_HLG }
                 if (needsTunnel && !tunnelled) tunnelNow("heavy video ($videoNote)")
@@ -804,9 +807,11 @@ class PlayerActivity : Activity() {
                     val now = android.os.SystemClock.uptimeMillis()
                     if (d > 0) recentDrops.addLast(now to d)
                     while (recentDrops.isNotEmpty() && now - recentDrops.first().first > 10_000L) recentDrops.removeFirst()
-                    if (recentDrops.sumOf { it.second } >= 6) {
+                    // Reading slowly already: a dropped frame now and then is the TV, not the lights - only act on a lot.
+                    if (recentDrops.sumOf { it.second } >= (if (cs?.slowRead == true) 12 else 6)) {
                         recentDrops.clear()
                         if (cs == null || cs.soundOnly) tunnelNow("still dropping frames on \"$titleText\" ($videoNote)")
+                        else if (cs.gentle && !cs.slowRead) { cs.slowRead = true; Diag.send(this@PlayerActivity, "player", "picture first: frames dropped on \"$titleText\" - lights read ~2½ times a second") }
                         else if (!cs.gentle) { cs.gentle = true; Diag.send(this@PlayerActivity, "player", "picture first: frames dropped on \"$titleText\" ($videoNote) - lights read more gently") }
                         else { pictureFirst = true; pictureFirstAt = android.os.SystemClock.uptimeMillis(); cs.followSound(room?.palette ?: posterColour); startColourSync()
                             Diag.send(this@PlayerActivity, "player", "picture first: still dropping frames on \"$titleText\" - lights now follow the sound") }
@@ -862,7 +867,7 @@ class PlayerActivity : Activity() {
         val fourD = !live && Prefs.bool(this, "fourd_mode", true)
         SoundEvents.listener = if (fourD || tunnelled || pictureFirst) { kind -> if (!houseLit && fourD) colourSync?.impulse(kind) } else null
         val cs = colourSync ?: (if (r != null) TvColourSync(applicationContext, sv, ip, shared = r.link, seed = r.current())
-            else TvColourSync(applicationContext, sv, ip)).also { colourSync = it; it.gentle = heavyVideo || bigHevc
+            else TvColourSync(applicationContext, sv, ip)).also { colourSync = it; it.gentle = heavyVideo || bigHevc; it.slowRead = tenBitVideo
                 it.mood(Prefs.string(this, ResumeStore.keyOf("genres", seriesTitle ?: titleText)).orEmpty()) }
         // Tunnelled (10-bit) films can't be read at all, and some films drop frames if they are: follow the sound.
         if ((tunnelled || pictureFirst) && !cs.soundOnly) cs.followSound(r?.palette ?: posterColour)
