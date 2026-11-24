@@ -743,8 +743,11 @@ class PlayerActivity : Activity() {
         // Pick up the subtitle and audio language you chose last time for this title.
         val key = trackKey()
         val tl = Prefs.string(this, ProfileManager.scope(this, "trk_t_$key"))
-        // Audio Language: what you picked for this title, else your default (Settings → Video and Audio).
+        // Audio Language: what you picked for this title, else your default (Settings → Video and Audio), else - on
+        // Automatic - the TV's own language. Without that, a file whose first or "default" track is another language
+        // (Turkish, Spanish…) played in it even when it also had English.
         val al = Prefs.string(this, ProfileManager.scope(this, "trk_a_$key")) ?: Prefs.string(this, "audio_lang")?.takeIf { it != "auto" }
+            ?: java.util.Locale.getDefault().language.takeIf { it.isNotBlank() }
         if (tl != null || al != null) {
             val b = p.trackSelectionParameters.buildUpon()
             al?.let { b.setPreferredAudioLanguage(it) }
