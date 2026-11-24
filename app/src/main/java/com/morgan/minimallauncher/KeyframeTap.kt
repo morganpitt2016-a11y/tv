@@ -39,20 +39,26 @@ class KeyframeTap(private val onPicture: (IntArray, Int, Long) -> Unit, private 
     @Volatile var enabled = false
     @Volatile private var off = false
     private var done = 0; private var slow = 0; private var totalMs = 0L
+    private var seen = 0; private var notes = 0
+    private fun note(msg: String) { if (notes++ < 12) log("keyframe: $msg") }
 
-    fun reset() { off = false; done = 0; slow = 0; totalMs = 0L }
+    fun reset() { off = false; done = 0; slow = 0; totalMs = 0L; seen = 0; notes = 0; h.post { release() } }
 
-    fun onFormat(f: Format) { if (f.sampleMimeType == "video/hevc") format = f }
+    fun onFormat(f: Format) { if (f.sampleMimeType == "video/hevc") { format = f; note("format ${f.codecs} ${f.width}x${f.height}, csd ${f.initializationData.size} parts") } }
 
     /** From the video renderer, for every sample going into the decoder. */
     fun onSample(isKey: Boolean, data: ByteBuffer?, timeUs: Long) {
-        if (!enabled || off || !isKey || data == null || busy || !available) return
+        if (!enabled || off || !isKey || data == null || !available) return
+        seen++
+        if (seen <= 2) note("keyframe #$seen at ${timeUs / 1000} ms, ${data.remaining()} bytes, busy=$busy, format=${format != null}")
+        if (busy) return
         val f = format ?: return
         val bytes = try { ByteArray(data.remaining()).also { data.duplicate().get(it) } } catch (e: Throwable) { return }
         if (bytes.isEmpty()) return
         busy = true
         h.post {
             try { decode(f, bytes, timeUs) }
+            catch (e: IllegalStateException) { note("decoder state ${e.message} - starting it again"); release() }
             catch (e: Throwable) { off = true; log("keyframe colour off for this title: ${e.javaClass.simpleName}: ${e.message}"); release() }
             finally { busy = false }
         }
@@ -65,13 +71,14 @@ class KeyframeTap(private val onPicture: (IntArray, Int, Long) -> Unit, private 
             MediaCodec.createByCodecName(SW).also { cc ->
                 cc.configure(MediaFormatUtil.createMediaFormatFromFormat(f), null, null, 0)
                 cc.start(); codec = cc; codecFor = f
+                note("software decoder started (${cc.name}) for ${f.width}x${f.height}")
             }
         }
         val ii = c.dequeueInputBuffer(50_000)
-        if (ii < 0) { c.flush(); return }
+        if (ii < 0) { note("no decoder input slot"); c.flush(); return }
         val ib = c.getInputBuffer(ii) ?: return
         ib.clear()
-        if (bytes.size > ib.capacity()) { c.flush(); return }
+        if (bytes.size > ib.capacity()) { note("keyframe ${bytes.size} bytes > input ${ib.capacity()}"); c.flush(); return }
         ib.put(bytes)
         c.queueInputBuffer(ii, 0, bytes.size, timeUs, 0)
         val ei = c.dequeueInputBuffer(50_000)
@@ -94,8 +101,9 @@ class KeyframeTap(private val onPicture: (IntArray, Int, Long) -> Unit, private 
                 return
             }
             img?.close(); c.releaseOutputBuffer(oi, false)
-            if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) break
+            if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) { note("decoder gave no picture (end of stream, size ${info.size}, image ${img != null})"); break }
         }
+        if (SystemClock.uptimeMillis() - t0 >= 800) note("decoder timed out (no picture in 800 ms)")
         c.flush()
     }
 
