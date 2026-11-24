@@ -41,7 +41,7 @@ class TvColourSync(private val app: android.content.Context, private val surface
     // (never piling up), aiming for one every FRAME_MS.
     private val tick = object : Runnable {
         override fun run() {
-            if (!running || soundOnly) return
+            if (!running || soundOnly || kfMode) return
             val holder = surface.holder
             if (holder.surface?.isValid != true || surface.width <= 0) { bg.postDelayed(this, 200); return }
             val t0 = android.os.SystemClock.uptimeMillis()
@@ -74,7 +74,9 @@ class TvColourSync(private val app: android.content.Context, private val surface
         if (running) return
         running = true
         bg.removeCallbacks(glowTick)
-        if (soundOnly) { if (!started) { started = true; if (owns) link.begin(); startedAt = android.os.SystemClock.uptimeMillis() }; bg.post(soundTick); return }
+        if (soundOnly) { if (!started) { started = true; if (owns) link.begin(); startedAt = android.os.SystemClock.uptimeMillis() }
+            engine.driven = true
+            if (kfMode) { bg.removeCallbacks(stepTick); bg.post(stepTick) } else bg.post(soundTick); return }
         val first = !started
         if (!started) { started = true; if (owns) link.begin(); startedAt = android.os.SystemClock.uptimeMillis() }
         engine.driven = true
@@ -86,7 +88,7 @@ class TvColourSync(private val app: android.content.Context, private val surface
     // The light's glide, on a steady beat between picture reads (smooth, not stepping each time a frame arrives).
     private val stepTick = object : Runnable {
         override fun run() {
-            if (!running || soundOnly) return
+            if (!running || soundOnly && !kfMode) return
             engine.step()
             bg.postDelayed(this, 40)
         }
@@ -98,7 +100,7 @@ class TvColourSync(private val app: android.content.Context, private val surface
     /** A 4D Mode moment (see [SoundEvents]). */
     fun impulse(kind: String) = bg.post {
         if (!running) return@post
-        if (soundOnly) kick = max(kick, when (kind) { "boom" -> 0.6f; "scare" -> 0.9f; else -> 0.35f }) else engine.impulse(kind)
+        if (soundOnly && !kfMode) kick = max(kick, when (kind) { "boom" -> 0.6f; "scare" -> 0.9f; else -> 0.35f }) else engine.impulse(kind)
     }
 
     // ---------- When the picture can't be read (tunnelled 10-bit films, or reading it would cost the film frames) ----
@@ -115,7 +117,7 @@ class TvColourSync(private val app: android.content.Context, private val surface
 
     private val soundTick = object : Runnable {
         override fun run() {
-            if (!running || !soundOnly) return
+            if (!running || !soundOnly || kfMode) return
             val now = android.os.SystemClock.uptimeMillis()
             if (looks.size > 1 && now - lookAt > 40_000L) { lookAt = now; lookI = (lookI + 1) % looks.size; palette = looks[lookI] }
             // A steady glow in the film's colours (we can't see how dark the scene is), lifted by the soundtrack when
@@ -128,9 +130,17 @@ class TvColourSync(private val app: android.content.Context, private val surface
         }
     }
 
+    /** Keyframe colour (see [KeyframeTap]): the picture of each new shot, for video that can't be read off the screen. */
+    @Volatile var kfMode = false
+    fun keyframe(px: IntArray, w: Int) = bg.post {
+        if (!running) return@post
+        if (!kfMode) { kfMode = true; bg.removeCallbacks(soundTick); bg.removeCallbacks(stepTick); bg.post(stepTick); Diag.send(app, "lights", "following the picture from its keyframes") }
+        engine.frame(px, px.size, w)
+    }
+
     /** Back to reading the picture (the frame guard is trying again). */
     fun backToPicture() {
-        soundOnly = false
+        soundOnly = false; kfMode = false
         bg.post { bg.removeCallbacks(soundTick); if (running) { bg.removeCallbacks(tick); bg.post(tick); bg.removeCallbacks(stepTick); bg.post(stepTick) } }
     }
 

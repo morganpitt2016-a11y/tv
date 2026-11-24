@@ -455,18 +455,39 @@ class PlayerActivity : Activity() {
         VirtualSurround.settings = SoundProfile.get(this)
         VirtualSurround.tvSpeakers = Prefs.string(this, "speakers") == "tv"
         val builder = ExoPlayer.Builder(this).setLoadControl(load).setMediaSourceFactory(sources)
-        if (decodingAudio) builder.setRenderersFactory(object : androidx.media3.exoplayer.DefaultRenderersFactory(this) {
+        val decoding = decodingAudio
+        val tapRef = keyTap
+        builder.setRenderersFactory(object : androidx.media3.exoplayer.DefaultRenderersFactory(this) {
             // The TV's own decoders first (they handle AAC, MPEG and live TV fine); the app's FFmpeg decoder takes
             // over for what they can't - Dolby Digital Plus - so it's decoded here, into our mixer.
-            init { setExtensionRendererMode(EXTENSION_RENDERER_MODE_ON) }
+            init { if (decoding) setExtensionRendererMode(EXTENSION_RENDERER_MODE_ON) }
             @Suppress("DEPRECATION")
-            override fun buildAudioSink(context: Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): androidx.media3.exoplayer.audio.AudioSink =
+            override fun buildAudioSink(context: Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): androidx.media3.exoplayer.audio.AudioSink? =
+                if (!decoding) super.buildAudioSink(context, enableFloatOutput, enableAudioTrackPlaybackParams)
                 // No Context: with one, the sink reads the TV's real abilities and quietly passes Dolby through
                 // (bypassing the mixer, and making the soundbar switch modes and swallow the start).
-                androidx.media3.exoplayer.audio.DefaultAudioSink.Builder()
+                else androidx.media3.exoplayer.audio.DefaultAudioSink.Builder()
                     .setAudioCapabilities(androidx.media3.exoplayer.audio.AudioCapabilities.DEFAULT_AUDIO_CAPABILITIES)
                     .apply { setAudioProcessors(arrayOf(if (format == "virtual") VirtualSurround.mixer() else VirtualSurround.stereo())) }
                     .build()
+            // The video decoder, with a tap that copies each keyframe for the lights (see KeyframeTap).
+            @Suppress("DEPRECATION")
+            override fun buildVideoRenderers(context: Context, extensionRendererMode: Int, mediaCodecSelector: androidx.media3.exoplayer.mediacodec.MediaCodecSelector,
+                                             enableDecoderFallback: Boolean, eventHandler: android.os.Handler, eventListener: androidx.media3.exoplayer.video.VideoRendererEventListener,
+                                             allowedVideoJoiningTimeMs: Long, out: java.util.ArrayList<androidx.media3.exoplayer.Renderer>) {
+                out.add(object : androidx.media3.exoplayer.video.MediaCodecVideoRenderer(context, mediaCodecSelector, allowedVideoJoiningTimeMs,
+                    enableDecoderFallback, eventHandler, eventListener, 50) {
+                    override fun onInputFormatChanged(formatHolder: androidx.media3.exoplayer.FormatHolder): androidx.media3.exoplayer.DecoderReuseEvaluation? {
+                        val e = super.onInputFormatChanged(formatHolder)
+                        formatHolder.format?.let { tapRef.onFormat(it) }
+                        return e
+                    }
+                    override fun onQueueInputBuffer(buffer: androidx.media3.decoder.DecoderInputBuffer) {
+                        super.onQueueInputBuffer(buffer)
+                        tapRef.onSample(buffer.isKeyFrame, buffer.data, buffer.timeUs)
+                    }
+                })
+            }
         })
         val p = builder.build()
         if (format == "stereo") p.trackSelectionParameters = p.trackSelectionParameters.buildUpon().setMaxAudioChannelCount(2).build()
@@ -840,6 +861,16 @@ class PlayerActivity : Activity() {
     }
 
     private var lastStartUrl: String? = null
+    /** Keyframe colour for tunnelled (10-bit) video: each shot's picture, delivered in time with it. */
+    private val keyTap: KeyframeTap by lazy {
+        KeyframeTap({ px, w, timeUs ->
+            runOnUiThread {
+                val pos = player?.currentPosition ?: return@runOnUiThread
+                val delay = (timeUs / 1000 - pos).coerceIn(0L, 3000L)
+                handler.postDelayed({ if (tunnelled) colourSync?.keyframe(px, w) }, delay)
+            }
+        }, { msg -> Diag.send(applicationContext, "lights", msg) })
+    }
     private var stillColours: List<IntArray>? = null
 
     /** A new film, episode or channel: nothing about the last one carries over (tunnelling, lights mode, guard). */
@@ -848,6 +879,7 @@ class PlayerActivity : Activity() {
             ts.setParameters(ts.buildUponParameters().setTunnelingEnabled(false))
         }
         tunnelled = false; heavyVideo = false; bigHevc = false; tenBitVideo = false; stillColours = null
+        keyTap.enabled = false; keyTap.reset()
         pictureFirst = false; pictureRetryMs = 60_000L; recentDrops.clear(); lastDropCount = -1
         settleUntil = android.os.SystemClock.uptimeMillis() + 10_000L
         SoundEvents.loudness = 0f
@@ -864,6 +896,8 @@ class PlayerActivity : Activity() {
         }
         colourSync?.followSound(null)
         if (colourSync == null) room?.hold()
+        // The picture can't be read off the screen now - take each keyframe's picture instead (if the TV can).
+        keyTap.enabled = KeyframeTap.available && MagicHue.syncOn(this)
         Diag.send(this, "player", "$why: tunnelled playback on, lights glow warm white with the soundtrack")
     }
 
@@ -2545,6 +2579,7 @@ class PlayerActivity : Activity() {
     }
 
     override fun onDestroy() {
+        keyTap.shutdown()
         thumbExec.execute { try { thumbRetriever?.release() } catch (e: Throwable) {}; thumbRetriever = null }
         thumbExec.shutdown()
         sleepHandler.removeCallbacksAndMessages(null)
