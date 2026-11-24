@@ -18,7 +18,7 @@
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; background: var(--bg); color: var(--text); height: 100%;
     font: 17px/1.3 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; -webkit-user-select: none; user-select: none; }
-  body { padding: env(safe-area-inset-top) 16px calc(84px + env(safe-area-inset-bottom)); overflow-x: hidden; }
+  body { padding: env(safe-area-inset-top) 16px calc(120px + env(safe-area-inset-bottom)); overflow-x: hidden; }
   header { display: flex; align-items: baseline; justify-content: space-between; padding: 18px 4px 6px; }
   h1 { font-size: 30px; font-weight: 700; letter-spacing: -.02em; margin: 0; }
   .status { font-size: 13px; color: var(--dim); }
@@ -36,12 +36,13 @@
   #pad .dot.show { opacity: 1; transform: scale(1); transition: none; }
 
   .row { display: flex; gap: 14px; justify-content: space-between; align-items: center; }
-  .circle { flex: 0 0 auto; width: 64px; height: 64px; border-radius: 50%; border: 0; background: var(--fill); color: #fff;
+  .circle { flex: 0 0 auto; width: 72px; height: 72px; border-radius: 50%; border: 0; background: var(--fill); color: #fff;
     display: grid; place-items: center; font-size: 13px; }
+  .lbl { display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 13px; color: var(--dim); }
   .circle:active, .tile:active, .btn:active { background: var(--fill2); transform: scale(.96); }
   .circle svg { width: 24px; height: 24px; }
   .vol { display: flex; flex-direction: column; border-radius: 32px; background: var(--fill); overflow: hidden; }
-  .vol button { width: 64px; height: 58px; border: 0; background: transparent; color: #fff; font-size: 26px; font-weight: 300; }
+  .vol button { width: 72px; height: 68px; border: 0; background: transparent; color: #fff; font-size: 17px; font-weight: 600; }
   .vol button:active { background: var(--fill2); }
   .stack { display: flex; flex-direction: column; gap: 14px; }
 
@@ -72,8 +73,8 @@
   nav { position: fixed; left: 0; right: 0; bottom: 0; display: flex; justify-content: space-around;
     padding: 8px 0 calc(8px + env(safe-area-inset-bottom)); background: rgba(22,22,24,.82);
     backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); border-top: .5px solid var(--line); }
-  nav button { border: 0; background: none; color: rgba(235,235,245,.45); font-size: 10.5px; display: flex; flex-direction: column; align-items: center; gap: 3px; width: 25%; }
-  nav button svg { width: 24px; height: 24px; }
+  nav button { border: 0; background: none; color: rgba(235,235,245,.55); font-size: 12.5px; font-weight: 500; display: flex; flex-direction: column; align-items: center; gap: 4px; width: 20%; padding: 4px 0; }
+  nav button svg { width: 27px; height: 27px; }
   nav button.on { color: var(--accent); }
   #toast { position: fixed; left: 50%; top: calc(14px + env(safe-area-inset-top)); transform: translate(-50%, -20px); opacity: 0;
     background: rgba(44,44,46,.95); padding: 10px 16px; border-radius: 20px; font-size: 14px; transition: .25s; pointer-events: none; }
@@ -132,14 +133,14 @@
   <div id="pad"><div class="hint">Swipe to move · Tap to select · Flick to scroll</div><div class="dot" id="dot"></div></div>
   <div class="row">
     <div class="stack">
-      <button class="circle" data-key="back" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
-      <button class="circle" data-key="home" aria-label="Home"><svg viewBox="0 0 24 24"><path d="M4 10.5l8-6.5 8 6.5V20a1 1 0 0 1-1 1h-4v-6h-6v6H5a1 1 0 0 1-1-1z"/></svg></button>
+      <div class="lbl"><button class="circle" data-key="back" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>Back</div>
+      <div class="lbl"><button class="circle" data-key="home" aria-label="Home"><svg viewBox="0 0 24 24"><path d="M4 10.5l8-6.5 8 6.5V20a1 1 0 0 1-1 1h-4v-6h-6v6H5a1 1 0 0 1-1-1z"/></svg></button>Home</div>
     </div>
     <div class="stack">
-      <button class="circle" data-key="playpause" aria-label="Play or pause"><svg viewBox="0 0 24 24"><path d="M6 4l9 8-9 8z"/><path d="M17 5v14M21 5v14"/></svg></button>
-      <button class="circle" data-key="mute" aria-label="Mute"><svg viewBox="0 0 24 24"><path d="M11 5L6 9H3v6h3l5 4z"/><path d="M22 9l-6 6M16 9l6 6"/></svg></button>
+      <div class="lbl"><button class="circle" data-key="playpause" aria-label="Play or pause"><svg viewBox="0 0 24 24"><path d="M6 4l9 8-9 8z"/><path d="M17 5v14M21 5v14"/></svg></button>Play / Pause</div>
+      <div class="lbl"><button class="circle" data-key="mute" aria-label="Mute"><svg viewBox="0 0 24 24"><path d="M11 5L6 9H3v6h3l5 4z"/><path d="M22 9l-6 6M16 9l6 6"/></svg></button>Mute</div>
     </div>
-    <div class="vol"><button data-key="volup" aria-label="Volume up">+</button><button data-key="voldown" aria-label="Volume down">−</button></div>
+    <div class="lbl"><div class="vol"><button data-key="volup" aria-label="Volume up">Vol +</button><button data-key="voldown" aria-label="Volume down">Vol −</button></div>Volume</div>
   </div>
   <form class="field" id="typeForm">
     <input type="text" id="typeText" placeholder="Type on the TV" autocomplete="off" autocorrect="off" enterkeyhint="send">
@@ -147,15 +148,6 @@
   </form>
   <label class="check"><input type="checkbox" id="typeEnter" checked> Press Enter after sending (for search boxes)</label>
 
-  <h2>Modes</h2>
-  <div class="modes">
-    <button class="tile" data-mode="ambient">Ambient<small>Picture frame</small></button>
-    <button class="tile" data-mode="aerial">Aerial<small>Landscapes</small></button>
-    <button class="tile" data-mode="sleep">Sleep<small>Dark clock</small></button>
-    <button class="tile" data-mode="cinema">Cinema<small>Movie night</small></button>
-    <button class="tile" data-mode="claude">Claude<small>Ask anything</small></button>
-    <button class="tile" data-mode="home">Home<small>Home screen</small></button>
-  </div>
 </section>
 
 <section id="live">
@@ -211,6 +203,15 @@
 </section>
 
 <section id="more" data-group="more">
+  <h2>Modes</h2>
+  <div class="modes">
+    <button class="tile" data-mode="ambient">Ambient<small>Picture frame</small></button>
+    <button class="tile" data-mode="aerial">Aerial<small>Landscapes</small></button>
+    <button class="tile" data-mode="sleep">Sleep<small>Dark clock</small></button>
+    <button class="tile" data-mode="cinema">Cinema<small>Movie night</small></button>
+    <button class="tile" data-mode="claude">Claude<small>Ask anything</small></button>
+    <button class="tile" data-mode="home">Home<small>Home screen</small></button>
+  </div>
   <h2>Weather</h2>
   <div class="note">Leave empty to use the TV's internet location.</div>
   <form class="field" id="cityForm"><input type="text" id="city" placeholder="Town or city"><button class="btn">Save</button></form>
@@ -218,6 +219,7 @@
   <div class="note">Paste your calendar's private iCal link. Google Calendar: Settings › your calendar › "Secret address in iCal format".</div>
   <form class="field" id="calForm"><input type="url" id="cal" placeholder="https://…/basic.ics"><button class="btn">Save</button></form>
   <div class="field"><button class="btn grey" id="calClear" style="flex:1">Remove Calendar</button></div>
+  <details style="margin-top:26px"><summary style="font-size:17px;color:var(--dim);padding:10px 4px">Advanced (set-up and help)</summary>
   <h2>Full Control</h2>
   <div class="note" id="fullDone" hidden>✓ Set up. The TV turns its Accessibility Service on by itself.</div>
   <div id="fullSteps">
@@ -238,6 +240,7 @@
   <div class="field"><button class="btn grey" id="tuneLog" style="flex:1">Last Tuning Log</button><button class="btn grey" id="capture" style="flex:1">Capture TV Screen</button></div>
   <textarea id="diag" readonly style="width:100%;height:220px;margin-top:10px;border-radius:12px;border:0;padding:10px;background:#1c1c1e;color:#ddd;font:11px ui-monospace,Menlo,monospace;-webkit-user-select:text;user-select:text" placeholder="Results appear here"></textarea>
   <div class="field"><button class="btn" id="copyDiag" style="flex:1">Copy Text</button></div>
+  </details>
   <h2>Tip</h2>
   <div class="note">Tap Share › <b>Add to Home Screen</b> in Safari to keep this remote one tap away.</div>
 </section>
