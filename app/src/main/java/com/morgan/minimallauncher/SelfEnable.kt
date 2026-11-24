@@ -57,8 +57,17 @@ object SelfEnable {
             val current = Settings.Secure.getString(cr, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES).orEmpty()
             val others = current.split(':').filter { it.isNotBlank() && ComponentName.unflattenFromString(it) != me }
             Settings.Secure.putString(cr, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, others.joinToString(":"))
-            Settings.Secure.putString(cr, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, (others + me.flattenToString()).joinToString(":"))
-            Settings.Secure.putInt(cr, Settings.Secure.ACCESSIBILITY_ENABLED, 1)
+            // Back on 2 seconds later: switched off and on in the same instant, Fire OS never notices either change
+            // and the service stays stopped.
+            val app = c.applicationContext
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                try {
+                    val now = Settings.Secure.getString(app.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES).orEmpty()
+                        .split(':').filter { it.isNotBlank() && ComponentName.unflattenFromString(it) != me }
+                    Settings.Secure.putString(app.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, (now + me.flattenToString()).joinToString(":"))
+                    Settings.Secure.putInt(app.contentResolver, Settings.Secure.ACCESSIBILITY_ENABLED, 1)
+                } catch (e: Exception) { RedirectDiag.error(app, "rebind: ${e.javaClass.simpleName}") }
+            }, 2_000L)
             RedirectDiag.event(c, "rebind")
         } catch (e: Exception) { RedirectDiag.error(c, "rebind: ${e.javaClass.simpleName}") }
     }
