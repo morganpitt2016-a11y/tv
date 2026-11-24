@@ -648,6 +648,10 @@ class PlayerActivity : Activity() {
                 }
                 skippingIntro = false
                 if (reason == Player.DISCONTINUITY_REASON_SEEK) { startWatch?.let { handler.removeCallbacks(it) }; settleUntil = android.os.SystemClock.uptimeMillis() + 10_000L }
+                // Rewound into an ad break we just skipped (or skipped back into one): you want to watch it - leave it be.
+                if (reason == Player.DISCONTINUITY_REASON_SEEK) recAnalysis?.ads?.forEachIndexed { i, ad ->
+                    if (new.positionMs in ad[0]..ad[1] && (android.os.SystemClock.uptimeMillis() - skippedAt > 2500 || i != skippedIdx)) adsWatched += i
+                }
                 if (reason == Player.DISCONTINUITY_REASON_SEEK && atItemEnd && player?.currentMediaItemIndex == 0) atItemEnd = false   // went back into it
             }
             override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -662,6 +666,7 @@ class PlayerActivity : Activity() {
             }
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_READY && pauseAtStart) { pauseAtStart = false; player?.playWhenReady = false }
+                if (state == Player.STATE_READY && recAnalysis != null && !askedHighlights && !pauseAtStart) offerHighlights()
                 // Live picture stalling (for the TV's log): count it, and note which channel.
                 if (state == Player.STATE_BUFFERING && firstFrameLogged) {
                     stalls++
@@ -713,7 +718,7 @@ class PlayerActivity : Activity() {
         liveChannel = if (live) titleText else null
         val p = player ?: newPlayer().also { player = it; view.player = it }   // changing channel reuses the player
         p.stop()
-        if (u != lastStartUrl) { lastStartUrl = u; freshTitle(p) }
+        if (u != lastStartUrl) { lastStartUrl = u; freshTitle(p); loadRecordingAnalysis(u) }
         val useTs = live && tsOffFor != u && Prefs.bool(this, "timeshift_on", true) && u.substringBefore('?').endsWith(".ts")
         if (useTs) {
             if (ts?.url != u) { ts?.stop(); ts = Timeshift(applicationContext, u).also { it.start() }; tsStart = 0L }
@@ -849,6 +854,7 @@ class PlayerActivity : Activity() {
                     }
                 }
             }
+            recordingTick()
             if (++ticks % 15 == 0) saveProgress()
             // Let the other TV know what's on here (for its "On the other TV" corner).
             if ((ticks == 5 || ticks % 180 == 0) && player?.isPlaying == true) {
@@ -871,6 +877,67 @@ class PlayerActivity : Activity() {
 
     private var lastStartUrl: String? = null
     private var pauseAtStart = false
+    // ---------- Recordings: ad breaks skipped, sport as just the highlights (see RecordingAnalyzer) ----------
+    private var recAnalysis: RecordingAnalyzer.Analysis? = null
+    private var recFile: String? = null
+    private val adsWatched = HashSet<Int>()
+    private var skippedAt = 0L; private var skippedIdx = -1
+    private var highlights: List<LongArray>? = null
+    private var hlAt = 0
+    private var askedHighlights = false
+
+    private fun loadRecordingAnalysis(u: String) {
+        recAnalysis = null; recFile = null; adsWatched.clear(); highlights = null; hlAt = 0; askedHighlights = false
+        if (!u.startsWith("file://")) return
+        val path = android.net.Uri.parse(u).path ?: return
+        recFile = path
+        recAnalysis = RecordingAnalyzer.load(path)
+        if (recAnalysis == null) RecordingAnalyzer.enqueue(this, path)
+    }
+
+    /** A sport recording with highlights: the whole match, or just the moments the crowd roared. */
+    private fun offerHighlights() {
+        val a = recAnalysis ?: return
+        if (askedHighlights || a.highlights.size < 3) return
+        askedHighlights = true
+        val sporty = Regex("(?i)rugby|football|premier league|match of the day|cricket|f1|grand prix|boxing|darts|snooker|tennis|golf|six nations|world cup|champions league|v ").containsMatchIn(titleText)
+        if (!sporty) return
+        val mins = a.highlights.sumOf { it[1] - it[0] } / 60_000
+        player?.playWhenReady = false
+        GlassDialog(this).title(titleText).message("Watch the whole thing, or just the big moments - the ${a.highlights.size} times the crowd roared loudest (about $mins minutes).")
+            .button("Just the Highlights", GlassDialog.Style.BOLD) { highlights = a.highlights; hlAt = 0; player?.seekTo(a.highlights[0][0]); player?.playWhenReady = true }
+            .button("Whole Match") { player?.playWhenReady = true }
+            .show()
+    }
+
+    /** Each second: jump the ad breaks, or step through the highlights. */
+    private fun recordingTick() {
+        val p = player ?: return
+        val a = recAnalysis ?: return
+        if (!p.isPlaying) return
+        val pos = p.currentPosition
+        // Watched (most of) a recorded match: its score can be shown again, on every TV.
+        if (p.duration > 0 && pos > p.duration * 0.85 || highlights != null && hlAt >= (highlights?.size ?: 0) - 1) Shield.release(this, titleText)
+        highlights?.let { hl ->
+            val seg = hl.getOrNull(hlAt) ?: return
+            if (pos >= seg[1]) {
+                hlAt++
+                val next = hl.getOrNull(hlAt)
+                if (next == null) { p.playWhenReady = false; highlights = null; GlassUi.toast(this, "That's the highlights") }
+                else p.seekTo(next[0])
+            } else if (pos < seg[0] - 2000) p.seekTo(seg[0])
+            return
+        }
+        a.ads.forEachIndexed { i, ad ->
+            if (i !in adsWatched && pos in (ad[0] + 300)..(ad[1] - 1500)) {
+                p.seekTo(ad[1])
+                skippedAt = android.os.SystemClock.uptimeMillis(); skippedIdx = i
+                val s = (ad[1] - ad[0]) / 1000
+                GlassUi.toast(this, "Skipped the adverts · %d:%02d  ·  rewind to watch them".format(s / 60, s % 60))
+                return
+            }
+        }
+    }
     /** Keyframe colour for tunnelled (10-bit) video: each shot's picture, delivered in time with it. */
     private val keyTap: KeyframeTap by lazy {
         KeyframeTap { timeUs ->

@@ -102,6 +102,9 @@
         hits.sort((a, b) => a[1][1] - b[1][1]);
         html += `<h2>Results</h2>` + (hits.length ? `<div class="card">${hits.slice(0, 60).map(([c, p]) => progItem(c, p, true)).join('')}</div>` : '<div class="empty">Nothing in the next day or so.</div>');
       } else {
+        html += `<h2>Recording Rules</h2><form id="ruleF" style="display:flex;gap:10px"><input type="search" id="ruleT" placeholder="e.g. every England rugby match" style="flex:1">
+          <button class="btn" style="width:auto;margin:0;padding:0 18px;height:46px;background:var(--accent)">Add</button></form>` +
+          ((g.rules || []).length ? `<div class="card" style="margin-top:10px">${g.rules.map(r => `<div class="item"><div class="t"><b>${esc(r.text)}</b></div><button class="back" data-unrule="${esc(r.id)}">Remove</button></div>`).join('')}</div>` : '');
         if (g.ready) html += `<h2>Waiting for you at home</h2><div class="card ready"><div class="item"><div class="t"><b>${esc(g.ready.title)}</b><small>${esc(g.ready.channel)} · opens paused at the start when you get home</small></div></div></div>`;
         const up = (g.scheduled || []).filter(x => x.s > Date.now() - 6 * 3600000).sort((a, b) => a.s - b.s);
         if (up.length) html += `<h2>Set to record</h2><div class="card">${up.map(x => `<div class="item"><div class="t"><b>${esc(x.t)}</b><small>${esc(x.c)} · ${day(x.s)} ${tm(x.s)}</small></div><span class="rec">● REC</span></div>`).join('')}</div>`;
@@ -111,6 +114,11 @@
     }
     app.innerHTML = html;
     const q = $('#q'); if (q) { q.oninput = () => { view.q = q.value; const pos = q.selectionStart; render(); const n = $('#q'); n.focus(); n.setSelectionRange(pos, pos); }; }
+    const rf = $('#ruleF'); if (rf) rf.onsubmit = async e => { e.preventDefault(); const v = $('#ruleT').value.trim(); if (!v) return;
+      const r = await call({ op: 'rule', text: v }); toast(r.ok ? 'Sent - the TV will record anything that matches' : 'Couldn’t reach the TV');
+      if (r.ok) { g.rules = (g.rules || []).concat([{ id: '', text: v }]); render(); setTimeout(load, 20000); } };
+    document.querySelectorAll('[data-unrule]').forEach(b => b.onclick = async () => { const r = await call({ op: 'unrule', id: b.dataset.unrule });
+      if (r.ok) { g.rules = g.rules.filter(x => x.id !== b.dataset.unrule); render(); } });
     const back = $('#back'); if (back) back.onclick = () => { view.ch = null; render(); };
     document.querySelectorAll('[data-ch]').forEach(b => b.onclick = () => { view.ch = b.dataset.ch; render(); scrollTo(0, 0); });
     document.querySelectorAll('[data-s]').forEach(b => b.onclick = () => {

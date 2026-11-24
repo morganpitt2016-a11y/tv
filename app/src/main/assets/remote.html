@@ -151,6 +151,11 @@
 </section>
 
 <section id="live">
+  <h2 style="margin-top:6px">Recording Rules</h2>
+  <div class="note">Say what you want recorded, in your own words. The TV checks the guide every half hour and records anything that matches, on any channel.</div>
+  <form class="field" id="ruleForm" style="margin-top:6px"><input type="text" id="ruleText" placeholder="e.g. every England rugby match"><button class="btn">Add</button></form>
+  <div id="ruleList"></div>
+  <h2>Channels</h2>
   <div class="note">Your favourites and the main channels. Tap one to watch it on the TV.</div>
   <div id="liveList"><div class="note">Loading channels…</div></div>
 </section>
@@ -377,7 +382,23 @@
   document.querySelectorAll('[data-seg] button').forEach(b => b.onclick = () => { haptic(); loadLights({ set: b.parentElement.dataset.seg, value: +b.dataset.v }); });
   $('#lCal').onclick = () => { haptic(); loadLights({ set: 'calibrate' }); toast('Calibration is on the TV now'); };
   // ---- Live TV ----
+  async function loadRules(body) {
+    try {
+      const r = await api('/api/rules', body);
+      const box = $('#ruleList'); box.innerHTML = '';
+      r.rules.forEach(x => {
+        const row = document.createElement('div'); row.className = 'rowx';
+        const t = document.createElement('div'); t.textContent = x.text; const sm = document.createElement('small'); sm.textContent = 'Looks for: ' + x.looks; t.append(sm);
+        const del = document.createElement('button'); del.className = 'btn grey'; del.textContent = 'Remove'; del.style.height = '36px';
+        del.onclick = () => { haptic(); loadRules({ remove: x.id }); };
+        row.append(t, del); box.append(row);
+      });
+    } catch (_) {}
+  }
+  $('#ruleForm').onsubmit = e => { e.preventDefault(); const v = $('#ruleText').value.trim(); if (!v) return; haptic(); toast('Working out what to look for…');
+    loadRules({ add: v }).then(() => { $('#ruleText').value = ''; toast('Rule added - the TV will record matches'); }); };
   async function loadLive() {
+    loadRules();
     const box = $('#liveList');
     try {
       const r = await api('/api/live');

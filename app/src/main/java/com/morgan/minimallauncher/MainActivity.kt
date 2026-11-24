@@ -88,6 +88,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         AwayRemote.start(applicationContext)
+        RecordingAnalyzer.catchUp(applicationContext)
         super.onCreate(savedInstanceState)
         if (Activation.guard(this)) return
         setContentView(R.layout.activity_main)

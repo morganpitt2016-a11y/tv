@@ -70,7 +70,10 @@ class ScoreOverlay(private val c: Context) {
     private class Row(val root: LinearLayout, val card: LinearLayout, val home: TextView, val away: TextView, val clock: TextView,
                       val homeBar: View, val awayBar: View, val banner: TextView)
 
-    fun render(cards: List<LiveScores.Card>, events: List<LiveScores.Event>) {
+    fun render(allCards: List<LiveScores.Card>, allEvents: List<LiveScores.Event>) {
+        // Spoiler Shield: a match someone's recording stays hidden until it's been watched.
+        val cards = allCards.filter { !Shield.hides(c, it) }
+        val events = allEvents.filter { e -> cards.any { it.id == e.id } || allCards.none { it.id == e.id } }
         if (cards.isEmpty() || Prefs.bool(c, "dnd", false)) { removeAll(); return }   // Do Not Disturb (Control Centre): no pop-ups
         val col = column ?: makeColumn() ?: return
         // Gone: fade away.

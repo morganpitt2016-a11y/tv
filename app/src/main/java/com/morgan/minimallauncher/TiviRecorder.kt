@@ -82,6 +82,7 @@ object TiviRecorder {
         val item = Scheduled(idOf(owner, ch.name, p.start), ch.name, p.title, p.start, p.stop, owner)
         save(c, list(c).filter { it.id != item.id } + item)
         arm(c, item)
+        Shield.protect(c, p.title, p.stop)
     }
 
     fun cancel(c: Context, id: Int) {

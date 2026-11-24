@@ -77,6 +77,7 @@ object Recordings {
         val safe = title.replace(Regex("[^A-Za-z0-9 ]"), "").trim().take(40).ifBlank { "Recording" }
         val file = File(dir(app), "$safe-$id.ts").path
         upsert(app, Rec(id, title, channel, System.currentTimeMillis(), stop + 2 * 60_000, file, image, false, owner ?: ProfileManager.activeKey(app)))
+        Shield.protect(app, title, stop)
         return try {
             ContextCompat.startForegroundService(app, Intent(app, RecordService::class.java)
                 .putExtra("id", id).putExtra("channel", channel))
@@ -110,7 +111,7 @@ object Recordings {
         list(c).firstOrNull { it.id == id }?.let { r ->
             val f = File(r.file)
             if (!f.exists() || f.length() < 512 * 1024) { f.delete(); save(c, list(c).filter { it.id != id }) }
-            else upsert(c, r.copy(done = true, stop = System.currentTimeMillis()))
+            else { upsert(c, r.copy(done = true, stop = System.currentTimeMillis())); RecordingAnalyzer.enqueue(c, r.file) }
         }
     }
 

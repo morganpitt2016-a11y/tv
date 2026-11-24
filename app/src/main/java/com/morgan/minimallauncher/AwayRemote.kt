@@ -49,7 +49,7 @@ object AwayRemote {
         started = true
         h.post(object : Runnable {
             override fun run() {
-                if (Prefs.bool(app, "away_on", false)) try { register(app); publish(app) } catch (_: Exception) {}
+                try { register(app); publish(app); fetchShields(app) } catch (_: Exception) {}
                 h.postDelayed(this, EVERY_MS)
             }
         })
@@ -87,6 +87,9 @@ object AwayRemote {
         android.os.Handler(android.os.Looper.getMainLooper()).post { LiveGuide.load(app) { l -> list = l; latch.countDown() } }
         latch.await(60, java.util.concurrent.TimeUnit.SECONDS)
         val all = list ?: return
+        // Plain-English recording rules: set anything new that matches.
+        try { RecordingRules.apply(app, all) } catch (_: Exception) {}
+        if (!Prefs.bool(app, "away_on", false)) return
         val main = listOf("BBC One", "BBC Two", "ITV1", "Channel 4", "Channel 5", "ITV2", "BBC Three", "E4", "BBC Four", "ITV3", "ITV4", "Dave",
             "Film4", "More4", "5 USA", "Sky Sports Main Event", "Sky Sports Premier League", "Sky Sports Action", "Sky Sports Football",
             "TNT Sports 1", "TNT Sports 2", "Premier Sports 1", "Sky Showcase", "Sky Max", "Sky Atlantic", "Sky Cinema Premiere", "Sky News", "BBC News")
@@ -105,15 +108,18 @@ object AwayRemote {
         }
         val sched = JSONArray()
         TiviRecorder.list(app).forEach { sched.put(JSONObject().put("t", it.title).put("c", it.channel).put("s", it.start)) }
-        val guide = JSONObject().put("tv", tvName(app)).put("at", now).put("channels", chans).put("scheduled", sched)
+        val rules = JSONArray(); RecordingRules.list(app).forEach { rules.put(JSONObject().put("id", it.id).put("text", it.text)) }
+        val guide = JSONObject().put("tv", tvName(app)).put("at", now).put("channels", chans).put("scheduled", sched).put("rules", rules)
             .put("ready", Prefs.string(app, "away_ready")?.let { try { JSONObject(it) } catch (e: Exception) { null } } ?: JSONObject.NULL)
         call(JSONObject().put("op", "guide").put("device", Diag.deviceId(app)).put("token", token(app)).put("guide", guide))
     }
 
-    /** A record request from the away page (through the command mailbox). */
+    /** A record request (or a new rule, or a rule to delete) from the away page, through the command mailbox. */
     fun record(c: Context, json: String) {
         val app = c.applicationContext
         val r = JSONObject(json)
+        if (r.has("rule")) { h.post { try { RecordingRules.add(app, r.getString("rule")); publish(app) } catch (_: Exception) {} }; return }
+        if (r.has("unrule")) { RecordingRules.remove(app, r.getString("unrule")); h.post { try { publish(app) } catch (_: Exception) {} }; return }
         val name = r.optString("channel"); val start = r.optLong("start"); val stop = r.optLong("stop"); val title = r.optString("title")
         val run = {
             val ch = LiveGuide.channelFor(name) ?: LiveGuide.Channel("", name, null, emptyList())
@@ -129,6 +135,24 @@ object AwayRemote {
             h.post { try { publish(app) } catch (_: Exception) {} }
         }
         android.os.Handler(android.os.Looper.getMainLooper()).post { LiveGuide.load(app) { run() } }
+    }
+
+    // ---------- Spoiler Shield, shared by the family's TVs ----------
+
+    fun shareShield(c: Context, e: Shield.Entry) {
+        val app = c.applicationContext
+        h.post { try { call(JSONObject().put("op", "shield").put("device", Diag.deviceId(app)).put("token", token(app))
+            .put("id", e.id).put("title", e.title).put("terms", JSONArray(e.terms)).put("until", e.until)) } catch (_: Exception) {} }
+    }
+
+    private fun fetchShields(c: Context) {
+        val r = call(JSONObject().put("op", "shields").put("device", Diag.deviceId(c)).put("token", token(c)))
+        val a = r.optJSONArray("shields") ?: return
+        for (i in 0 until a.length()) {
+            val o = a.getJSONObject(i)
+            val terms = o.optJSONArray("terms")?.let { t -> (0 until t.length()).map { t.getString(it) } }.orEmpty()
+            Shield.add(c, Shield.Entry(o.getString("id"), o.optString("title"), terms, o.optLong("until")))
+        }
     }
 
     /** Home again (the iPhone joined the Wi-Fi): wake the TV and open the waiting recording at the start, paused. */
