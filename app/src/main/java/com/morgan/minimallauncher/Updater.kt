@@ -133,5 +133,10 @@ class PackageReplacedReceiver : BroadcastReceiver() {
         // Fire TV: the open-on-Home service doesn't come back by itself after an update - check once it's had time to.
         val app = c.applicationContext
         android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ SelfEnable.rebindIfStale(app) }, 20_000L)
+        // Fire TV: the update closed the launcher and Amazon's home took the screen before the open-on-Home service was
+        // back, so nothing would bring the launcher back until the next button press - open it now.
+        if (AutoLaunch.isEnabled(app) && Device.isFireTv(app)) android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            try { AutoLaunch.open(app) } catch (_: Exception) {}
+        }, 3_000L)
     }
 }
