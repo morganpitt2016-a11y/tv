@@ -840,13 +840,14 @@ class PlayerActivity : Activity() {
     }
 
     private var lastStartUrl: String? = null
+    private var stillColours: List<IntArray>? = null
 
     /** A new film, episode or channel: nothing about the last one carries over (tunnelling, lights mode, guard). */
     private fun freshTitle(p: ExoPlayer) {
         if (tunnelled) (p.trackSelector as? androidx.media3.exoplayer.trackselection.DefaultTrackSelector)?.let { ts ->
             ts.setParameters(ts.buildUponParameters().setTunnelingEnabled(false))
         }
-        tunnelled = false; heavyVideo = false; bigHevc = false; tenBitVideo = false
+        tunnelled = false; heavyVideo = false; bigHevc = false; tenBitVideo = false; stillColours = null
         pictureFirst = false; pictureRetryMs = 60_000L; recentDrops.clear(); lastDropCount = -1
         settleUntil = android.os.SystemClock.uptimeMillis() + 10_000L
         SoundEvents.loudness = 0f
@@ -877,7 +878,7 @@ class PlayerActivity : Activity() {
             val urls = try { Xtream.stills(app, name, year, show) } catch (e: Exception) { emptyList() }
             val colours = urls.mapNotNull { u -> try { ImageLoader.fetch(app, u, ImageLoader.ICON)?.let { ColourEngine.dominant(it) } } catch (e: Exception) { null } }
             Diag.send(app, "lights", "stills for \"$name\": ${colours.size} of ${urls.size} (${colours.joinToString(" ") { it.joinToString(",") }})")
-            runOnUiThread { if (!isDestroyed && tunnelled) colourSync?.stills(colours) }
+            runOnUiThread { if (!isDestroyed && tunnelled) { stillColours = colours; colourSync?.stills(colours) } }
         }
     }
 
@@ -901,6 +902,7 @@ class PlayerActivity : Activity() {
                 it.mood(Prefs.string(this, ResumeStore.keyOf("genres", seriesTitle ?: titleText)).orEmpty()) }
         // Tunnelled (10-bit) films can't be read at all, and some films drop frames if they are: follow the sound.
         if ((tunnelled || pictureFirst) && !cs.soundOnly) cs.followSound(r?.palette ?: posterColour)
+        if (tunnelled) stillColours?.let { cs.stills(it) }
         cs.start()
     }
 
