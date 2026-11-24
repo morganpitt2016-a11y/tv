@@ -522,7 +522,7 @@ class PlayerActivity : Activity() {
                 heavyVideo = format.width > 1920 || (format.codecs ?: "").startsWith("hvc1.2") || (format.codecs ?: "").startsWith("hev1.2") || format.colorInfo?.colorTransfer.let { it == androidx.media3.common.C.COLOR_TRANSFER_ST2084 || it == androidx.media3.common.C.COLOR_TRANSFER_HLG }
                 val codecs = format.codecs ?: ""
                 bigHevc = (codecs.startsWith("hvc1") || codecs.startsWith("hev1") || format.sampleMimeType == "video/hevc") && format.width >= 1900
-                if (heavyVideo || bigHevc) colourSync?.gentle = true
+                if (heavyVideo || bigHevc || Device.lite(this@PlayerActivity)) colourSync?.gentle = true
                 // 10-bit / HDR on this Chromecast: the decoder copes, but converting every frame for the screen
                 // through the graphics chip doesn't (~7 dropped frames a second). Tunnelled playback hands the frames
                 // straight to the TV's video layer instead. The picture can't be read then, so the lights hold the
@@ -983,7 +983,7 @@ class PlayerActivity : Activity() {
             cs?.minGapMs = 1500L; cs?.perShot = true; cs?.holdReads = false
             Diag.send(this, "player", "lights test on \"$titleText\": $lightsTestDrops frames dropped without reading - reading cost frames, lights now read once per shot")
         } else {
-            cs?.gentle = false; cs?.slowRead = false; cs?.holdReads = false
+            cs?.gentle = Device.lite(this); cs?.slowRead = false; cs?.holdReads = false
             Diag.send(this, "player", "lights test on \"$titleText\": still $lightsTestDrops frames dropped without reading - it's the stream, not the lights; lights read normally again")
         }
     }
@@ -1007,7 +1007,7 @@ class PlayerActivity : Activity() {
         lightsTest = 0; colourSync?.let { it.holdReads = false; it.minGapMs = 0L; it.perShot = false }
         settleUntil = android.os.SystemClock.uptimeMillis() + 10_000L
         SoundEvents.loudness = 0f
-        colourSync?.let { cs -> cs.gentle = false; cs.slowRead = false; if (cs.soundOnly) cs.backToPicture() }
+        colourSync?.let { cs -> cs.gentle = Device.lite(this); cs.slowRead = false; if (cs.soundOnly) cs.backToPicture() }
     }
 
     /** Hand the video straight to the TV's video layer (no frame conversion): smooth heavy video, but the picture can
@@ -1054,7 +1054,7 @@ class PlayerActivity : Activity() {
         val fourD = !live && Prefs.bool(this, "fourd_mode", true)
         SoundEvents.listener = if (fourD || tunnelled || pictureFirst) { kind -> if (!houseLit && fourD) colourSync?.impulse(kind) } else null
         val cs = colourSync ?: (if (r != null) TvColourSync(applicationContext, sv, ip, shared = r.link, seed = r.current())
-            else TvColourSync(applicationContext, sv, ip)).also { colourSync = it; it.gentle = heavyVideo || bigHevc; it.perShot = keyTap.enabled; if (lightsTest == 2) it.minGapMs = 1500L
+            else TvColourSync(applicationContext, sv, ip)).also { colourSync = it; it.gentle = heavyVideo || bigHevc || Device.lite(this); it.perShot = keyTap.enabled; if (lightsTest == 2) it.minGapMs = 1500L
                 it.mood(Prefs.string(this, ResumeStore.keyOf("genres", seriesTitle ?: titleText)).orEmpty()) }
         // Tunnelled (10-bit) films can't be read at all, and some films drop frames if they are: follow the sound.
         // Can't see the picture (10-bit): a neutral warm glow, never a guessed colour (artwork isn't the scene - Percy

@@ -63,6 +63,9 @@ object RecordingAnalyzer {
         val file = queue.poll() ?: return
         if (!File(file).exists() || sidecar(file).exists()) return next(app)
         if (PlayerActivity.isPlayingFile(file)) return next(app)            // never rewrite what's on screen; done next time
+        // A small box (Fire TV Stick Lite) can't decode a recording in the background and play smoothly at the same
+        // time: wait until nothing's playing.
+        if (Device.lite(app) && PlayerActivity.onScreen?.get() != null) { queue.add(file); h.postDelayed({ next(app) }, 60_000L); return }
         busy = true
         h.post {
             try {

@@ -272,7 +272,7 @@ class SettingsActivity : AppCompatActivity() {
         group {
             vrow("Ambient Lighting", { onOff(Prefs.ambientLight(this)) }) { Prefs.setBool(this, "ambient_light", !Prefs.ambientLight(this)); refreshValues() }
         }
-        footnote("Ambient lighting makes the wallpaper a little darker in the evening and at night. Haptic feedback isn’t possible: the Chromecast remote has no vibration motor.")
+        footnote("Ambient lighting makes the wallpaper a little darker in the evening and at night. Haptic feedback isn’t possible: TV remotes have no vibration motor.")
 
         section("Open Automatically")
         group {
