@@ -184,7 +184,8 @@ internal fun WatchActivity.queueTrailer(t: WatchCatalog.Title?) {
     handler.removeCallbacks(trailerJob)
     if (t?.id != trailerFor) stopTrailer()
     trailerTitle = t
-    if (t != null && Prefs.bool(this, "hero_trailers", true) && !Kids.isOn(this)) handler.postDelayed(trailerJob, 3000)
+    // Not on a small box (Fire TV Stick Lite): a trailer playing in a web page behind the page makes everything stutter.
+    if (t != null && Prefs.bool(this, "hero_trailers", true) && !Kids.isOn(this) && !Device.lite(this)) handler.postDelayed(trailerJob, 3000)
 }
 
     internal fun WatchActivity.startTrailer() {
@@ -273,14 +274,16 @@ internal fun WatchActivity.setHeroImage(url: String?, fallback: String? = null) 
     val outgoing = if (heroShowingA) heroA else heroB
     heroShowingA = !heroShowingA
     if (url == null) { outgoing.animate().alpha(0f).setDuration(500).start(); return }
-    ImageLoader.load(incoming, url, ImageLoader.HERO, fade = false) { bmp ->
+    val lite = Device.lite(this)
+    // A small box: a smaller picture (it's softened behind the text anyway) and a plain fade, no zoom.
+    ImageLoader.load(incoming, url, if (lite) 960 else ImageLoader.HERO, fade = false) { bmp ->
         // The wide artwork failed to load: the poster instead, rather than a black page.
         if (bmp == null && heroUrl == url && fallback != null && fallback != url) { heroUrl = null; setHeroImage(fallback); return@load }
         if (bmp == null || heroUrl != url) return@load
         incoming.bringToFront()
         incoming.alpha = 0f
-        incoming.scaleX = 1.05f; incoming.scaleY = 1.05f
-        incoming.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(Motion.HERO).setInterpolator(Motion.enter).start()
+        incoming.scaleX = if (lite) 1f else 1.05f; incoming.scaleY = incoming.scaleX
+        incoming.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(if (lite) 300L else Motion.HERO).setInterpolator(Motion.enter).start()
         outgoing.animate().alpha(0f).setDuration(Motion.HERO).setInterpolator(Motion.standard).start()
     }
 }

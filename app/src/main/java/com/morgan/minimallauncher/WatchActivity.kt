@@ -548,7 +548,8 @@ class WatchActivity : AppCompatActivity() {
 
     internal val rotateFeatured = object : Runnable {
         override fun run() {
-            if (tab == "home" && detail == null && featured.isNotEmpty() && rowOf(currentFocus ?: nav) == null) {
+            // A small box keeps the banner still (it changes as you move through Top 10 instead).
+            if (!Device.lite(this@WatchActivity) && tab == "home" && detail == null && featured.isNotEmpty() && rowOf(currentFocus ?: nav) == null) {
                 featuredIndex = (featuredIndex + 1) % featured.size
                 showTitleHero(featured[featuredIndex], now = true)
                 queueTrailer(null)
@@ -641,6 +642,7 @@ class WatchActivity : AppCompatActivity() {
         override fun onBindViewHolder(holder: Holder, position: Int) {
             holder.root.alpha = 0.5f
             holder.root.animate().cancel()
+            if (Device.lite(holder.root.context)) return          // a small box: still placeholders, no endless pulse
             holder.root.animate().alpha(1f).setStartDelay((position * 90L) % 500).setDuration(700).withEndAction {
                 holder.root.animate().alpha(0.5f).setDuration(700).withEndAction { if (holder.root.isAttachedToWindow) onBindViewHolder(holder, position) }.start()
             }.start()
