@@ -67,6 +67,9 @@ object RecordingRules {
 
     /** Schedule everything in the guide (next ~36 h) that a rule asks for. */
     fun apply(c: Context, guide: List<LiveGuide.Channel>) {
+        // Not on a small box (Fire TV Stick Lite, ~2 GB free): recordings would fill it, and a copied setup would
+        // record the same shows as the TV it was copied from.
+        if (Device.lite(c)) return
         val rules = list(c); if (rules.isEmpty()) return
         val now = System.currentTimeMillis()
         var n = 0
