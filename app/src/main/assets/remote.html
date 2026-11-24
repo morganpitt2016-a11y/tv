@@ -219,6 +219,14 @@
   <div class="note">Paste your calendar's private iCal link. Google Calendar: Settings › your calendar › "Secret address in iCal format".</div>
   <form class="field" id="calForm"><input type="url" id="cal" placeholder="https://…/basic.ics"><button class="btn">Save</button></form>
   <div class="field"><button class="btn grey" id="calClear" style="flex:1">Remove Calendar</button></div>
+  <h2>Away from Home</h2>
+  <div class="note">Record things on this TV from anywhere, and have them waiting - TV on, paused at the start - when you get home.</div>
+  <div class="card">
+    <div class="note" style="margin:0 0 10px"><b>1.</b> Set up the away remote on this phone, then in Safari tap Share › <b>Add to Home Screen</b>.</div>
+    <button class="btn" id="awaySetup" style="width:100%">Set Up Away Remote</button>
+    <div class="note" style="margin:14px 0 8px"><b>2.</b> So the TV gets ready when you're back: open the <b>Shortcuts</b> app › Automation › + › <b>Wi-Fi</b> › choose your home Wi-Fi › <b>Run Immediately</b> › Next › New Blank Automation › Add Action › <b>Get Contents of URL</b> › paste this link:</div>
+    <button class="btn grey" id="awayArrive" style="width:100%;font-size:13px;word-break:break-all;height:auto;padding:10px">Tap to copy the link</button>
+  </div>
   <details style="margin-top:26px"><summary style="font-size:17px;color:var(--dim);padding:10px 4px">Advanced (set-up and help)</summary>
   <h2>Full Control</h2>
   <div class="note" id="fullDone" hidden>✓ Set up. The TV turns its Accessibility Service on by itself.</div>
@@ -558,6 +566,10 @@
   $('#epgForm').onsubmit = e => { e.preventDefault(); const v = $('#epg').value.trim(); if (!v) return;
     api('/api/settings', { epg: v }).then(() => { toast('Guide link saved'); $('#epg').value = ''; refresh(); }); };
   $('#epgClear').onclick = () => api('/api/settings', { epg: '' }).then(() => { toast('Using Freeview guide'); refresh(); });
+  let arriveLink = '';
+  $('#awaySetup').onclick = () => api('/api/away/setup').then(r => { arriveLink = r.arrive; $('#awayArrive').textContent = r.arrive; location.href = r.url; }).catch(() => toast('TV not reachable'));
+  $('#awayArrive').onclick = () => { if (arriveLink) copy(arriveLink);
+    else api('/api/away/setup').then(r => { arriveLink = r.arrive; $('#awayArrive').textContent = r.arrive; copy(r.arrive); }); };
   $('#calClear').onclick = () => api('/api/settings', { calendar: '' }).then(() => { toast('Calendar removed'); refresh(); });
 })();
 </script>

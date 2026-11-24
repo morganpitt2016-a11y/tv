@@ -330,6 +330,11 @@ class RemoteServer(private val context: Context) {
                 } catch (e: Exception) {}
                 json(out, JSONObject().put("channels", arr))
             }
+            // ---- Away from home ----
+            "/api/away/setup" -> json(out, JSONObject().put("url", AwayRemote.enable(context))
+                .put("arrive", "http://${ip(context) ?: "TV-IP"}:$PORT/api/arrive?k=$key"))
+            // The iPhone Shortcut runs this when the phone joins the home Wi-Fi.
+            "/api/arrive" -> json(out, JSONObject().put("result", onMain { AwayRemote.arrive(context) } ?: "busy"))
             "/api/photos/clear" -> {
                 WallpaperLibrary.albumDir(context).listFiles()?.forEach { it.delete() }
                 json(out, JSONObject().put("ok", true))

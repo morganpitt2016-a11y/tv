@@ -120,6 +120,8 @@ object Diag {
     private fun run(app: Context, cmd: String) {
         when {
             cmd == "info" -> send(app, "info", info(app))
+            // The away remote: record something (see AwayRemote).
+            cmd.startsWith("away:") -> AwayRemote.record(app, cmd.removePrefix("away:"))
             cmd == "tunelog" -> send(app, "tunelog", TiviTuner.logText())
             cmd == "perf" -> send(app, "perf", Perf.text())
             cmd == "screen" -> send(app, "screen", onMain { TiviTuner.tiviScreen() })

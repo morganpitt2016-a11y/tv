@@ -209,6 +209,11 @@ class PlayerActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         onScreen = java.lang.ref.WeakReference(this)
+        // Opened by "ready when I'm home": wake the TV for it, and wait at the start, paused.
+        if (startPaused) {
+            startPaused = false; pauseAtStart = true
+            if (android.os.Build.VERSION.SDK_INT >= 27) { setTurnScreenOn(true); setShowWhenLocked(true) }
+        }
         super.onCreate(savedInstanceState)
         if (Activation.guard(this)) return
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -656,6 +661,7 @@ class PlayerActivity : Activity() {
                 if (isPlaying && hideControlsOnStart) { hideControlsOnStart = false; view.hideController() }
             }
             override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_READY && pauseAtStart) { pauseAtStart = false; player?.playWhenReady = false }
                 // Live picture stalling (for the TV's log): count it, and note which channel.
                 if (state == Player.STATE_BUFFERING && firstFrameLogged) {
                     stalls++
@@ -864,6 +870,7 @@ class PlayerActivity : Activity() {
     }
 
     private var lastStartUrl: String? = null
+    private var pauseAtStart = false
     /** Keyframe colour for tunnelled (10-bit) video: each shot's picture, delivered in time with it. */
     private val keyTap: KeyframeTap by lazy {
         KeyframeTap { timeUs ->
@@ -2639,6 +2646,8 @@ class PlayerActivity : Activity() {
     companion object {
         /** The player on screen now (for the iPhone remote's Now Playing). */
         @Volatile var onScreen: java.lang.ref.WeakReference<PlayerActivity>? = null
+        /** The next player opened waits paused at the start (the away remote's "ready when I'm home"). */
+        @Volatile var startPaused = false
         /** True while something is on screen in the player (updates wait until it closes). */
         @Volatile var watching = false
         private var current: java.lang.ref.WeakReference<PlayerActivity>? = null

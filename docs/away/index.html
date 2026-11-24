@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="TV Away">
+<meta name="theme-color" content="#000000">
+<link rel="apple-touch-icon" href="icon.png">
+<title>TV Away</title>
+<style>
+  :root { --fill: rgba(255,255,255,.08); --fill2: rgba(255,255,255,.14); --dim: rgba(235,235,245,.6); --line: rgba(255,255,255,.12); --accent: #0a84ff; --red: #ff453a; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: #000; color: #fff; font: 17px/1.35 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; }
+  body { padding: calc(env(safe-area-inset-top) + 8px) 16px calc(40px + env(safe-area-inset-bottom)); }
+  h1 { font-size: 32px; letter-spacing: -.02em; margin: 14px 4px 2px; }
+  .sub { color: var(--dim); font-size: 14px; margin: 0 4px 14px; }
+  h2 { font-size: 20px; margin: 24px 4px 8px; }
+  input[type=search] { width: 100%; height: 46px; border-radius: 12px; border: 0; padding: 0 14px; background: var(--fill); color: #fff; font: inherit; outline: none; -webkit-appearance: none; }
+  .card { background: #1c1c1e; border-radius: 16px; padding: 4px 14px; }
+  .item { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: .5px solid var(--line); width: 100%; background: none; border-left: 0; border-right: 0; border-top: 0; color: #fff; text-align: left; font: inherit; }
+  .card .item:last-child { border-bottom: 0; }
+  .item img { width: 56px; height: 34px; object-fit: contain; border-radius: 6px; background: #2c2c2e; flex: 0 0 auto; }
+  .item .t { flex: 1; min-width: 0; } .item b { display: block; font-weight: 600; } .item small { display: block; color: var(--dim); font-size: 13px; margin-top: 2px; }
+  .rec { color: var(--red); font-size: 12px; font-weight: 700; }
+  .chev { color: var(--dim); }
+  .ready { background: linear-gradient(135deg, #1f3a5f, #1c1c1e); }
+  .empty { color: var(--dim); padding: 16px 4px; font-size: 15px; }
+  #sheet { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: none; align-items: flex-end; z-index: 5; }
+  #sheet.on { display: flex; }
+  #sheet .box { width: 100%; background: #1c1c1e; border-radius: 22px 22px 0 0; padding: 22px 18px calc(22px + env(safe-area-inset-bottom)); }
+  #sheet h3 { margin: 0 0 4px; font-size: 22px; } #sheet .when { color: var(--dim); margin-bottom: 18px; }
+  .row { display: flex; justify-content: space-between; align-items: center; padding: 12px 2px; font-size: 16px; }
+  .row small { display: block; color: var(--dim); font-size: 12.5px; }
+  .sw { appearance: none; -webkit-appearance: none; width: 51px; height: 31px; border-radius: 16px; background: rgba(120,120,128,.32); position: relative; flex: 0 0 auto; }
+  .sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 27px; height: 27px; border-radius: 50%; background: #fff; transition: .2s; }
+  .sw:checked { background: #30d158; } .sw:checked::after { left: 22px; }
+  .btn { width: 100%; height: 52px; border: 0; border-radius: 14px; background: var(--red); color: #fff; font: 600 17px -apple-system, system-ui; margin-top: 10px; }
+  .btn.grey { background: var(--fill2); }
+  .back { background: none; border: 0; color: var(--accent); font: inherit; padding: 8px 0; }
+  #toast { position: fixed; left: 50%; top: calc(14px + env(safe-area-inset-top)); transform: translate(-50%, -20px); opacity: 0; background: rgba(44,44,46,.96); padding: 10px 16px; border-radius: 20px; font-size: 14px; transition: .25s; pointer-events: none; z-index: 9; }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+</style>
+</head>
+<body>
+<div id="app"><h1>TV Away</h1><div class="sub" id="status">Loading…</div></div>
+<div id="sheet"><div class="box">
+  <h3 id="shTitle"></h3><div class="when" id="shWhen"></div>
+  <div class="row"><div>Ready when I'm home<small>TV on, paused at the start, when your phone joins the home Wi-Fi</small></div><input type="checkbox" class="sw" id="shReady" checked></div>
+  <button class="btn" id="shRec">● Record</button>
+  <button class="btn grey" id="shCancel">Cancel</button>
+</div></div>
+<div id="toast"></div>
+<script>
+(() => {
+  const RELAY = 'https://ligqohydmupgahmlxqvy.supabase.co/functions/v1/tv-away';
+  // The TV's away pass travels after the # (never sent to this website); kept in the address for the home-screen icon.
+  const h = new URLSearchParams(location.hash.slice(1));
+  const dev = h.get('d') || localStorage.getItem('away_d') || '', tok = h.get('t') || localStorage.getItem('away_t') || '';
+  if (h.get('d')) { localStorage.setItem('away_d', dev); localStorage.setItem('away_t', tok); if (h.get('n')) localStorage.setItem('away_n', h.get('n')); }
+  const $ = s => document.querySelector(s), app = $('#app');
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  let toastT; const toast = t => { $('#toast').textContent = t; $('#toast').classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => $('#toast').classList.remove('show'), 2200); };
+  const call = body => fetch(RELAY, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ device: dev, token: tok, ...body }) }).then(r => r.json());
+  const tm = ms => new Date(ms).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  const day = ms => { const d = new Date(ms), t = new Date(); const tom = new Date(); tom.setDate(t.getDate() + 1);
+    return d.toDateString() === t.toDateString() ? 'Today' : d.toDateString() === tom.toDateString() ? 'Tomorrow' : d.toLocaleDateString('en-GB', { weekday: 'long' }); };
+  let g = null, view = { ch: null, q: '' }, pick = null;
+
+  if (!dev || !tok) { app.innerHTML = '<h1>TV Away</h1><div class="sub">Set this up from the TV remote at home: More › Away from home › Set up.</div>'; return; }
+
+  async function load() {
+    try {
+      const r = await call({ op: 'get' });
+      if (r.error) { app.innerHTML = '<h1>TV Away</h1><div class="sub">This phone isn\'t paired any more. Set it up again from the TV remote at home.</div>'; return; }
+      g = r.guide; render();
+    } catch (_) { $('#status').textContent = 'No internet connection'; }
+  }
+
+  function progItem(c, p, showCh) {
+    const [title, s, e] = p, live = s <= Date.now();
+    const sched = (g.scheduled || []).some(x => x.t === title && Math.abs(x.s - s) < 60000);
+    return `<button class="item" data-c="${esc(c.n)}" data-s="${s}">${showCh ? `<img src="${esc(c.l)}" alt="">` : ''}<div class="t"><b>${esc(title)}</b>
+      <small>${showCh ? esc(c.n) + ' · ' : ''}${day(s)} ${tm(s)}–${tm(e)}${live ? ' · on now' : ''}</small></div>${sched ? '<span class="rec">● REC</span>' : '<span class="chev">›</span>'}</button>`;
+  }
+
+  function render() {
+    if (!g) { app.innerHTML = '<h1>TV Away</h1><div class="sub">Waiting for the TV to share its guide - make sure it\'s on standby, not unplugged.</div>'; return; }
+    const name = g.tv || localStorage.getItem('away_n') || 'TV';
+    const age = Math.round((Date.now() - g.at) / 60000);
+    let html = `<h1>${esc(name)}</h1><div class="sub">Guide from ${age < 2 ? 'just now' : age + ' min ago'}</div>`;
+    if (view.ch) {
+      const c = g.channels.find(x => x.n === view.ch);
+      html += `<button class="back" id="back">‹ All channels</button><h2>${esc(c.n)}</h2><div class="card">${c.p.map(p => progItem(c, p, false)).join('')}</div>`;
+    } else {
+      html += `<input type="search" id="q" placeholder="Search - e.g. rugby, Match of the Day" value="${esc(view.q)}">`;
+      const q = view.q.trim().toLowerCase();
+      if (q) {
+        const hits = []; g.channels.forEach(c => c.p.forEach(p => { if (p[0].toLowerCase().includes(q)) hits.push([c, p]); }));
+        hits.sort((a, b) => a[1][1] - b[1][1]);
+        html += `<h2>Results</h2>` + (hits.length ? `<div class="card">${hits.slice(0, 60).map(([c, p]) => progItem(c, p, true)).join('')}</div>` : '<div class="empty">Nothing in the next day or so.</div>');
+      } else {
+        if (g.ready) html += `<h2>Waiting for you at home</h2><div class="card ready"><div class="item"><div class="t"><b>${esc(g.ready.title)}</b><small>${esc(g.ready.channel)} · opens paused at the start when you get home</small></div></div></div>`;
+        const up = (g.scheduled || []).filter(x => x.s > Date.now() - 6 * 3600000).sort((a, b) => a.s - b.s);
+        if (up.length) html += `<h2>Set to record</h2><div class="card">${up.map(x => `<div class="item"><div class="t"><b>${esc(x.t)}</b><small>${esc(x.c)} · ${day(x.s)} ${tm(x.s)}</small></div><span class="rec">● REC</span></div>`).join('')}</div>`;
+        html += `<h2>Channels</h2><div class="card">${g.channels.map(c => { const now = c.p.find(p => p[1] <= Date.now() && p[2] > Date.now());
+          return `<button class="item" data-ch="${esc(c.n)}"><img src="${esc(c.l)}" alt=""><div class="t"><b>${esc(c.n)}</b><small>${now ? 'Now: ' + esc(now[0]) : ''}</small></div><span class="chev">›</span></button>`; }).join('')}</div>`;
+      }
+    }
+    app.innerHTML = html;
+    const q = $('#q'); if (q) { q.oninput = () => { view.q = q.value; const pos = q.selectionStart; render(); const n = $('#q'); n.focus(); n.setSelectionRange(pos, pos); }; }
+    const back = $('#back'); if (back) back.onclick = () => { view.ch = null; render(); };
+    document.querySelectorAll('[data-ch]').forEach(b => b.onclick = () => { view.ch = b.dataset.ch; render(); scrollTo(0, 0); });
+    document.querySelectorAll('[data-s]').forEach(b => b.onclick = () => {
+      const c = g.channels.find(x => x.n === b.dataset.c), p = c.p.find(x => String(x[1]) === b.dataset.s);
+      pick = { c, p }; $('#shTitle').textContent = p[0]; $('#shWhen').textContent = `${c.n} · ${day(p[1])} ${tm(p[1])}–${tm(p[2])}`;
+      $('#sheet').classList.add('on');
+    });
+  }
+  $('#shCancel').onclick = () => $('#sheet').classList.remove('on');
+  $('#sheet').onclick = e => { if (e.target.id === 'sheet') $('#sheet').classList.remove('on'); };
+  $('#shRec').onclick = async () => {
+    const { c, p } = pick; $('#sheet').classList.remove('on');
+    try {
+      const r = await call({ op: 'record', channel: c.n, title: p[0], start: p[1], stop: p[2], ready: $('#shReady').checked });
+      toast(r.ok ? 'Sent to the TV - it will record ' + p[0] : 'Couldn’t reach the TV');
+      if (r.ok) { g.scheduled = (g.scheduled || []).concat([{ t: p[0], c: c.n, s: p[1] }]); if ($('#shReady').checked) g.ready = { title: p[0], channel: c.n }; render(); setTimeout(load, 15000); }
+    } catch (_) { toast('No internet connection'); }
+  };
+  load(); setInterval(load, 120000);
+})();
+</script>
+</body>
+</html>
