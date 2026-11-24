@@ -358,9 +358,18 @@ class RemoteServer(private val context: Context) {
     private fun press(key: String): Boolean {
         val audio = context.getSystemService(AudioManager::class.java)
         when (key) {
-            "volup" -> { audio.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, AudioManager.FLAG_SHOW_UI); return true }
-            "voldown" -> { audio.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, AudioManager.FLAG_SHOW_UI); return true }
-            "mute" -> { audio.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_TOGGLE_MUTE, AudioManager.FLAG_SHOW_UI); return true }
+            // Volume goes to the soundbar/TV over HDMI, the way the real remote's volume buttons do: a real volume key
+            // press (the system passes it on over HDMI-CEC). The Chromecast's own volume is fixed with HDMI audio, so
+            // just turning that (as before) did nothing.
+            "volup", "voldown", "mute" -> {
+                val code = when (key) { "volup" -> KeyEvent.KEYCODE_VOLUME_UP; "voldown" -> KeyEvent.KEYCODE_VOLUME_DOWN; else -> KeyEvent.KEYCODE_VOLUME_MUTE }
+                val pressed = try { Instrumentation().sendKeyDownUpSync(code); true } catch (e: Exception) { false }
+                if (!pressed) {
+                    val dir = when (key) { "volup" -> AudioManager.ADJUST_RAISE; "voldown" -> AudioManager.ADJUST_LOWER; else -> AudioManager.ADJUST_TOGGLE_MUTE }
+                    audio.adjustSuggestedStreamVolume(dir, AudioManager.USE_DEFAULT_STREAM_TYPE, AudioManager.FLAG_SHOW_UI)
+                }
+                return true
+            }
             "playpause", "next", "previous" -> {
                 val code = when (key) { "next" -> KeyEvent.KEYCODE_MEDIA_NEXT; "previous" -> KeyEvent.KEYCODE_MEDIA_PREVIOUS; else -> KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE }
                 audio.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, code))
