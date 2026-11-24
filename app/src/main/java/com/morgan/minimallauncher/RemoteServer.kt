@@ -373,7 +373,10 @@ class RemoteServer(private val context: Context) {
     // ---------- Actions ----------
 
     private fun start(intent: Intent): Boolean = try {
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+        // Another app: open it like its icon would. One of our own screens (the pairing code, players): just open it -
+        // with "like an icon" Fire TV only brought the launcher forward and the code screen never appeared.
+        if (intent.component?.packageName == context.packageName) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        else intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
         context.startActivity(intent)
         true
     } catch (e: Exception) { false }
