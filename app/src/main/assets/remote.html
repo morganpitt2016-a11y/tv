@@ -8,6 +8,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="TV Remote">
 <title>TV Remote</title>
+<link rel="apple-touch-icon" href="/icon.png">
+<meta name="theme-color" content="#000000">
 <style>
   :root {
     --bg: #000; --fill: rgba(255,255,255,.08); --fill2: rgba(255,255,255,.14);
@@ -77,14 +79,57 @@
     background: rgba(44,44,46,.95); padding: 10px 16px; border-radius: 20px; font-size: 14px; transition: .25s; pointer-events: none; }
   #toast.show { opacity: 1; transform: translate(-50%, 0); }
   svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  /* Now Playing */
+  #np { position: relative; border-radius: 22px; overflow: hidden; margin: 6px 0 14px; background: #1c1c1e; }
+  #np .bg { position: absolute; inset: -20px; background-size: cover; background-position: center; filter: blur(28px) saturate(1.4) brightness(.55); }
+  #np .in { position: relative; padding: 16px; display: flex; gap: 14px; align-items: center; }
+  #np img { width: 64px; height: 96px; object-fit: cover; border-radius: 10px; background: #2c2c2e; flex: 0 0 auto; }
+  #np .t { font-weight: 700; font-size: 18px; line-height: 1.2; } #np .s { color: var(--dim); font-size: 13px; margin-top: 3px; }
+  #np .bar { position: relative; padding: 0 16px 6px; }
+  #np input[type=range] { width: 100%; accent-color: #fff; }
+  #np .times { display: flex; justify-content: space-between; font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums; }
+  #np .ctl { position: relative; display: flex; justify-content: center; align-items: center; gap: 34px; padding: 4px 0 12px; }
+  #np .ctl button { border: 0; background: none; color: #fff; font-size: 15px; display: grid; place-items: center; }
+  #np .ctl svg { width: 30px; height: 30px; } #np .ctl .pp svg { width: 44px; height: 44px; fill: #fff; stroke: none; }
+  #np .pick { position: relative; display: flex; gap: 10px; padding: 0 16px 16px; }
+  #np select { flex: 1; min-width: 0; padding: 10px; border-radius: 12px; border: 0; background: rgba(255,255,255,.14); color: #fff; font-size: 15px; }
+  /* Keyboard banner */
+  #kb { position: fixed; left: 12px; right: 12px; top: calc(10px + env(safe-area-inset-top)); z-index: 9; background: rgba(44,44,46,.97);
+    border-radius: 18px; padding: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.5); transform: translateY(-140%); transition: transform .3s; }
+  #kb.show { transform: none; }
+  #kb .h { font-size: 13px; color: var(--dim); margin: 0 4px 8px; }
+  /* Lights + Live */
+  .seg { display: flex; background: var(--fill); border-radius: 12px; padding: 3px; gap: 3px; }
+  .seg button { flex: 1; border: 0; border-radius: 9px; background: none; color: #fff; padding: 9px 0; font: 600 14px -apple-system, system-ui; }
+  .seg button.on { background: rgba(255,255,255,.22); }
+  .rowx { display: flex; justify-content: space-between; align-items: center; padding: 14px 4px; border-bottom: .5px solid var(--line); font-size: 16px; }
+  .rowx small { display: block; color: var(--dim); font-size: 12px; margin-top: 2px; }
+  .sw { appearance: none; -webkit-appearance: none; width: 51px; height: 31px; border-radius: 16px; background: rgba(120,120,128,.32); position: relative; transition: .2s; flex: 0 0 auto; }
+  .sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 27px; height: 27px; border-radius: 50%; background: #fff; transition: .2s; }
+  .sw:checked { background: #30d158; } .sw:checked::after { left: 22px; }
+  .chan { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px; margin: 6px 0; border: 0; border-radius: 14px; background: var(--fill); color: #fff; text-align: left; }
+  .chan img { width: 64px; height: 40px; object-fit: contain; border-radius: 8px; background: #2c2c2e; flex: 0 0 auto; }
+  .chan b { display: block; font-size: 16px; } .chan small { color: var(--dim); font-size: 12.5px; display: block; margin-top: 2px; }
+  #hapt { position: fixed; left: -100px; top: 0; opacity: 0; }
 </style>
 </head>
 <body>
 <header><h1 id="title">Remote</h1><span class="status" id="status">Connecting…</span></header>
+<label id="hapt"><input type="checkbox" switch id="haptIn"></label>
+<div id="kb"><div class="h" id="kbHint">The TV is waiting for you to type</div>
+  <form class="field" id="kbForm" style="margin:0"><input type="text" id="kbText" placeholder="Type here" autocomplete="off" autocorrect="off" autocapitalize="none" enterkeyhint="send"><button class="btn">Send</button></form></div>
 
 <section id="remote" class="on">
   <div class="note" id="controlNote" hidden>To control other apps too, turn on <b>Accessibility Service</b> in Minimal Launcher › Settings on the TV.</div>
-  <div id="pad"><div class="hint">Swipe to move · Tap to select</div><div class="dot" id="dot"></div></div>
+  <div id="np" hidden><div class="bg" id="npBg"></div>
+    <div class="in"><img id="npImg" alt=""><div><div class="t" id="npT"></div><div class="s" id="npS"></div></div></div>
+    <div class="bar"><input type="range" id="npBar" min="0" max="1000" value="0"><div class="times"><span id="npPos">0:00</span><span id="npLeft"></span></div></div>
+    <div class="ctl"><button id="npBack" aria-label="Back 10 seconds"><svg viewBox="0 0 24 24"><path d="M11 5L5 12l6 7"/><path d="M19 5l-6 7 6 7"/></svg></button>
+      <button class="pp" id="npPP" aria-label="Play or pause"><svg viewBox="0 0 24 24" id="npIcon"><path d="M7 4l13 8-13 8z"/></svg></button>
+      <button id="npFwd" aria-label="Forward 10 seconds"><svg viewBox="0 0 24 24"><path d="M13 5l6 7-6 7"/><path d="M5 5l6 7-6 7"/></svg></button></div>
+    <div class="pick"><select id="npSubs" aria-label="Subtitles"></select><select id="npAudio" aria-label="Audio"></select></div>
+  </div>
+  <div id="pad"><div class="hint">Swipe to move · Tap to select · Flick to scroll</div><div class="dot" id="dot"></div></div>
   <div class="row">
     <div class="stack">
       <button class="circle" data-key="back" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
@@ -113,9 +158,27 @@
   </div>
 </section>
 
+<section id="live">
+  <div class="note">Your favourites and the main channels. Tap one to watch it on the TV.</div>
+  <div id="liveList"><div class="note">Loading channels…</div></div>
+</section>
+
+<section id="lights">
+  <div class="note" id="lNote">Your Magic Hue lights, and how the room follows what's on.</div>
+  <div class="rowx"><div>TV Colour Lights<small>The room follows the picture</small></div><input type="checkbox" class="sw" data-l="on"></div>
+  <h2>Style</h2><div class="seg" data-seg="style"><button data-v="0">Calm</button><button data-v="1">Balanced</button><button data-v="2">Intense</button></div>
+  <h2>Brightness</h2><div class="seg" data-seg="bright"><button data-v="0">Low</button><button data-v="1">Medium</button><button data-v="2">High</button></div>
+  <h2>Extras</h2>
+  <div class="rowx"><div>4D Mode<small>Bangs, booms, storms and jump scares</small></div><input type="checkbox" class="sw" data-l="fourd"></div>
+  <div class="rowx"><div>Cinema Room<small>"Now Showing" and house lights for films</small></div><input type="checkbox" class="sw" data-l="cinemaroom"></div>
+  <div class="rowx"><div>Wallpaper Lights<small>The home screen photo's colours</small></div><input type="checkbox" class="sw" data-l="wallpaper"></div>
+  <div class="rowx"><div>Night Mode<small>Dims the screen; lights go down</small></div><input type="checkbox" class="sw" data-l="night"></div>
+  <div class="field"><button class="btn grey" id="lCal" style="flex:1">Calibrate Lights on the TV</button></div>
+</section>
+
 <section id="apps"><div class="apps" id="appGrid"></div></section>
 
-<section id="cast">
+<section id="cast" data-group="more">
   <h2>Play on TV</h2>
   <div class="note">Search your Dodgy Box for a film, series or channel and tap it to play it on the TV.</div>
   <form class="field" id="castForm"><input type="search" id="castQ" placeholder="Film, series or channel"><button class="btn">Search</button></form>
@@ -125,7 +188,7 @@
   <form class="field" id="linkForm"><input type="url" id="castUrl" placeholder="https://…"><button class="btn">Play</button></form>
 </section>
 
-<section id="photos">
+<section id="photos" data-group="more">
   <h2>My Photos</h2>
   <div class="note">Add photos for the TV's ambient picture frame and wallpaper. Then choose <b>My Photos</b> in Settings › Home Screen › Wallpaper, or Settings › Ambient › Pictures.</div>
   <div class="card">
@@ -147,7 +210,7 @@
   </div>
 </section>
 
-<section id="more">
+<section id="more" data-group="more">
   <h2>Weather</h2>
   <div class="note">Leave empty to use the TV's internet location.</div>
   <form class="field" id="cityForm"><input type="text" id="city" placeholder="Town or city"><button class="btn">Save</button></form>
@@ -181,9 +244,9 @@
 
 <nav>
   <button data-tab="remote" class="on"><svg viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="4"/><circle cx="12" cy="8" r="2"/></svg>Remote</button>
+  <button data-tab="live"><svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="14" rx="2.5"/><path d="M8 2l4 4 4-4"/></svg>Live TV</button>
+  <button data-tab="lights"><svg viewBox="0 0 24 24"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/></svg>Lights</button>
   <button data-tab="apps"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>Apps</button>
-  <button data-tab="cast"><svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="14" rx="2.5"/><path d="M9 21h6M10 9l5 2.5-5 2.5z"/></svg>Play</button>
-  <button data-tab="photos"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg>Photos</button>
   <button data-tab="more"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>More</button>
 </nav>
 <div id="toast"></div>
@@ -223,7 +286,7 @@
   async function refresh() {
     try {
       const s = await api('/api/state');
-      $('#status').textContent = s.profile; $('#status').className = 'status ok';
+      $('#status').textContent = (s.tv || 'TV') + ' · ' + s.profile; $('#status').className = 'status ok';
       $('#controlNote').hidden = s.fullControl;
       $('#photoCount').textContent = s.photos + (s.photos === 1 ? ' photo on the TV' : ' photos on the TV');
       $('#city').value = s.city || '';
@@ -242,14 +305,96 @@
     } catch (e) { if (e.message !== 'pair') { $('#status').textContent = 'TV not reachable'; $('#status').className = 'status'; } }
   }
   refresh(); setInterval(refresh, 15000);
+  // A home-screen icon keeps its own storage: keep the pairing key in the address so it opens already paired.
+  if (key && !qs.get('k')) history.replaceState(null, '', '/?k=' + encodeURIComponent(key));
+  let current = 'remote';
+  // Haptics: iOS taps on a "switch" checkbox (Safari 18+); Android vibrates.
+  function haptic() { try { if (navigator.vibrate) navigator.vibrate(8); $('#haptIn').click(); } catch (_) {} }
+  const fmt = ms => { const s = Math.max(0, Math.floor(ms / 1000)), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60);
+    return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(s % 60).padStart(2, '0'); };
+  // ---- Now Playing + "the TV wants typing" ----
+  let np = null, dragging = false, kbShown = false;
+  async function poll() {
+    try {
+      const n = await api('/api/now');
+      np = n.active ? n : null;
+      const card = $('#np'); card.hidden = !np;
+      if (np) {
+        $('#npT').textContent = n.title || ''; $('#npS').textContent = n.live ? 'Live' : (n.sub || '');
+        if (n.image && $('#npImg').dataset.src !== n.image) { $('#npImg').dataset.src = n.image; $('#npImg').src = n.image; $('#npBg').style.backgroundImage = 'url("' + n.image + '")'; }
+        $('#npIcon').innerHTML = n.playing ? '<rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/>' : '<path d="M7 4l13 8-13 8z"/>';
+        const bar = $('#npBar'); bar.disabled = n.live || !n.dur;
+        if (!dragging && n.dur) bar.value = Math.round(n.pos / n.dur * 1000);
+        $('#npPos').textContent = n.live ? 'Live' : fmt(n.pos); $('#npLeft').textContent = n.dur ? '−' + fmt(n.dur - n.pos) : '';
+        fill($('#npSubs'), 'Subtitles', n.subs); fill($('#npAudio'), 'Audio', n.audio);
+      }
+      if (n.typing && !kbShown) { kbShown = true; $('#kbHint').textContent = n.hint ? 'The TV wants: ' + n.hint : 'The TV is waiting for you to type'; $('#kb').classList.add('show'); haptic(); }
+      if (!n.typing && kbShown) { kbShown = false; $('#kb').classList.remove('show'); }
+    } catch (_) {}
+  }
+  function fill(sel, name, list) {
+    const sig = JSON.stringify(list); if (sel.dataset.sig === sig || document.activeElement === sel) return;
+    sel.dataset.sig = sig; sel.innerHTML = ''; sel.hidden = !list || list.length < 2;
+    (list || []).forEach(o => { const op = document.createElement('option'); op.value = o.i; op.textContent = name + ': ' + o.label; op.selected = o.on; sel.append(op); });
+  }
+  const ctl = b => api('/api/now', b).then(r => { if (!r.ok) toast('Couldn’t do that'); setTimeout(poll, 300); }).catch(() => toast('TV not reachable'));
+  $('#npPP').onclick = () => { haptic(); ctl({ action: 'playpause' }); };
+  $('#npBack').onclick = () => { haptic(); ctl({ action: 'skip', s: -10 }); };
+  $('#npFwd').onclick = () => { haptic(); ctl({ action: 'skip', s: 10 }); };
+  $('#npBar').addEventListener('input', () => { dragging = true; if (np && np.dur) $('#npPos').textContent = fmt($('#npBar').value / 1000 * np.dur); });
+  $('#npBar').addEventListener('change', () => { dragging = false; if (np && np.dur) { haptic(); ctl({ action: 'seek', ms: Math.round($('#npBar').value / 1000 * np.dur) }); } });
+  $('#npSubs').onchange = e => ctl({ action: 'subs', i: +e.target.value });
+  $('#npAudio').onchange = e => ctl({ action: 'audio', i: +e.target.value });
+  setInterval(() => { if (!document.hidden) poll(); }, 1200); poll();
+  $('#kbForm').onsubmit = e => {
+    e.preventDefault();
+    api('/api/text', { text: $('#kbText').value, enter: true }).then(r => {
+      toast(r.ok ? 'Sent' : 'Select a text box on the TV first');
+      if (r.ok) { $('#kbText').value = ''; $('#kbText').blur(); $('#kb').classList.remove('show'); kbShown = false; }
+    });
+  };
+  // ---- Lights ----
+  async function loadLights(set) {
+    try {
+      const l = await api('/api/lights', set);
+      $('#lNote').textContent = l.found ? 'Your Magic Hue lights, and how the room follows what\'s on.' : 'Find your lights first: Settings › Magic Hue Lights › Lights on the TV.';
+      document.querySelectorAll('[data-l]').forEach(c => { c.checked = !!l[c.dataset.l]; });
+      document.querySelectorAll('[data-seg]').forEach(g => g.querySelectorAll('button').forEach(b => b.classList.toggle('on', +b.dataset.v === l[g.dataset.seg])));
+    } catch (_) { toast('TV not reachable'); }
+  }
+  document.querySelectorAll('[data-l]').forEach(c => c.onchange = () => { haptic(); loadLights({ set: c.dataset.l, value: c.checked }); });
+  document.querySelectorAll('[data-seg] button').forEach(b => b.onclick = () => { haptic(); loadLights({ set: b.parentElement.dataset.seg, value: +b.dataset.v }); });
+  $('#lCal').onclick = () => { haptic(); loadLights({ set: 'calibrate' }); toast('Calibration is on the TV now'); };
+  // ---- Live TV ----
+  async function loadLive() {
+    const box = $('#liveList');
+    try {
+      const r = await api('/api/live');
+      box.innerHTML = '';
+      if (!r.channels.length) { box.innerHTML = '<div class="note">No channels yet - is Dodgy Box set up on the TV?</div>'; return; }
+      r.channels.forEach(ch => {
+        const b = document.createElement('button'); b.className = 'chan';
+        const img = new Image(); img.alt = ''; if (ch.icon) img.src = ch.icon;
+        const t = document.createElement('div'); const n = document.createElement('b'); n.textContent = (ch.fav ? '★ ' : '') + ch.name;
+        const sm = document.createElement('small'); sm.textContent = ch.now || ''; t.append(n, sm);
+        b.append(img, t);
+        b.onclick = () => { haptic(); api('/api/play', { kind: 'live', id: ch.id }).then(x => toast(x.ok ? 'Watching ' + ch.name : 'Couldn’t switch')).catch(() => toast('TV not reachable')); };
+        box.append(b);
+      });
+    } catch (_) { box.innerHTML = '<div class="note">TV not reachable.</div>'; }
+  }
 
   // Tabs
   document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
     document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b));
-    document.querySelectorAll('section').forEach(s => s.classList.toggle('on', s.id === b.dataset.tab));
+    const tab = b.dataset.tab; current = tab;
+    document.querySelectorAll('section').forEach(s => s.classList.toggle('on', s.id === tab || (tab === 'more' && s.dataset.group === 'more')));
     $('#title').textContent = b.textContent.trim();
-    if (b.dataset.tab === 'apps') loadApps();
-    if (b.dataset.tab === 'photos') loadProfiles();
+    haptic();
+    if (tab === 'apps') loadApps();
+    if (tab === 'more') loadProfiles();
+    if (tab === 'live') loadLive();
+    if (tab === 'lights') loadLights();
   });
 
   // Buttons (hold volume to repeat)
@@ -265,20 +410,22 @@
   document.querySelectorAll('[data-mode]').forEach(b => b.onclick = () =>
     api('/api/mode', { mode: b.dataset.mode }).then(r => toast(r.ok ? b.firstChild.textContent.trim() : 'Couldn’t switch')));
 
-  // Touchpad: each ~40px of swipe is one press; a tap is Select.
+  // Touchpad like the Apple TV remote: each ~34px of swipe is one press (with a tap of haptics), a flick keeps going,
+  // a tap is Select.
   const pad = $('#pad'), dot = $('#dot');
-  let sx, sy, moved, t0;
+  let sx, sy, lx, ly, lt, vx = 0, vy = 0, moved, t0;
   pad.addEventListener('touchstart', e => {
     const t = e.touches[0], r = pad.getBoundingClientRect();
-    sx = t.clientX; sy = t.clientY; moved = false; t0 = Date.now();
+    sx = lx = t.clientX; sy = ly = t.clientY; lt = t0 = Date.now(); moved = false; vx = vy = 0;
     dot.style.left = (t.clientX - r.left) + 'px'; dot.style.top = (t.clientY - r.top) + 'px'; dot.classList.add('show');
   }, { passive: true });
   pad.addEventListener('touchmove', e => {
-    const t = e.touches[0], r = pad.getBoundingClientRect();
+    const t = e.touches[0], r = pad.getBoundingClientRect(), now = Date.now();
     dot.style.left = (t.clientX - r.left) + 'px'; dot.style.top = (t.clientY - r.top) + 'px';
-    const dx = t.clientX - sx, dy = t.clientY - sy, step = 40;
+    const dt = Math.max(1, now - lt); vx = (t.clientX - lx) / dt; vy = (t.clientY - ly) / dt; lx = t.clientX; ly = t.clientY; lt = now;
+    const dx = t.clientX - sx, dy = t.clientY - sy, step = 34;
     if (Math.abs(dx) > step || Math.abs(dy) > step) {
-      moved = true;
+      moved = true; haptic();
       send(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up'));
       sx = t.clientX; sy = t.clientY;
     }
@@ -286,9 +433,15 @@
   }, { passive: false });
   pad.addEventListener('touchend', () => {
     dot.classList.remove('show');
-    if (!moved && Date.now() - t0 < 400) send('select');
+    if (!moved && Date.now() - t0 < 350) { haptic(); send('select'); pad.animate([{ transform: 'scale(.98)' }, { transform: 'none' }], 180); return; }
+    // A flick: a few more presses in that direction, slowing down.
+    const v = Math.max(Math.abs(vx), Math.abs(vy));
+    if (moved && v > 0.9 && Date.now() - lt < 60) {
+      const dir = Math.abs(vx) > Math.abs(vy) ? (vx > 0 ? 'right' : 'left') : (vy > 0 ? 'down' : 'up');
+      const n = Math.min(6, Math.round(v * 2.5));
+      for (let i = 1; i <= n; i++) setTimeout(() => { haptic(); send(dir); }, i * (70 + i * 25));
+    }
   });
-
   // Keyboard
   $('#typeForm').onsubmit = e => {
     e.preventDefault();

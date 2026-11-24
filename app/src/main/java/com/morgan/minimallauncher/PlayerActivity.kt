@@ -208,6 +208,7 @@ class PlayerActivity : Activity() {
     private var sleepDialog: android.app.Dialog? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        current = java.lang.ref.WeakReference(this)
         super.onCreate(savedInstanceState)
         if (Activation.guard(this)) return
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -2581,6 +2582,7 @@ class PlayerActivity : Activity() {
     }
 
     override fun onDestroy() {
+        if (current?.get() === this) current = null
         thumbExec.execute { try { thumbRetriever?.release() } catch (e: Throwable) {}; thumbRetriever = null }
         thumbExec.shutdown()
         sleepHandler.removeCallbacksAndMessages(null)
@@ -2588,7 +2590,55 @@ class PlayerActivity : Activity() {
         super.onDestroy()
     }
 
+    // ---------- The iPhone remote's Now Playing ----------
+
+    /** What's playing, for the phone: title, artwork, position, and the subtitle and audio choices. */
+    fun remoteState(): org.json.JSONObject {
+        val p = player
+        val o = org.json.JSONObject().put("active", p != null)
+            .put("title", seriesTitle ?: titleText).put("live", live)
+            .put("sub", if (seriesTitle != null && curSeason > 0) "Season $curSeason, Episode $curEpisode" else intent.getStringExtra(EXTRA_SUBTITLE).orEmpty())
+            .put("image", image ?: Prefs.string(this, "rart_${seriesTitle ?: titleText}") ?: "")
+            .put("pos", p?.currentPosition ?: 0L).put("dur", p?.duration?.takeIf { it > 0 } ?: 0L)
+            .put("playing", p?.isPlaying == true || p?.playWhenReady == true)
+        val textOff = p?.trackSelectionParameters?.disabledTrackTypes?.contains(C.TRACK_TYPE_TEXT) != false
+        val subs = org.json.JSONArray().put(org.json.JSONObject().put("i", -1).put("label", "Off").put("on", textOff && !ourSubsOn || autoSubsHidden && !ourSubsOn))
+        choices(C.TRACK_TYPE_TEXT).forEachIndexed { i, c -> subs.put(org.json.JSONObject().put("i", i).put("label", c.label).put("on", !textOff && !autoSubsHidden && c.group.isTrackSelected(c.index))) }
+        if (ourSubs != null) subs.put(org.json.JSONObject().put("i", -2).put("label", "Morgan's Subtitles").put("on", ourSubsOn))
+        val audio = org.json.JSONArray()
+        choices(C.TRACK_TYPE_AUDIO).forEachIndexed { i, c -> audio.put(org.json.JSONObject().put("i", i).put("label", c.label).put("on", c.group.isTrackSelected(c.index))) }
+        return o.put("subs", subs).put("audio", audio)
+    }
+
+    /** The phone's Now Playing controls. */
+    fun remoteControl(b: org.json.JSONObject): Boolean {
+        val p = player ?: return false
+        when (b.optString("action")) {
+            "playpause" -> p.playWhenReady = !p.playWhenReady
+            "seek" -> if (!live) p.seekTo(b.optLong("ms").coerceAtLeast(0)) else return false
+            "skip" -> p.seekTo((p.currentPosition + b.optLong("s") * 1000).coerceAtLeast(0))
+            "subs" -> when (val i = b.optInt("i", -1)) {
+                -1 -> { p.trackSelectionParameters = p.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
+                    ourSubsOn = false; rememberTrack(C.TRACK_TYPE_TEXT, "off") }
+                -2 -> { if (ourSubs == null) return false; ourSubsOn = true; rememberTrack(C.TRACK_TYPE_TEXT, "en") }
+                else -> { val c = choices(C.TRACK_TYPE_TEXT).getOrNull(i) ?: return false
+                    ourSubsOn = false
+                    p.trackSelectionParameters = p.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                        .setOverrideForType(TrackSelectionOverride(c.group.mediaTrackGroup, c.index)).build()
+                    rememberTrack(C.TRACK_TYPE_TEXT, c.group.getTrackFormat(c.index).language?.takeIf { it != "und" }) }
+            }
+            "audio" -> { val c = choices(C.TRACK_TYPE_AUDIO).getOrNull(b.optInt("i")) ?: return false
+                p.trackSelectionParameters = p.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+                    .setOverrideForType(TrackSelectionOverride(c.group.mediaTrackGroup, c.index)).build()
+                rememberTrack(C.TRACK_TYPE_AUDIO, c.group.getTrackFormat(c.index).language?.takeIf { it != "und" }) }
+            else -> return false
+        }
+        return true
+    }
+
     companion object {
+        /** The player on screen now (for the iPhone remote's Now Playing). */
+        @Volatile var current: java.lang.ref.WeakReference<PlayerActivity>? = null
         /** True while something is on screen in the player (updates wait until it closes). */
         @Volatile var watching = false
         private var current: java.lang.ref.WeakReference<PlayerActivity>? = null

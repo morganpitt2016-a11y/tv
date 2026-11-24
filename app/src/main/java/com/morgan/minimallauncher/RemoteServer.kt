@@ -157,6 +157,16 @@ class RemoteServer(private val context: Context) {
             json(out, if (r == -1) JSONObject().put("ok", true).put("key", key) else JSONObject().put("ok", false).put("left", r))
             return
         }
+        // The home-screen icon for the iPhone (no key needed - it's just the app's icon).
+        if (req.path == "/icon.png") {
+            val d = try { context.packageManager.getApplicationIcon(context.packageName) } catch (e: Exception) { null }
+            if (d == null) { send(out, 404, "text/plain", ByteArray(0)); return }
+            val bmp = Bitmap.createBitmap(180, 180, Bitmap.Config.ARGB_8888)
+            val cv = android.graphics.Canvas(bmp); cv.drawColor(0xFF000000.toInt())
+            d.setBounds(18, 18, 162, 162); d.draw(cv)
+            send(out, 200, "image/png", ByteArrayOutputStream().also { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray())
+            return
+        }
         if (req.path == "/" || req.path == "/index.html") {
             if (!authorised) {
                 send(out, 200, "text/html; charset=utf-8", context.assets.open("pair.html").use { it.readBytes() })
@@ -172,6 +182,8 @@ class RemoteServer(private val context: Context) {
         when (req.path) {
             "/api/state" -> json(out, JSONObject()
                 .put("profile", ProfileManager.getActiveProfile(context))
+                // Which TV this is (its name in the TV's settings), so a phone always shows what it's controlling.
+                .put("tv", (try { android.provider.Settings.Global.getString(context.contentResolver, "device_name") } catch (e: Exception) { null })?.takeIf { it.isNotBlank() } ?: "TV")
                 .put("fullControl", HomeRedirectService.instance != null)
                 .put("android", android.os.Build.VERSION.SDK_INT)
                 .put("city", Weather.getCity(context) ?: "")
@@ -273,12 +285,66 @@ class RemoteServer(private val context: Context) {
                 } catch (e: Exception) { false }
                 json(out, JSONObject().put("ok", ok))
             }
+            // ---- Now Playing: what's on, scrub, play/pause, subtitles and audio - plus whether the TV wants typing ----
+            "/api/now" -> {
+                val want = HomeRedirectService.instance?.let { s -> onMain { s.typingWanted() } } ?: (false to "")
+                val o = if (req.body.isNotEmpty()) JSONObject().put("ok", onMain { PlayerActivity.current?.get()?.remoteControl(body) } == true)
+                    else onMain { PlayerActivity.current?.get()?.takeIf { !it.isFinishing }?.remoteState() } ?: JSONObject().put("active", false)
+                json(out, o.put("typing", want.first).put("hint", want.second))
+            }
+            // ---- Lights: everything in Settings › Magic Hue Lights, plus Night Mode ----
+            "/api/lights" -> {
+                val c = context
+                if (body.has("set")) {
+                    when (body.optString("set")) {
+                        "on" -> MagicHue.setSync(c, body.optBoolean("value"))
+                        "style" -> Prefs.setInt(c, "lights_style", body.optInt("value").coerceIn(0, 2))
+                        "bright" -> Prefs.setInt(c, "lights_bright", body.optInt("value").coerceIn(0, 2))
+                        "wallpaper" -> Prefs.setBool(c, "wallpaper_lights", body.optBoolean("value"))
+                        "fourd" -> Prefs.setBool(c, "fourd_mode", body.optBoolean("value"))
+                        "cinemaroom" -> Prefs.setBool(c, "cinema_room", body.optBoolean("value"))
+                        "night" -> { val v = body.optBoolean("value"); onMain { NightDim.set(c, v) } }
+                        "calibrate" -> start(Intent(c, CalibrateActivity::class.java))
+                    }
+                }
+                json(out, JSONObject().put("found", MagicHue.ip(c) != null).put("on", MagicHue.syncOn(c))
+                    .put("style", Prefs.int(c, "lights_style", 1)).put("bright", Prefs.int(c, "lights_bright", 1))
+                    .put("wallpaper", Prefs.bool(c, "wallpaper_lights", true)).put("fourd", Prefs.bool(c, "fourd_mode", true))
+                    .put("cinemaroom", Prefs.bool(c, "cinema_room", true)).put("night", NightDim.isOn(c)).put("down", RoomLights.isDown(c)))
+            }
+            // ---- Live TV on the phone: your favourites and the main channels, with what's on now ----
+            "/api/live" -> {
+                val c = context
+                val arr = JSONArray()
+                if (Xtream.isSetUp(c)) try {
+                    val all = Xtream.best(Xtream.live(c))
+                    val favs = Xtream.favourites(c)
+                    val main = listOf("BBC One", "BBC Two", "ITV1", "Channel 4", "Channel 5", "ITV2", "BBC Three", "E4", "Sky News", "BBC News",
+                        "Dave", "ITV3", "ITV4", "Film4", "More4", "5 USA", "Sky Sports Main Event", "Sky Sports Premier League", "TNT Sports 1", "Sky Cinema Premiere")
+                    fun norm(s: String) = TextMatch.normalise(s)
+                    val picked = LinkedHashMap<Int, Xtream.Live>()
+                    all.filter { it.id in favs }.forEach { picked[it.id] = it }
+                    for (n in main) all.firstOrNull { norm(it.name) == norm(n) || norm(it.name).endsWith(norm(n)) }?.let { picked.putIfAbsent(it.id, it) }
+                    for (ch in picked.values.take(40)) arr.put(JSONObject().put("id", ch.id).put("name", ch.name).put("icon", ch.icon ?: "")
+                        .put("fav", ch.id in favs).put("now", try { LiveGuide.nowNext(c, ch.name) ?: "" } catch (e: Exception) { "" }))
+                } catch (e: Exception) {}
+                json(out, JSONObject().put("channels", arr))
+            }
             "/api/photos/clear" -> {
                 WallpaperLibrary.albumDir(context).listFiles()?.forEach { it.delete() }
                 json(out, JSONObject().put("ok", true))
             }
             else -> send(out, 404, "text/plain", "Not found".toByteArray())
         }
+    }
+
+    /** Runs [block] on the TV's main thread and waits (up to 2 s) for the answer. */
+    private fun <T> onMain(block: () -> T): T? {
+        var r: T? = null
+        val latch = java.util.concurrent.CountDownLatch(1)
+        main.post { r = try { block() } catch (e: Exception) { null }; latch.countDown() }
+        latch.await(2, java.util.concurrent.TimeUnit.SECONDS)
+        return r
     }
 
     // ---------- Actions ----------

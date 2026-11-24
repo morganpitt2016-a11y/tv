@@ -359,6 +359,12 @@ class HomeRedirectService : AccessibilityService() {
         return lines.joinToString("\n")
     }
 
+    /** The TV is waiting for text (a search box, a key, a password field has focus) - the phone offers its keyboard. */
+    fun typingWanted(): Pair<Boolean, String> = try {
+        val node = rootInActiveWindow?.findFocus(android.view.accessibility.AccessibilityNodeInfo.FOCUS_INPUT)
+        if (node != null && node.isEditable) true to (node.hintText?.toString() ?: node.contentDescription?.toString() ?: "") else false to ""
+    } catch (e: Exception) { false to "" }
+
     /** Types into the text box that has focus, in any app. */
     fun type(text: String, replace: Boolean): Boolean {
         val node = rootInActiveWindow?.findFocus(android.view.accessibility.AccessibilityNodeInfo.FOCUS_INPUT) ?: return false
