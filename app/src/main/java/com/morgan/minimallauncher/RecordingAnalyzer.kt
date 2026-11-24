@@ -68,20 +68,43 @@ object RecordingAnalyzer {
 
     // ---------- The silent player ----------
 
+    /**
+     * Loudness every 50 ms, placed by each buffer's own timestamp (the player's timeline - what a seek uses), so a gap,
+     * a stream restart in the recording or a misread sample rate can't shift the ad times.
+     */
     private class Meter {
         var rate = 48_000; var channels = 2
-        val windowDb = ArrayList<Float>()          // loudness every 50 ms, in dB
-        private var acc = 0.0; private var n = 0; private var per = 2400
-        fun configure(r: Int, ch: Int) { rate = r; channels = ch; per = r / 20 }
-        fun feed(buf: ByteBuffer) {
+        private var sum = DoubleArray(20 * 60 * 30); private var cnt = IntArray(sum.size)
+        var firstUs = Long.MIN_VALUE; var lastUs = 0L; var frames = 0L; var buffers = 0; var backJumps = 0
+        private var prevUs = Long.MIN_VALUE
+        fun configure(r: Int, ch: Int) { rate = r; channels = ch }
+        private fun grow(i: Int) {
+            if (i < sum.size) return
+            val n = max(i + 1, sum.size * 2)
+            sum = sum.copyOf(n); cnt = cnt.copyOf(n)
+        }
+        fun feed(buf: ByteBuffer, ptsUs: Long) {
+            if (firstUs == Long.MIN_VALUE) firstUs = ptsUs
+            if (prevUs != Long.MIN_VALUE && ptsUs < prevUs - 1_000_000L) backJumps++
+            prevUs = ptsUs; buffers++
             val b = buf.duplicate().order(ByteOrder.LITTLE_ENDIAN)
+            var f = 0L
             while (b.remaining() >= 2 * channels) {
                 var s = 0.0
                 for (k in 0 until channels) { val v = b.short / 32768.0; s += v * v }
-                acc += s / channels; n++
-                if (n >= per) { windowDb += (10 * log10(max(acc / n, 1e-10))).toFloat(); acc = 0.0; n = 0 }
+                val t = ptsUs - firstUs + f * 1_000_000L / rate
+                if (t >= 0) { val i = (t / 50_000L).toInt(); grow(i); sum[i] += s / channels; cnt[i]++ }
+                f++
             }
+            frames += f
+            lastUs = max(lastUs, ptsUs - firstUs + f * 1_000_000L / rate)
         }
+        /** dB per 50 ms window; a window with no sound decoded counts as "not silent" (so a gap is never an ad). */
+        fun windows(): List<Float> {
+            val n = (lastUs / 50_000L).toInt().coerceAtMost(sum.size)
+            return List(n) { i -> if (cnt[i] == 0) 0f else (10 * log10(max(sum[i] / cnt[i], 1e-10))).toFloat() }
+        }
+        val heardMs get() = lastUs / 1000
     }
 
     /** An audio "speaker" that plays instantly and silently: the player decodes as fast as it can. */
@@ -101,7 +124,7 @@ object RecordingAnalyzer {
         override fun handleDiscontinuity() {}
         override fun handleBuffer(buffer: ByteBuffer, presentationTimeUs: Long, encodedAccessUnitCount: Int): Boolean {
             val frames = buffer.remaining() / (2 * m.channels)
-            m.feed(buffer)
+            m.feed(buffer, presentationTimeUs)
             lastUs = presentationTimeUs
             endUs = presentationTimeUs + frames * 1_000_000L / m.rate
             buffer.position(buffer.limit())
@@ -131,7 +154,9 @@ object RecordingAnalyzer {
         var player: ExoPlayer? = null
         val t0 = android.os.SystemClock.uptimeMillis()
         fun done(ok: Boolean, why: String = "") {
+            val dur = player?.duration ?: C.TIME_UNSET
             player?.release(); player = null
+            Diag.send(app, "recordings", "heard ${m.heardMs / 1000}s of ${if (dur > 0) "${dur / 1000}s" else "?"} · ${m.rate} Hz ${m.channels}ch · ${m.frames} frames in ${m.buffers} buffers · ${m.backJumps} time jumps · ${File(file).length() / 1_000_000} MB")
             if (ok) save(app, file, m)
             Diag.send(app, "recordings", if (ok) "analysed ${File(file).name} in ${(android.os.SystemClock.uptimeMillis() - t0) / 1000}s" else "couldn't analyse ${File(file).name}: $why")
             busy = false
@@ -148,19 +173,19 @@ object RecordingAnalyzer {
             p.volume = 0f
             p.addListener(object : Player.Listener {
                 override fun onPlaybackStateChanged(state: Int) { if (state == Player.STATE_ENDED) done(true) }
-                override fun onPlayerError(error: androidx.media3.common.PlaybackException) { done(m.windowDb.size > 20 * 60, error.errorCodeName) }
+                override fun onPlayerError(error: androidx.media3.common.PlaybackException) { done(m.heardMs > 60_000L, error.errorCodeName) }
             })
             p.setMediaItem(MediaItem.fromUri(android.net.Uri.fromFile(File(file))))
             p.prepare(); p.play()
             // A safety stop (a broken file shouldn't hold the queue): keep what was heard.
-            h.postDelayed({ if (player === p) done(m.windowDb.size > 20 * 60, "took too long") }, 30 * 60_000L)
+            h.postDelayed({ if (player === p) done(m.heardMs > 60_000L, "took too long") }, 30 * 60_000L)
         } catch (e: Exception) { done(false, e.javaClass.simpleName) }
     }
 
     // ---------- Reading the loudness ----------
 
     private fun save(app: Context, file: String, m: Meter) {
-        val db = m.windowDb
+        val db = m.windows()
         val ads = findAds(db)
         val highlights = findHighlights(db)
         val o = JSONObject().put("duration", db.size * 50L)
