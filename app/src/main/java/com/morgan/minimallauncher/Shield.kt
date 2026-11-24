@@ -54,6 +54,13 @@ object Shield {
         gone.forEach { AwayRemote.shareShield(c, it.copy(until = System.currentTimeMillis())) }
     }
 
+    /** Is this match (by its title, e.g. "England v France") shielded? */
+    fun hidesTitle(c: Context, title: String): Boolean {
+        val l = list(c); if (l.isEmpty()) return false
+        val t = title.lowercase()
+        return l.any { e -> e.terms.isNotEmpty() && e.terms.all { t.contains(it.lowercase()) } }
+    }
+
     /** Should this score card stay hidden? */
     fun hides(c: Context, card: LiveScores.Card): Boolean {
         val l = list(c); if (l.isEmpty()) return false

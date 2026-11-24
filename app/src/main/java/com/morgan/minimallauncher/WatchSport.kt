@@ -116,7 +116,8 @@ internal fun WatchActivity.buildSport(token: Int) {
                 matchRow("sp_live", "On Now", live)
                 matchRow("sp_fix", "Coming Up", next)
                 matchRow("sp_res", "Results", done)
-                (live.firstOrNull() ?: next.firstOrNull())?.let { showMatchHero(it, channels[it.id]) }
+                // Only if you're still on Sport (it loads late - it used to write over the Live TV and My Stuff headers).
+                if (tab == "sport") (live.firstOrNull() ?: next.firstOrNull())?.let { showMatchHero(it, channels[it.id]) }
             }
         }
     }
@@ -145,7 +146,7 @@ internal fun WatchActivity.bindMatch(h: Holder, m: Sport.Match, ch: LiveGuide.Ch
 
 internal fun WatchActivity.showMatchHero(m: Sport.Match, ch: LiveGuide.Channel?) = showPlainHero(
     (if (m.live) "LIVE  ·  ${m.detail}" else if (m.finished) "RESULT" else "COMING UP") + "  ·  " + m.follow.name.uppercase(),
-    if ((m.finished || m.live) && m.teamGame && !Sport.spoilersHidden(this)) m.scoreLine() else m.title,
+    if ((m.finished || m.live) && m.teamGame && !Sport.spoilersHidden(this) && !Shield.hidesTitle(this, m.title)) m.scoreLine() else m.title,
     when {
         m.finished -> m.detail.ifBlank { m.competition }
         ch != null -> "On ${ch.name}" + if (m.live) " - press OK to watch" else " - press OK to be reminded"

@@ -398,7 +398,7 @@ object LiveGuide {
         "PBS", "AMC", "NBC", "CBS", "ABC", "TCM", "TV", "UTV", "STV", "ITVX", "FX", "DMAX", "W", "U", "5USA", "NHK", "RT", "CNBC", "EWTN", "ESPN", "F1", "TWO", "UTV")
     /** A channel name as people write it: "BBC ONE" -> "BBC One", "BBC Four (7PM START)" -> "BBC Four". */
     fun pretty(name: String): String {
-        val n = name.replace(Regex("\s*\([^)]*\)"), "").replace(Regex("^(UK|EN|GB)\s*[:|]\s*", RegexOption.IGNORE_CASE), "").trim()
+        val n = name.replace(Regex("""\s*\([^)]*\)"""), "").replace(Regex("""^(UK|EN|GB)\s*[:|]\s*""", RegexOption.IGNORE_CASE), "").trim()
         return n.split(" ").joinToString(" ") { w ->
             if (w.uppercase() in ACRONYMS && w.uppercase() != "TWO") w.uppercase()
             else if (w.length > 1 && w == w.uppercase() && w.any { it.isLetter() }) w.lowercase().replaceFirstChar { it.uppercase() }
