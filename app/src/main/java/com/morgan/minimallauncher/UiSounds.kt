@@ -50,8 +50,9 @@ object UiSounds {
         play(c, { move }, 0.22f)
     }
 
-    fun select(c: Context) = play(c, { select }, 0.32f)
-    fun back(c: Context) = play(c, { back }, 0.3f)
+    // Navigation Clicks off means no clicks at all - OK and Back too, not just moving.
+    fun select(c: Context) { if (Prefs.bool(c, "nav_clicks", true)) play(c, { select }, 0.32f) }
+    fun back(c: Context) { if (Prefs.bool(c, "nav_clicks", true)) play(c, { back }, 0.3f) }
 
     /** Adds the sounds to an activity's window (call after setContentView). */
     fun attach(activity: Activity) {
