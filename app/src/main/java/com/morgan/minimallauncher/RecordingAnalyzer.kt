@@ -194,30 +194,47 @@ object RecordingAnalyzer {
 
     private fun save(app: Context, file: String, m: Meter) {
         val db = m.windows()
-        val ads = findAds(db)
+        val sil = silences(db)
+        val ads = findAds(sil)
         val highlights = findHighlights(db)
         val o = JSONObject().put("duration", db.size * 50L)
             .put("ads", JSONArray().apply { ads.forEach { put(JSONArray().put(it[0]).put(it[1])) } })
             .put("highlights", JSONArray().apply { highlights.forEach { put(JSONArray().put(it[0]).put(it[1])) } })
+            .put("sil", JSONArray().apply { sil.forEach { put(it) } })          // kept so the ad finder can be re-tuned without listening again
         try { sidecar(file).writeText(o.toString()) } catch (_: Exception) {}
         Diag.send(app, "recordings", "${File(file).name}: ${ads.size} ad breaks (${ads.sumOf { it[1] - it[0] } / 60000} min), ${highlights.size} highlights")
     }
 
-    /** Ad breaks: clusters of brief silences (every advert starts and ends with one). Times in ms. */
-    private fun findAds(db: List<Float>): List<LongArray> {
-        val silences = ArrayList<Long>()
+    /** Brief silences (150 ms - 3 s), as the time of their middle in ms. */
+    private fun silences(db: List<Float>): List<Long> {
+        val out = ArrayList<Long>()
         var run = 0
         for (i in db.indices) {
-            if (db[i] < -58f) run++ else { if (run in 3..60) silences += (i - run / 2) * 50L; run = 0 }
+            if (db[i] < -58f) run++ else { if (run in 3..60) out += (i - run / 2) * 50L; run = 0 }
         }
+        return out
+    }
+
+    /** UK adverts run 10, 20, 30, 40 or 60 seconds exactly - so the silences between them keep a 10-second beat. */
+    private fun adGap(ms: Long): Boolean {
+        if (ms < 9_300L || ms > 60_700L) return false
+        val r = ms % 10_000L
+        return r <= 700L || r >= 9_300L
+    }
+
+    /**
+     * Ad breaks: a run of 4+ silences (3+ adverts) whose spacing all keeps that 10-second beat, 45 s - 8 min in all.
+     * Conversation pauses land anywhere, so a talk show's quiet moments don't count. Times in ms.
+     */
+    private fun findAds(sil: List<Long>): List<LongArray> {
         val out = ArrayList<LongArray>()
         var i = 0
-        while (i < silences.size) {
+        while (i < sil.size) {
             var j = i
-            while (j + 1 < silences.size && silences[j + 1] - silences[j] in 5_000L..90_000L) j++
-            val span = silences[j] - silences[i]
-            if (j - i + 1 >= 3 && span in 60_000L..480_000L) out += longArrayOf(silences[i], silences[j])
-            i = j + 1
+            while (j + 1 < sil.size && adGap(sil[j + 1] - sil[j])) j++
+            val span = sil[j] - sil[i]
+            if (j - i >= 3 && span in 45_000L..480_000L) out += longArrayOf(sil[i], sil[j])
+            i = if (j > i) j else i + 1
         }
         return out
     }
