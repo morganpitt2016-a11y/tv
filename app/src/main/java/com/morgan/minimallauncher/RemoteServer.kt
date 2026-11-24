@@ -46,10 +46,19 @@ class RemoteServer(private val context: Context) {
             return k
         }
 
+        /** The TV's address on the home network - the Wi-Fi or Ethernet one, never the VPN's (a phone can't reach that). */
         fun ip(c: Context): String? = try {
             val cm = c.getSystemService(ConnectivityManager::class.java)
-            cm.getLinkProperties(cm.activeNetwork)?.linkAddresses
+            fun v4(n: android.net.Network) = cm.getLinkProperties(n)?.linkAddresses
                 ?.map { it.address }?.firstOrNull { it is Inet4Address && !it.isLoopbackAddress }?.hostAddress
+            @Suppress("DEPRECATION")
+            val local = cm.allNetworks.firstOrNull { n ->
+                cm.getNetworkCapabilities(n)?.let { caps ->
+                    !caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN) &&
+                        (caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) || caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET))
+                } == true && v4(n) != null
+            }
+            local?.let { v4(it) } ?: cm.activeNetwork?.let { v4(it) }
         } catch (e: Exception) { null }
 
         fun url(c: Context): String? = ip(c)?.let { "http://$it:$PORT/?k=${key(c)}" }
