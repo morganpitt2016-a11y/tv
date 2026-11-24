@@ -124,5 +124,11 @@ class PackageReplacedReceiver : BroadcastReceiver() {
         // An update restarts the launcher - that's not someone new sitting down, so don't ask "Who's watching?".
         Accounts.askWho = false
         Prefs.setString(c, "updated_at", System.currentTimeMillis().toString())
+        // Nothing else restarts until someone presses Home, so bring back the phone remote, the "I'm home" link,
+        // the app watcher and any unfinished recording analysis now - an overnight update mustn't leave them off.
+        try { AppWatchService.startIfNeeded(c) } catch (_: Exception) {}
+        try { RemoteService.startIfEnabled(c) } catch (_: Exception) {}
+        try { AwayRemote.start(c) } catch (_: Exception) {}
+        try { RecordingAnalyzer.catchUp(c) } catch (_: Exception) {}
     }
 }

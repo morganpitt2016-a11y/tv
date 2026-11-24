@@ -16,6 +16,7 @@ class BootReceiver : BroadcastReceiver() {
         if (action != Intent.ACTION_BOOT_COMPLETED && action != "android.intent.action.QUICKBOOT_POWERON") return
         AppWatchService.startIfNeeded(context)
         RemoteService.startIfEnabled(context)
+        try { AwayRemote.start(context) } catch (_: Exception) {}
         SelfEnable.enableAll(context)
         if (!AutoLaunch.onBoot(context)) return
         RedirectDiag.event(context, "boot")
