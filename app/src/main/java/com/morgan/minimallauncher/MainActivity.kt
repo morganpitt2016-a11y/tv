@@ -364,8 +364,10 @@ class MainActivity : AppCompatActivity() {
         val tint = if (st.iconAccent && st.accent != 0) ColorStateList.valueOf(st.accent) else ContextCompat.getColorStateList(this, R.color.icon_on_glass)
         for (b in listOf(quickSettingsButton, cinemaButton, nightModeButton)) ((b as? ViewGroup)?.getChildAt(0) as? ImageView)?.imageTintList = tint
         if (::dogPet.isInitialized) {
-            dogPet.visibility = if (st.dog) View.VISIBLE else View.GONE
-            if (st.dog) dogPet.resume() else dogPet.pause()
+            // Not on Fire TV: the stick redraws the whole screen for each of her steps and the home screen crawls.
+            val dog = st.dog && !Device.isFireTv(this)
+            dogPet.visibility = if (dog) View.VISIBLE else View.GONE
+            if (dog) dogPet.resume() else dogPet.pause()
         }
         applyDimming(animate = false)
     }
