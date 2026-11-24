@@ -23,7 +23,7 @@ object TsRetime {
      *  - a step back of 5-60 s: the server restarted us a little behind live, so that stretch would play twice -
      *    those packets become null packets (players skip them) until each stream passes where it was; sound carries
      *    straight on, the picture at its next keyframe;
-     *  - anything bigger (a new clock), or the PCR leaping 10 s+ on: everything after is re-timed to carry straight on.
+     *  - anything bigger (a new clock), or the PCR leaping a minute+ on: everything after is re-timed to carry straight on.
      */
     private class Fixer {
         var offset = 0L; var jumps = 0; var dups = 0; var dropped = 0L; private var seg = 0
@@ -36,7 +36,7 @@ object TsRetime {
             val prev = lastRaw[key]
             if (prev != null && lastSeg[key] == seg) {
                 val d = signed(raw - prev)
-                if (d < -5 * HZ || (pcr && d > 10 * HZ)) {
+                if (d < -5 * HZ || (pcr && d > 60 * HZ)) {
                     dup = false
                     if (d > -60 * HZ && d < -5 * HZ) {
                         dup = true; caught = false; tKey = key; target = prev; dups++
@@ -56,6 +56,7 @@ object TsRetime {
         fun packet(b: ByteArray, o: Int) {
             val pusi = (b[o + 1].toInt() and 0x40) != 0
             val pid = ((b[o + 1].toInt() and 0x1F) shl 8) or (b[o + 2].toInt() and 0xFF)
+            if (pid == 0x1FFF) return                       // null packets (ours included) carry nothing that counts
             val afc = (b[o + 3].toInt() shr 4) and 3
             val end = o + 188
             var i = o + 4
@@ -142,8 +143,11 @@ object TsRetime {
     data class Result(val restarts: Int, val repeats: Int, val droppedMb: Int)
 
     /** Smooths the file in place; returns what it found (all zero = the file was already fine and wasn't touched). */
+    fun marker(file: File) = File(file.path + ".retimed")
+
     fun repair(file: File): Result {
-        if (count(file) == 0) return Result(0, 0, 0)
+        if (marker(file).exists()) return Result(0, 0, 0)        // once per recording, never again
+        if (count(file) == 0) { try { marker(file).createNewFile() } catch (_: Exception) {}; return Result(0, 0, 0) }
         val clock = Fixer()
         RandomAccessFile(file, "rw").use { f ->
             val len = f.length()
@@ -165,6 +169,7 @@ object TsRetime {
                 if (n < buf.size && base + 188 > len) break
             }
         }
+        try { marker(file).createNewFile() } catch (_: Exception) {}
         return Result(clock.jumps, clock.dups, (clock.dropped * 188 / 1_000_000).toInt())
     }
 

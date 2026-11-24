@@ -51,6 +51,7 @@ object Recordings {
     fun delete(c: Context, r: Rec) {
         RecordService.stop(c, r.id)
         File(r.file).delete()
+        RecordingAnalyzer.sidecar(r.file).delete(); TsRetime.marker(File(r.file)).delete()
         save(c, list(c).filter { it.id != r.id })
     }
 
