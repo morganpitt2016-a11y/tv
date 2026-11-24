@@ -162,6 +162,7 @@ internal fun WatchActivity.catalogue(packages: List<String>, types: List<String>
 internal fun WatchActivity.openCollection(title: String, sections: List<Triple<String, String, TitleLoader>>) {
     if (collectionFrom == null) collectionFrom = tab
     tab = "collection"
+    tabLockUntil = android.os.SystemClock.uptimeMillis() + 3000
     freshRows()
     scroll.scrollTo(0, 0)
     val token = newBuild()

@@ -115,7 +115,15 @@ class LiveGuideActivity : Activity() {
         meta = GlassUi.text(c, "", 12f, R.font.inter_medium, 0x99FFFFFF.toInt())
         head.addView(title); head.addView(desc, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(c, 3f) }); head.addView(meta, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(c, 4f) })
         right.addView(head, LinearLayout.LayoutParams(-1, dp(c, 92f)))
-        epg = EpgView(c).apply { this.accent = accent; fetcher = { row, cb -> ProviderEpg.fetch(applicationContext, row.ch, cb) } }
+        epg = EpgView(c).apply { this.accent = accent; fetcher = { row, cb -> ProviderEpg.fetch(applicationContext, row.ch, cb) }
+            // A red dot on anything set to record, or recording now.
+            recorded = { row, p ->
+                val name = row.guide?.name ?: row.ch.name
+                val now = System.currentTimeMillis()
+                if (now - recKeysAt > 20_000) { recKeysAt = now; recKeys = TiviRecorder.list(c).map { "${it.channel}|${it.start}" }.toSet() +
+                    Recordings.list(c).filter { Recordings.isRecording(it) }.map { "${it.channel}|${it.title}" }.toSet() }
+                "$name|${p.start}" in recKeys || (p.isOn(now) && "$name|${p.title}" in recKeys)
+            } }
         right.addView(epg, LinearLayout.LayoutParams(-1, 0, 1f))
         recList = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL; clipChildren = false; clipToPadding = false; setPadding(dp(c, 6f), dp(c, 4f), dp(c, 6f), dp(c, 30f)) }
         recScroll = ScrollView(c).apply { isVerticalScrollBarEnabled = false; clipChildren = false; clipToPadding = false; visibility = View.GONE; addView(recList) }
@@ -132,14 +140,14 @@ class LiveGuideActivity : Activity() {
             // On Recordings the (hidden) grid can still report a programme - e.g. coming back from a recording - and
             // it mustn't take over the "Recordings" heading.
             if (current == "_rec") return@sel
-            title.text = prog?.title ?: row.ch.name
-            desc.text = prog?.desc?.takeIf { it.isNotBlank() } ?: "Live on ${row.ch.name}"
+            title.text = prog?.title ?: LiveGuide.pretty(row.ch.name)
+            desc.text = prog?.desc?.takeIf { it.isNotBlank() } ?: "Live on ${LiveGuide.pretty(row.ch.name)}"
             meta.text = if (prog == null) row.ch.name else {
                 val mins = ((prog.stop - prog.start) / 60_000).toInt()
                 val len = if (mins >= 60) "${mins / 60}h${if (mins % 60 > 0) " ${mins % 60}m" else ""}" else "${mins}m"
                 val q = when { Regex("(?i)\\b(uhd|4k)\\b").containsMatchIn(row.ch.name) -> "UHD"; Regex("(?i)\\b(fhd|hd)\\b").containsMatchIn(row.ch.name) -> "HD"; else -> "" }
                 val started = if (prog.start <= System.currentTimeMillis()) "Started at" else "Starts at"
-                listOf(row.ch.name.replace(Regex("(?i)\\s*\\b(uhd|fhd|hd|4k)\\b"), "").trim(), len, q, "$started ${fmt.format(Date(prog.start)).lowercase()}").filter { it.isNotEmpty() }.joinToString("   ·   ")
+                listOf(LiveGuide.pretty(row.ch.name).replace(Regex("(?i)\\s*\\b(uhd|fhd|hd|4k)\\b"), "").trim(), len, q, "$started ${fmt.format(Date(prog.start)).lowercase()}").filter { it.isNotEmpty() }.joinToString("   ·   ")
             }
             handler.removeCallbacks(pipJob); handler.postDelayed(pipJob, 420)        // once you settle on a channel
             selected?.let { r -> Xtream.preResolve(Xtream.liveUrl(applicationContext, r.ch.id)); showPipLogo(r) }      // connection ready, logo straight away
@@ -287,8 +295,23 @@ class LiveGuideActivity : Activity() {
 
     // ---- picture-in-picture ----
 
+    private var recKeys: Set<String> = emptySet()
+    private var recKeysAt = 0L
+
     private fun playPip() {
         val row = selected ?: return
+        // Recording something: Dodgy Box allows one stream at a time, so the preview waits (a second stream could cut
+        // the recording off) - the programme's picture instead.
+        if (Recordings.list(this).any { Recordings.isRecording(it) }) {
+            player?.stop(); pipChannel = -1
+            val host = pip.overlayFrameLayout
+            showPipLogo(row)
+            pipLogo?.let { iv ->
+                val img = row.guide?.programmes?.firstOrNull { it.isOn(System.currentTimeMillis()) }?.image
+                if (img != null) { iv.setPadding(0, 0, 0, 0); iv.scaleType = android.widget.ImageView.ScaleType.CENTER_CROP; ImageLoader.load(iv, img, ImageLoader.CARD) }
+            }
+            return
+        }
         if (row.ch.id == pipChannel) return
         pipChannel = row.ch.id
         val p = player ?: ExoPlayer.Builder(this).setLoadControl(

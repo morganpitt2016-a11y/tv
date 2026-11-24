@@ -218,12 +218,12 @@ class EpgView(context: Context) : View(context) {
             val row = rows[i]
             p.style = Paint.Style.FILL; p.color = 0x16FFFFFF; c.drawRect(chW, y + rowH - 1 * d, w, y + rowH, p)     // hairline between channels
             val progs = row.guide?.programmes.orEmpty().filter { it.stop > winStart }
-            if (progs.isEmpty()) drawCell(c, chW + gap, y, w, rowH, "${row.ch.name} · Live", i == selRow, true, focused, null)
+            if (progs.isEmpty()) drawCell(c, chW + gap, y, w, rowH, "${LiveGuide.pretty(row.ch.name)} · Live", i == selRow, true, focused, null)
             for (pr in progs) {
                 val x1 = timeX(maxOf(pr.start, winStart)); val x2 = timeX(pr.stop)
                 if (x2 < chW || x1 > w) continue
                 val selected = i == selRow && selTime >= pr.start && selTime < pr.stop
-                drawCell(c, maxOf(x1, chW) + gap, y, x2, rowH, pr.title, selected, pr.isOn(now), focused, pr.takeIf { it.isOn(now) }?.progress())
+                drawCell(c, maxOf(x1, chW) + gap, y, x2, rowH, pr.title, selected, pr.isOn(now), focused, pr.takeIf { it.isOn(now) }?.progress(), recorded(row, pr))
             }
         }
         c.restore()
@@ -245,7 +245,7 @@ class EpgView(context: Context) : View(context) {
             text.typeface = if (sel) fontBold else font; text.textSize = 13 * d; text.color = ink
             val num = rows[i].ch.num.toString()
             val numW = text.measureText(num)
-            c.drawText(ellipsize(rows[i].ch.name, chW - numW - 34 * d, text), 14 * d, y + rowH / 2 + 4.5f * d, text)
+            c.drawText(ellipsize(LiveGuide.pretty(rows[i].ch.name), chW - numW - 34 * d, text), 14 * d, y + rowH / 2 + 4.5f * d, text)
             text.color = if (sel && focused) 0x99000000.toInt() else 0x99FFFFFF.toInt()
             c.drawText(num, chW - numW - 12 * d, y + rowH / 2 + 4.5f * d, text)
         }
@@ -279,7 +279,11 @@ class EpgView(context: Context) : View(context) {
 
     private val rect = RectF()
 
-    private fun drawCell(c: Canvas, x1: Float, y: Float, x2: Float, h: Float, title: String, selected: Boolean, live: Boolean, focused: Boolean, progress: Float?) {
+    /** Programmes set to record (or recording now) get a red dot, like Sky's. */
+    var recorded: (Row, LiveGuide.Programme) -> Boolean = { _, _ -> false }
+
+    private fun drawCell(c: Canvas, x1: Float, y: Float, x2: Float, h: Float, rawTitle: String, selected: Boolean, live: Boolean, focused: Boolean, progress: Float?, rec: Boolean = false) {
+        val title = rawTitle
         val left = x1; val right = x2 - gap
         if (right - left < 6 * d) return
         rect.set(left, y + 3 * d, right, y + h - 3 * d)
@@ -295,7 +299,9 @@ class EpgView(context: Context) : View(context) {
         text.typeface = if (selected || live) fontBold else font
         text.textSize = 12.5f * d
         text.color = if (selected && focused) GlassUi.INK else if (live || selected) 0xFFFFFFFF.toInt() else 0xCCFFFFFF.toInt()
-        if (rect.width() > 40 * d) c.drawText(ellipsize(title, rect.width() - (if (rect.width() > 64 * d) 28 else 16) * d, text), rect.left + (if (rect.width() > 64 * d) 14 else 8) * d, rect.centerY() + 4.5f * d, text)
+        val pad = (if (rect.width() > 64 * d) 14 else 8) * d
+        val dot = if (rec && rect.width() > 40 * d) { p.color = 0xFFFF453A.toInt(); c.drawCircle(rect.left + pad + 3.5f * d, rect.centerY(), 3.5f * d, p); 12 * d } else 0f
+        if (rect.width() > 40 * d) c.drawText(ellipsize(title, rect.width() - (if (rect.width() > 64 * d) 28 else 16) * d - dot, text), rect.left + pad + dot, rect.centerY() + 4.5f * d, text)
         if (progress != null) {
             p.color = if (selected && focused) 0x66000000 else 0xA6FFFFFF.toInt()
             c.drawRoundRect(rect.left + 8 * d, rect.bottom - 5 * d, rect.left + 8 * d + (rect.width() - 16 * d) * progress, rect.bottom - 3 * d, 2 * d, 2 * d, p)

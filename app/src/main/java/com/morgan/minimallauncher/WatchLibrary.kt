@@ -192,6 +192,7 @@ internal fun WatchActivity.openDodgyBoxPage(type: String = providerType) {
     if (collectionFrom == null) collectionFrom = tab
     tab = "collection"
     providerType = type
+    tabLockUntil = android.os.SystemClock.uptimeMillis() + 3000
     freshRows()
     scroll.scrollTo(0, 0)
     val token = newBuild()
@@ -284,6 +285,7 @@ internal fun WatchActivity.openProviderPage(p: WatchCatalog.Provider, type: Stri
     if (collectionFrom == null) collectionFrom = tab
     tab = "collection"
     providerType = type
+    tabLockUntil = android.os.SystemClock.uptimeMillis() + 3000
     freshRows()
     scroll.scrollTo(0, 0)
     val token = newBuild()

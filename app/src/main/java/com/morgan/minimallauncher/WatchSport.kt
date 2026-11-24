@@ -378,6 +378,8 @@ internal fun WatchActivity.downloadsRow(): View? {
 
 internal fun WatchActivity.buildList() {
     showPlainHero("MY STUFF", "Everything You’re Watching", "Continue Watching, your list, reminders, downloads and recordings - all in one place.")
+    // Its own picture (what you're watching most recently), not the last tab's.
+    setHeroImage(ResumeStore.forTab(this, "home").firstOrNull()?.image)
     ResumeStore.forTab(this, "home").takeIf { it.isNotEmpty() }?.let { items ->
         val r = row("resume_ms", "Continue Watching", height = 150f)
         r.list.adapter = CardAdapter(items, { p -> wideCard(p) }) { h, item -> bindResume(h, item) }

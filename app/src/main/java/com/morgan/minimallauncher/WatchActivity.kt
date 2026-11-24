@@ -109,6 +109,8 @@ class WatchActivity : AppCompatActivity() {
     /** Films/Shows build their rows a few at a time as you scroll down to them (not all at once), per page. */
     internal val moreRowsFor = java.util.WeakHashMap<LinearLayout, () -> Unit>()
     internal fun freshRows() = swapRows(makeRows())
+    /** Opening a See More page: the focus briefly lands on a tab while the old rows go - that mustn't switch tabs. */
+    internal var tabLockUntil = 0L
 
     internal val voice = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
         r.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.let { search(it) }
@@ -433,9 +435,9 @@ class WatchActivity : AppCompatActivity() {
                 v.animate().scaleX(if (has) 1.05f else 1f).scaleY(if (has) 1.05f else 1f)
                     .setInterpolator(DecelerateInterpolator(2f)).setDuration(200).start()
                 pendingTab?.let { handler.removeCallbacks(it) }
-                if (has && id != tab) {
+                if (has && id != tab && android.os.SystemClock.uptimeMillis() > tabLockUntil) {
                     val r = Runnable {
-                        if (!v.isFocused) return@Runnable
+                        if (!v.isFocused || android.os.SystemClock.uptimeMillis() < tabLockUntil) return@Runnable
                         when (id) { "search" -> showSearchTab(); "live" -> showLiveTab(); else -> showTab(id, focusContent = false) }
                     }
                     pendingTab = r

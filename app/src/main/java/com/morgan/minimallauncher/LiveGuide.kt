@@ -394,6 +394,18 @@ object LiveGuide {
 
     fun hasTiviMate(c: Context) = launchIntent(c, TIVIMATE) != null
 
+    private val ACRONYMS = setOf("BBC", "ITV", "HD", "FHD", "UHD", "4K", "E4", "US", "UK", "CNN", "TNT", "BT", "MTV", "TLC", "QVC", "CBBC", "S4C", "RTE", "TG4", "GB", "ID",
+        "PBS", "AMC", "NBC", "CBS", "ABC", "TCM", "TV", "UTV", "STV", "ITVX", "FX", "DMAX", "W", "U", "5USA", "NHK", "RT", "CNBC", "EWTN", "ESPN", "F1", "TWO", "UTV")
+    /** A channel name as people write it: "BBC ONE" -> "BBC One", "BBC Four (7PM START)" -> "BBC Four". */
+    fun pretty(name: String): String {
+        val n = name.replace(Regex("\s*\([^)]*\)"), "").replace(Regex("^(UK|EN|GB)\s*[:|]\s*", RegexOption.IGNORE_CASE), "").trim()
+        return n.split(" ").joinToString(" ") { w ->
+            if (w.uppercase() in ACRONYMS && w.uppercase() != "TWO") w.uppercase()
+            else if (w.length > 1 && w == w.uppercase() && w.any { it.isLetter() }) w.lowercase().replaceFirstChar { it.uppercase() }
+            else w
+        }.ifBlank { name }
+    }
+
     /** Opens TiviMate (it resumes on the last channel you watched). */
     fun openTiviMate(activity: Activity, channel: Channel?, then: ((Boolean) -> Unit)? = null) {
         // Signed in to the provider: play the channel straight away in the app's own player.
