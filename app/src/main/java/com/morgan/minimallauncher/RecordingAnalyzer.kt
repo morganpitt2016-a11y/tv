@@ -215,11 +215,11 @@ object RecordingAnalyzer {
         return out
     }
 
-    /** UK adverts run 10, 20, 30, 40 or 60 seconds exactly - so the silences between them keep a 10-second beat. */
+    /** UK adverts run 10, 20, 30, 40, 60 or 90 seconds exactly - so the silences between them keep a 10-second beat. */
     private fun adGap(ms: Long): Boolean {
-        if (ms < 9_300L || ms > 60_700L) return false
+        if (ms < 9_000L || ms > 91_000L) return false             // 10 s - 90 s adverts
         val r = ms % 10_000L
-        return r <= 700L || r >= 9_300L
+        return r <= 1_000L || r >= 9_000L                          // silences vary in length, so +/- 1 s
     }
 
     /**
