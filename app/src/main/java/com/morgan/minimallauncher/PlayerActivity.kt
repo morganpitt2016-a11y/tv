@@ -51,6 +51,12 @@ class PlayerActivity : Activity() {
     private var settleUntil = 0L
     private var pictureFirstAt = 0L
     private var pictureRetryMs = 60_000L
+    /** Still dropping frames with the lights reading only ~2½ times a second: are the lights to blame? 0 not asked,
+     *  1 testing (reads held until [lightsTestEnd]), 2 they were (read once per shot), 3 they weren't (read normally). */
+    private var lightsTest = 0
+    private var lightsTestEnd = 0L
+    private var lightsTestDrops = 0
+    private var lastSeekAt = 0L
     /** Talk to the Characters (pause, and the people on screen talk back) - and what's been said so far. */
     private var talk: CharacterTalk? = null
     private val transcript = ArrayList<String>()
@@ -529,6 +535,7 @@ class PlayerActivity : Activity() {
                 val perShot = tenBit && format.width < 1600
                 keyTap.enabled = perShot
                 colourSync?.perShot = perShot
+                if (!perShot) applyLightsVerdict()
                 // Any 10-bit file: even read 2-3 times a second for the lights it dropped a frame every few seconds
                 // (Percy Jackson, 720p) - the picture comes first, so it plays tunnelled and the lights follow the sound.
                 val needsTunnel = format.width > 1920 || (tenBit && format.width >= 1600) ||
@@ -647,7 +654,7 @@ class PlayerActivity : Activity() {
                     Prefs.setInt(this@PlayerActivity, introKey(), (new.positionMs / 1000).toInt())
                 }
                 skippingIntro = false
-                if (reason == Player.DISCONTINUITY_REASON_SEEK) { startWatch?.let { handler.removeCallbacks(it) }; settleUntil = android.os.SystemClock.uptimeMillis() + 10_000L }
+                if (reason == Player.DISCONTINUITY_REASON_SEEK) { startWatch?.let { handler.removeCallbacks(it) }; settleUntil = android.os.SystemClock.uptimeMillis() + 10_000L; lastSeekAt = android.os.SystemClock.uptimeMillis() }
                 // Rewound into an ad break we just skipped (or skipped back into one): you want to watch it - leave it be.
                 if (reason == Player.DISCONTINUITY_REASON_SEEK) recAnalysis?.ads?.forEachIndexed { i, ad ->
                     if (new.positionMs in ad[0]..ad[1] && (android.os.SystemClock.uptimeMillis() - skippedAt > 2500 || i != skippedIdx)) adsWatched += i
@@ -668,7 +675,7 @@ class PlayerActivity : Activity() {
                 if (state == Player.STATE_READY && pauseAtStart) { pauseAtStart = false; player?.playWhenReady = false }
                 if (state == Player.STATE_READY && recAnalysis != null && !askedHighlights && !pauseAtStart) offerHighlights()
                 // Live picture stalling (for the TV's log): count it, and note which channel.
-                if (state == Player.STATE_BUFFERING && firstFrameLogged) {
+                if (state == Player.STATE_BUFFERING && firstFrameLogged && android.os.SystemClock.uptimeMillis() - lastSeekAt > 3000) {
                     stalls++
                     val speed = androidx.media3.exoplayer.upstream.DefaultBandwidthMeter.getSingletonInstance(this@PlayerActivity).bitrateEstimate / 1000
                     if (stalls == 1 || stalls % 3 == 0) Diag.send(this@PlayerActivity, "player", "stall #$stalls on \"$titleText\" at ${(player?.currentPosition ?: 0) / 1000}s (live=$live, timeshift=${ts != null}, buffered ${((player?.bufferedPosition ?: 0) - (player?.currentPosition ?: 0)) / 1000}s ahead, download ~$speed kbps, video ${videoNote}, lights=${colourSync != null})")
@@ -836,20 +843,29 @@ class PlayerActivity : Activity() {
             if (p != null && !p.isPlaying) settleUntil = nowT + 10_000L
             if (p != null && !tunnelled && p.isPlaying && ticks > 8) {
                 val dcnt = p.videoDecoderCounters?.let { it.ensureUpdated(); it.droppedBufferCount } ?: -1
-                if (dcnt >= 0 && nowT < settleUntil) { lastDropCount = dcnt; recentDrops.clear() }
+                if (dcnt >= 0 && nowT < settleUntil) { lastDropCount = dcnt; recentDrops.clear(); if (lightsTest == 1) { lightsTestDrops = 0; lightsTestEnd = settleUntil + 20_000L } }
                 else if (dcnt >= 0) {
                     val d = if (lastDropCount in 0..dcnt) dcnt - lastDropCount else 0
                     lastDropCount = dcnt
                     val now = android.os.SystemClock.uptimeMillis()
                     if (d > 0) recentDrops.addLast(now to d)
                     while (recentDrops.isNotEmpty() && now - recentDrops.first().first > 10_000L) recentDrops.removeFirst()
+                    if (lightsTest == 1) {
+                        lightsTestDrops += d
+                        if (now >= lightsTestEnd) lightsVerdict(cs)
+                    }
                     // Reading slowly already: a dropped frame now and then is the TV, not the lights - only act on a lot.
-                    if (recentDrops.sumOf { it.second } >= (if (cs?.slowRead == true) 12 else 6)) {
+                    else if (lightsTest != 3 && recentDrops.sumOf { it.second } >= (if (cs?.slowRead == true) 12 else 6)) {
                         recentDrops.clear()
                         // Only ever reads the picture less often - never changes mode or playback mid-film.
                         if (cs != null && !cs.soundOnly) {
                             if (!cs.gentle) { cs.gentle = true; Diag.send(this@PlayerActivity, "player", "picture first: frames dropped on \"$titleText\" - lights read ~12 times a second") }
                             else if (!cs.slowRead) { cs.slowRead = true; Diag.send(this@PlayerActivity, "player", "picture first: still dropping on \"$titleText\" - lights read ~2½ times a second") }
+                            else if (lightsTest == 0) {
+                                // Still dropping: stop reading for 20 s (the lights hold their colour) and see if it stops.
+                                lightsTest = 1; lightsTestDrops = 0; lightsTestEnd = now + 20_000L; cs.holdReads = true
+                                Diag.send(this@PlayerActivity, "player", "picture first: still dropping on \"$titleText\" - lights pause reading for 20 s to see if they're the cause")
+                            }
                         }
                     }
                 }
@@ -951,6 +967,32 @@ class PlayerActivity : Activity() {
     }
     private var stillColours: List<IntArray>? = null
 
+    /** The 20-second test is over: if the frames stopped dropping, reading was to blame - from now on the lights read
+     *  once per shot (live TV: at most every 1½ s); if they kept dropping, it's the stream, so the lights go back to
+     *  reading normally. Remembered per channel/film, so it starts right next time. */
+    private fun lightsVerdict(cs: TvColourSync?) {
+        val guilty = lightsTestDrops <= 3
+        lightsTest = if (guilty) 2 else 3
+        recentDrops.clear()
+        Prefs.setString(this, "lights_verdict:" + (seriesTitle ?: titleText), if (guilty) "g" else "i")
+        if (guilty) {
+            keyTap.enabled = true
+            cs?.minGapMs = 1500L; cs?.perShot = true; cs?.holdReads = false
+            Diag.send(this, "player", "lights test on \"$titleText\": $lightsTestDrops frames dropped without reading - reading cost frames, lights now read once per shot")
+        } else {
+            cs?.gentle = false; cs?.slowRead = false; cs?.holdReads = false
+            Diag.send(this, "player", "lights test on \"$titleText\": still $lightsTestDrops frames dropped without reading - it's the stream, not the lights; lights read normally again")
+        }
+    }
+
+    /** A channel or film the lights test already judged: start the way it ended last time. */
+    private fun applyLightsVerdict() {
+        when (Prefs.string(this, "lights_verdict:" + (seriesTitle ?: titleText))) {
+            "g" -> { lightsTest = 2; keyTap.enabled = true; colourSync?.let { it.minGapMs = 1500L; it.perShot = true } }
+            "i" -> lightsTest = 3
+        }
+    }
+
     /** A new film, episode or channel: nothing about the last one carries over (tunnelling, lights mode, guard). */
     private fun freshTitle(p: ExoPlayer) {
         if (tunnelled) (p.trackSelector as? androidx.media3.exoplayer.trackselection.DefaultTrackSelector)?.let { ts ->
@@ -959,6 +1001,7 @@ class PlayerActivity : Activity() {
         tunnelled = false; heavyVideo = false; bigHevc = false; tenBitVideo = false; stillColours = null
         keyTap.enabled = false; keyTap.reset()
         pictureFirst = false; pictureRetryMs = 60_000L; recentDrops.clear(); lastDropCount = -1
+        lightsTest = 0; colourSync?.let { it.holdReads = false; it.minGapMs = 0L; it.perShot = false }
         settleUntil = android.os.SystemClock.uptimeMillis() + 10_000L
         SoundEvents.loudness = 0f
         colourSync?.let { cs -> cs.gentle = false; cs.slowRead = false; if (cs.soundOnly) cs.backToPicture() }
@@ -1008,7 +1051,7 @@ class PlayerActivity : Activity() {
         val fourD = !live && Prefs.bool(this, "fourd_mode", true)
         SoundEvents.listener = if (fourD || tunnelled || pictureFirst) { kind -> if (!houseLit && fourD) colourSync?.impulse(kind) } else null
         val cs = colourSync ?: (if (r != null) TvColourSync(applicationContext, sv, ip, shared = r.link, seed = r.current())
-            else TvColourSync(applicationContext, sv, ip)).also { colourSync = it; it.gentle = heavyVideo || bigHevc; it.perShot = keyTap.enabled
+            else TvColourSync(applicationContext, sv, ip)).also { colourSync = it; it.gentle = heavyVideo || bigHevc; it.perShot = keyTap.enabled; if (lightsTest == 2) it.minGapMs = 1500L
                 it.mood(Prefs.string(this, ResumeStore.keyOf("genres", seriesTitle ?: titleText)).orEmpty()) }
         // Tunnelled (10-bit) films can't be read at all, and some films drop frames if they are: follow the sound.
         // Can't see the picture (10-bit): a neutral warm glow, never a guessed colour (artwork isn't the scene - Percy

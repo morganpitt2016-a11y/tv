@@ -99,6 +99,8 @@ object MagicHue {
         var input: InputStream? = null
         var users = 0
         var lastSend = 0L
+        /** Why the line last dropped mid-use (logged when it reconnects). */
+        var lostWhy: String? = null
 
         @Synchronized fun ensure(h: String, log: (String) -> Unit): Boolean {
             if (host == h && sock?.isConnected == true && sock?.isClosed == false) return true
@@ -106,7 +108,9 @@ object MagicHue {
             return try {
                 val s = Socket(); s.tcpNoDelay = true; s.soTimeout = 1500
                 s.connect(InetSocketAddress(h, PORT), 1500)
-                host = h; sock = s; out = s.getOutputStream(); input = s.getInputStream(); true
+                host = h; sock = s; out = s.getOutputStream(); input = s.getInputStream()
+                lostWhy?.let { log("Magic Hue: line dropped ($it) - reconnected"); lostWhy = null }
+                true
             } catch (e: Exception) { log("Magic Hue: can't connect to $h (${e.javaClass.simpleName}: ${e.message})"); drop(); false }
         }
 
@@ -118,7 +122,7 @@ object MagicHue {
             var sum = 0
             for (i in b.indices) { bytes[i] = b[i].toByte(); sum += b[i] }
             bytes[b.size] = (sum and 0xFF).toByte()
-            try { out?.write(bytes); out?.flush() } catch (e: Exception) { drop() }
+            try { out?.write(bytes); out?.flush() } catch (e: Exception) { lostWhy = "${e.javaClass.simpleName}: ${e.message}"; drop() }
             lastSend = android.os.SystemClock.uptimeMillis()
         }
 

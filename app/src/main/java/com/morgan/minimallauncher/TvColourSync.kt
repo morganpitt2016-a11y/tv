@@ -41,7 +41,7 @@ class TvColourSync(private val app: android.content.Context, private val surface
     // (never piling up), aiming for one every FRAME_MS.
     private val tick = object : Runnable {
         override fun run() {
-            if (!running || soundOnly || kfMode || inFlight) return
+            if (!running || soundOnly || kfMode || inFlight || holdReads) return
             val holder = surface.holder
             if (holder.surface?.isValid != true || surface.width <= 0) { bg.postDelayed(this, 200); return }
             val t0 = android.os.SystemClock.uptimeMillis()
@@ -73,7 +73,18 @@ class TvColourSync(private val app: android.content.Context, private val surface
     /** 10-bit video: read the screen once per shot, when the player says a new shot has started ([readOnce]). */
     @Volatile var perShot = false
     @Volatile private var inFlight = false
-    fun readOnce() = bg.post { if (running && perShot && !soundOnly && !kfMode) tick.run() }
+    fun readOnce() = bg.post {
+        val now = android.os.SystemClock.uptimeMillis()
+        if (running && perShot && !soundOnly && !kfMode && now - lastOnce >= minGapMs) { lastOnce = now; tick.run() }
+    }
+    /** Once per shot, but never more often than this (live TV sends a keyframe every second or so). */
+    @Volatile var minGapMs = 0L
+    private var lastOnce = 0L
+
+    /** The frame guard's test: stop reading the picture for a while (the lights hold their colour) to see whether the
+     *  dropped frames are the lights' doing. */
+    @Volatile var holdReads = false
+        set(v) { field = v; if (!v) bg.post { if (running && !perShot) { bg.removeCallbacks(tick); bg.post(tick) } } }
 
     /** 10-bit video: every read costs the TV a frame now and then, so read only ~2½ times a second. */
     @Volatile var slowRead = false
@@ -195,6 +206,11 @@ class TvColourSync(private val app: android.content.Context, private val surface
 
     /** Leaving the player: the lights go back to how they were. */
     fun stop() {
+        if (started) {
+            val mins = (android.os.SystemClock.uptimeMillis() - startedAt) / 60_000.0
+            val mode = when { kfMode -> "keyframes"; soundOnly -> "sound"; perShot -> "once per shot"; slowRead -> "~2½ reads/s"; gentle -> "~12 reads/s"; else -> "~30 reads/s" }
+            Diag.send(app, "lights", "TV Colour Lights finished: ${"%.1f".format(mins)} min, $copies frames read, $fails failed, ended on $mode")
+        }
         pause()
         if (started && owns) link.end()
         bg.post { frame.recycle(); thread.quitSafely() }
