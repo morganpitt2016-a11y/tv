@@ -232,7 +232,7 @@ class MainActivity : AppCompatActivity() {
         AppWatchService.startIfNeeded(this)
         RemoteService.startIfEnabled(this)
         // Switching the accessibility service on only needs checking now and then, not on every return home.
-        if (Perf.now() - lastSelfEnable > 30_000L) { lastSelfEnable = Perf.now(); SelfEnable.enableAll(this) }
+        if (Perf.now() - lastSelfEnable > 30_000L) { lastSelfEnable = Perf.now(); SelfEnable.enableAll(this); SelfEnable.rebindIfStale(this) }
         handler.post(clockTick)
         rotator.start()
         lastPhoto?.let { wallLights.show(it) }

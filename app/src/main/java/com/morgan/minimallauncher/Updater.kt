@@ -130,5 +130,8 @@ class PackageReplacedReceiver : BroadcastReceiver() {
         try { RemoteService.startIfEnabled(c) } catch (_: Exception) {}
         try { AwayRemote.start(c) } catch (_: Exception) {}
         try { RecordingAnalyzer.catchUp(c) } catch (_: Exception) {}
+        // Fire TV: the open-on-Home service doesn't come back by itself after an update - check once it's had time to.
+        val app = c.applicationContext
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ SelfEnable.rebindIfStale(app) }, 20_000L)
     }
 }

@@ -42,6 +42,27 @@ object SelfEnable {
         }
     }
 
+    /**
+     * Switched on but not running: on Fire TV an app update leaves the accessibility service listed as on but never
+     * starts it again, so Home stays on Amazon's screen. Switching it off and on again in settings makes the system
+     * start it. Only when it was already on (your choice) and the app has the ADB permission.
+     */
+    fun rebindIfStale(c: Context) {
+        if (!canSelfEnable(c) || !HomeRedirectService.isServiceEnabled(c) || HomeRedirectService.instance != null) return
+        // Give the system a chance to start it on its own first (it does on a fresh boot).
+        if (android.os.SystemClock.uptimeMillis() - android.os.Process.getStartUptimeMillis() < 15_000L) return
+        try {
+            val me = ComponentName(c, HomeRedirectService::class.java)
+            val cr = c.contentResolver
+            val current = Settings.Secure.getString(cr, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES).orEmpty()
+            val others = current.split(':').filter { it.isNotBlank() && ComponentName.unflattenFromString(it) != me }
+            Settings.Secure.putString(cr, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, others.joinToString(":"))
+            Settings.Secure.putString(cr, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, (others + me.flattenToString()).joinToString(":"))
+            Settings.Secure.putInt(cr, Settings.Secure.ACCESSIBILITY_ENABLED, 1)
+            RedirectDiag.event(c, "rebind")
+        } catch (e: Exception) { RedirectDiag.error(c, "rebind: ${e.javaClass.simpleName}") }
+    }
+
     /** Notification access for the Now Playing widget. */
     private fun enableListener(c: Context) {
         if (!canSelfEnable(c) || NowPlaying.hasAccess(c)) return
