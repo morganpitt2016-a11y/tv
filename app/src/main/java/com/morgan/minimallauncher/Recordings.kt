@@ -228,7 +228,9 @@ class RecordService : Service() {
                                 out.write(buf, 0, n)
                             }
                         }
+                        if (System.currentTimeMillis() < rec.stop && !Thread.currentThread().isInterrupted) Diag.send(app, "record", "recording \"${rec.title}\": stream ended early, reconnecting")
                     } catch (e: Exception) {
+                        if (System.currentTimeMillis() < rec.stop) Diag.send(app, "record", "recording \"${rec.title}\": stream dropped (${e.javaClass.simpleName}), reconnecting")
                         try { Thread.sleep(3000) } catch (ie: InterruptedException) { break }
                     } finally { conn?.disconnect() }
                 }

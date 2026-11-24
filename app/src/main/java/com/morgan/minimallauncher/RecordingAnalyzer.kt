@@ -62,8 +62,16 @@ object RecordingAnalyzer {
         if (busy) return
         val file = queue.poll() ?: return
         if (!File(file).exists() || sidecar(file).exists()) return next(app)
+        if (PlayerActivity.isPlayingFile(file)) return next(app)            // never rewrite what's on screen; done next time
         busy = true
-        h.post { analyse(app, file) }
+        h.post {
+            try {
+                val t0 = android.os.SystemClock.uptimeMillis()
+                val r = TsRetime.repair(File(file))
+                if (r.restarts + r.repeats > 0) Diag.send(app, "recordings", "smoothed ${File(file).name}: ${r.restarts} clock restarts re-timed, ${r.repeats} repeated stretches removed (${r.droppedMb} MB) in ${(android.os.SystemClock.uptimeMillis() - t0) / 1000}s")
+            } catch (e: Exception) { Diag.send(app, "recordings", "couldn't smooth ${File(file).name}: ${e.javaClass.simpleName}") }
+            analyse(app, file)
+        }
     }
 
     // ---------- The silent player ----------

@@ -2713,6 +2713,10 @@ class PlayerActivity : Activity() {
     companion object {
         /** The player on screen now (for the iPhone remote's Now Playing). */
         @Volatile var onScreen: java.lang.ref.WeakReference<PlayerActivity>? = null
+        /** True while this recording file is open in the player. */
+        fun isPlayingFile(path: String): Boolean = onScreen?.get()?.let { a ->
+            !a.isFinishing && a.url.startsWith("file:") && android.net.Uri.parse(a.url).path == path
+        } == true
         /** The next player opened waits paused at the start (the away remote's "ready when I'm home"). */
         @Volatile var startPaused = false
         /** True while something is on screen in the player (updates wait until it closes). */
