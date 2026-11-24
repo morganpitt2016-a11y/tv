@@ -41,12 +41,14 @@ class TvColourSync(private val app: android.content.Context, private val surface
     // (never piling up), aiming for one every FRAME_MS.
     private val tick = object : Runnable {
         override fun run() {
-            if (!running || soundOnly || kfMode) return
+            if (!running || soundOnly || kfMode || inFlight) return
             val holder = surface.holder
             if (holder.surface?.isValid != true || surface.width <= 0) { bg.postDelayed(this, 200); return }
             val t0 = android.os.SystemClock.uptimeMillis()
             try {
+                inFlight = true
                 PixelCopy.request(surface, frame, { result ->
+                    inFlight = false
                     if (result == PixelCopy.SUCCESS) { copies++; analyse() } else fails++
                     if (copies + fails == 150 || (copies + fails) % 1800 == 0) Diag.send(app, "lights", "TV Colour Lights: $copies frames read in ${(android.os.SystemClock.uptimeMillis() - startedAt) / 1000.0}s, $fails failed, level ${"%.2f".format(engine.level)}, gentle=$gentle")
                     // The picture always comes first: if reading a frame takes long (the TV is busy), or the video
@@ -54,11 +56,13 @@ class TvColourSync(private val app: android.content.Context, private val surface
                     val took = android.os.SystemClock.uptimeMillis() - t0
                     slow = slow * 0.8f + took * 0.2f
                     val every = when { slowRead -> 380L; gentle || slow > 18f -> 80L; slow > 10f -> 50L; else -> FRAME_MS }
-                    if (running) bg.postDelayed(this, (every - took).coerceAtLeast(5))
+                    // Once per shot (10-bit): the next read waits for the next shot (readOnce), not a timer.
+                    if (running && !perShot) bg.postDelayed(this, (every - took).coerceAtLeast(5))
                 }, bg)
             } catch (e: Exception) {
+                inFlight = false
                 if (fails++ == 0) Diag.send(app, "lights", "PixelCopy error: ${e.message}")
-                bg.postDelayed(this, 200)
+                if (!perShot) bg.postDelayed(this, 200)
             }
         }
     }
@@ -66,6 +70,11 @@ class TvColourSync(private val app: android.content.Context, private val surface
     private var slow = 0f
     /** Heavy video (10-bit / HDR / 4K): about 12 reads a second instead of 30. */
     @Volatile var gentle = false
+    /** 10-bit video: read the screen once per shot, when the player says a new shot has started ([readOnce]). */
+    @Volatile var perShot = false
+    @Volatile private var inFlight = false
+    fun readOnce() = bg.post { if (running && perShot && !soundOnly && !kfMode) tick.run() }
+
     /** 10-bit video: every read costs the TV a frame now and then, so read only ~2½ times a second. */
     @Volatile var slowRead = false
     private var lastBright = 0f

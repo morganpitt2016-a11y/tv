@@ -479,7 +479,6 @@ class PlayerActivity : Activity() {
                     enableDecoderFallback, eventHandler, eventListener, 50) {
                     override fun onInputFormatChanged(formatHolder: androidx.media3.exoplayer.FormatHolder): androidx.media3.exoplayer.DecoderReuseEvaluation? {
                         val e = super.onInputFormatChanged(formatHolder)
-                        formatHolder.format?.let { tapRef.onFormat(it) }
                         return e
                     }
                     override fun onQueueInputBuffer(buffer: androidx.media3.decoder.DecoderInputBuffer) {
@@ -520,10 +519,13 @@ class PlayerActivity : Activity() {
                 // can still follow its picture (and the frame guard below tunnels it later if it ever can't keep up).
                 val tenBit = codecs.startsWith("hvc1.2") || codecs.startsWith("hev1.2")
                 tenBitVideo = tenBit
-                colourSync?.slowRead = tenBit
+                // 720p 10-bit plays normally, and the lights read the screen once per shot (see KeyframeTap).
+                val perShot = tenBit && format.width < 1600
+                keyTap.enabled = perShot
+                colourSync?.perShot = perShot
                 // Any 10-bit file: even read 2-3 times a second for the lights it dropped a frame every few seconds
                 // (Percy Jackson, 720p) - the picture comes first, so it plays tunnelled and the lights follow the sound.
-                val needsTunnel = format.width > 1920 || tenBit ||
+                val needsTunnel = format.width > 1920 || (tenBit && format.width >= 1600) ||
                     format.colorInfo?.colorTransfer.let { it == androidx.media3.common.C.COLOR_TRANSFER_ST2084 || it == androidx.media3.common.C.COLOR_TRANSFER_HLG }
                 if (needsTunnel && !tunnelled) tunnelNow("heavy video ($videoNote)")
             }
@@ -863,13 +865,14 @@ class PlayerActivity : Activity() {
     private var lastStartUrl: String? = null
     /** Keyframe colour for tunnelled (10-bit) video: each shot's picture, delivered in time with it. */
     private val keyTap: KeyframeTap by lazy {
-        KeyframeTap({ px, w, timeUs ->
+        KeyframeTap { timeUs ->
             runOnUiThread {
                 val pos = player?.currentPosition ?: return@runOnUiThread
-                val delay = (timeUs / 1000 - pos).coerceIn(0L, 3000L)
-                handler.postDelayed({ if (tunnelled) colourSync?.keyframe(px, w) }, delay)
+                // Read the screen just after the new shot's first frame is on it.
+                val delay = (timeUs / 1000 - pos + 80).coerceIn(0L, 4000L)
+                handler.postDelayed({ colourSync?.readOnce() }, delay)
             }
-        }, { msg -> Diag.send(applicationContext, "lights", msg) })
+        }
     }
     private var stillColours: List<IntArray>? = null
 
@@ -896,8 +899,7 @@ class PlayerActivity : Activity() {
         }
         colourSync?.followSound(null)
         if (colourSync == null) room?.hold()
-        // The picture can't be read off the screen now - take each keyframe's picture instead (if the TV can).
-        keyTap.enabled = KeyframeTap.available && MagicHue.syncOn(this)
+        keyTap.enabled = false
         Diag.send(this, "player", "$why: tunnelled playback on, lights glow warm white with the soundtrack")
     }
 
@@ -931,7 +933,7 @@ class PlayerActivity : Activity() {
         val fourD = !live && Prefs.bool(this, "fourd_mode", true)
         SoundEvents.listener = if (fourD || tunnelled || pictureFirst) { kind -> if (!houseLit && fourD) colourSync?.impulse(kind) } else null
         val cs = colourSync ?: (if (r != null) TvColourSync(applicationContext, sv, ip, shared = r.link, seed = r.current())
-            else TvColourSync(applicationContext, sv, ip)).also { colourSync = it; it.gentle = heavyVideo || bigHevc; it.slowRead = tenBitVideo
+            else TvColourSync(applicationContext, sv, ip)).also { colourSync = it; it.gentle = heavyVideo || bigHevc; it.perShot = keyTap.enabled
                 it.mood(Prefs.string(this, ResumeStore.keyOf("genres", seriesTitle ?: titleText)).orEmpty()) }
         // Tunnelled (10-bit) films can't be read at all, and some films drop frames if they are: follow the sound.
         // Can't see the picture (10-bit): a neutral warm glow, never a guessed colour (artwork isn't the scene - Percy
@@ -2579,7 +2581,6 @@ class PlayerActivity : Activity() {
     }
 
     override fun onDestroy() {
-        keyTap.shutdown()
         thumbExec.execute { try { thumbRetriever?.release() } catch (e: Throwable) {}; thumbRetriever = null }
         thumbExec.shutdown()
         sleepHandler.removeCallbacksAndMessages(null)
