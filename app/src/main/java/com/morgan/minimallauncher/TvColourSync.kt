@@ -140,8 +140,8 @@ class TvColourSync(private val app: android.content.Context, private val surface
         bg.post { followSoundNow(colour) }
     }
     private fun followSoundNow(colour: IntArray?) {
-        // [colour] is the film's own colour (a screen colour, from ColourEngine.dominant) - used as it is.
-        colour?.let { palette = it }
+        // [colour] is the film's own colour (a screen colour) - or none: a neutral warm white.
+        palette = colour ?: intArrayOf(255, 214, 180)
         bg.removeCallbacks(tick)
         if (running) { bg.removeCallbacks(soundTick); bg.post(soundTick) }
     }

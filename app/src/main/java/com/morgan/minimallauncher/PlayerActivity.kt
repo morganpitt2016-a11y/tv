@@ -862,10 +862,9 @@ class PlayerActivity : Activity() {
         (player?.trackSelector as? androidx.media3.exoplayer.trackselection.DefaultTrackSelector)?.let { ts ->
             ts.setParameters(ts.buildUponParameters().setTunnelingEnabled(true))
         }
-        colourSync?.followSound(room?.palette ?: posterColour)
+        colourSync?.followSound(null)
         if (colourSync == null) room?.hold()
-        Diag.send(this, "player", "$why: tunnelled playback on, lights follow the film's stills and soundtrack")
-        loadStills()
+        Diag.send(this, "player", "$why: tunnelled playback on, lights glow warm white with the soundtrack")
     }
 
     /** The film's own stills (from the provider), each turned into its scene colour, for the lights to move between. */
@@ -901,8 +900,9 @@ class PlayerActivity : Activity() {
             else TvColourSync(applicationContext, sv, ip)).also { colourSync = it; it.gentle = heavyVideo || bigHevc; it.slowRead = tenBitVideo
                 it.mood(Prefs.string(this, ResumeStore.keyOf("genres", seriesTitle ?: titleText)).orEmpty()) }
         // Tunnelled (10-bit) films can't be read at all, and some films drop frames if they are: follow the sound.
-        if ((tunnelled || pictureFirst) && !cs.soundOnly) cs.followSound(r?.palette ?: posterColour)
-        if (tunnelled) stillColours?.let { cs.stills(it) }
+        // Can't see the picture (10-bit): a neutral warm glow, never a guessed colour (artwork isn't the scene - Percy
+        // Jackson's stills were all ocean blue).
+        if ((tunnelled || pictureFirst) && !cs.soundOnly) cs.followSound(null)
         cs.start()
     }
 
