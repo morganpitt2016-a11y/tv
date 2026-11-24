@@ -288,8 +288,8 @@ class RemoteServer(private val context: Context) {
             // ---- Now Playing: what's on, scrub, play/pause, subtitles and audio - plus whether the TV wants typing ----
             "/api/now" -> {
                 val want = HomeRedirectService.instance?.let { s -> onMain { s.typingWanted() } } ?: (false to "")
-                val o = if (req.body.isNotEmpty()) JSONObject().put("ok", onMain { PlayerActivity.current?.get()?.remoteControl(body) } == true)
-                    else onMain { PlayerActivity.current?.get()?.takeIf { !it.isFinishing }?.remoteState() } ?: JSONObject().put("active", false)
+                val o = if (req.body.isNotEmpty()) JSONObject().put("ok", onMain { PlayerActivity.onScreen?.get()?.remoteControl(body) } == true)
+                    else onMain { PlayerActivity.onScreen?.get()?.takeIf { !it.isFinishing }?.remoteState() } ?: JSONObject().put("active", false)
                 json(out, o.put("typing", want.first).put("hint", want.second))
             }
             // ---- Lights: everything in Settings › Magic Hue Lights, plus Night Mode ----

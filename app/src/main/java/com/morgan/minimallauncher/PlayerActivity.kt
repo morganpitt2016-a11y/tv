@@ -208,7 +208,7 @@ class PlayerActivity : Activity() {
     private var sleepDialog: android.app.Dialog? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        current = java.lang.ref.WeakReference(this)
+        onScreen = java.lang.ref.WeakReference(this)
         super.onCreate(savedInstanceState)
         if (Activation.guard(this)) return
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -2582,7 +2582,7 @@ class PlayerActivity : Activity() {
     }
 
     override fun onDestroy() {
-        if (current?.get() === this) current = null
+        if (onScreen?.get() === this) onScreen = null
         thumbExec.execute { try { thumbRetriever?.release() } catch (e: Throwable) {}; thumbRetriever = null }
         thumbExec.shutdown()
         sleepHandler.removeCallbacksAndMessages(null)
@@ -2638,7 +2638,7 @@ class PlayerActivity : Activity() {
 
     companion object {
         /** The player on screen now (for the iPhone remote's Now Playing). */
-        @Volatile var current: java.lang.ref.WeakReference<PlayerActivity>? = null
+        @Volatile var onScreen: java.lang.ref.WeakReference<PlayerActivity>? = null
         /** True while something is on screen in the player (updates wait until it closes). */
         @Volatile var watching = false
         private var current: java.lang.ref.WeakReference<PlayerActivity>? = null
