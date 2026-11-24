@@ -92,6 +92,13 @@ class RemoteServer(private val context: Context) {
         client.use { sock ->
             sock.soTimeout = 30_000
             val input = BufferedInputStream(sock.getInputStream())
+            // Safari now tries a secure (https) connection first and only falls back to plain http when that fails.
+            // This server only speaks http, so it used to sit waiting on the encrypted greeting and the page hung on
+            // black for ever. Refuse it at once (a reset) so Safari falls straight back to http.
+            input.mark(1)
+            val first = try { input.read() } catch (e: Exception) { -1 }
+            if (first == 0x16 || first < 0) { try { sock.setSoLinger(true, 0) } catch (_: Exception) {}; return }
+            input.reset()
             val out = sock.getOutputStream()
             val req = try { read(input) } catch (e: Exception) { null } ?: return
             try {
