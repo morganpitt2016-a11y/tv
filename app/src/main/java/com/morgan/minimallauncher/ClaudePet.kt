@@ -107,12 +107,16 @@ class ClaudePet(context: Context) : View(context) {
     }
 
     private var running = false
+    // A small box (Fire TV Stick Lite) redraws the whole screen for every step: 10 steps a second there, 30 elsewhere -
+    // still smooth for a pixel pet, and the home screen stops using most of the processor.
+    private val frameGapNs = if (Device.lite(context)) 100_000_000L else 31_000_000L
+    private val maxStep = if (Device.lite(context)) 0.12f else 0.07f
     private val frame = object : Choreographer.FrameCallback {
         private var last = 0L
         override fun doFrame(now: Long) {
             // 30 frames a second is plenty for a pixel pet, and halves the work; resting while the screen is dimmed.
-            if (PetClock.resting || (last != 0L && now - last < 31_000_000L)) { if (running) Choreographer.getInstance().postFrameCallback(this); if (PetClock.resting) last = 0L; return }
-            if (last != 0L) { step(((now - last) / 1e9f).coerceAtMost(0.07f)); invalidate() }
+            if (PetClock.resting || (last != 0L && now - last < frameGapNs)) { if (running) Choreographer.getInstance().postFrameCallback(this); if (PetClock.resting) last = 0L; return }
+            if (last != 0L) { step(((now - last) / 1e9f).coerceAtMost(maxStep)); invalidate() }
             last = now
             if (running) Choreographer.getInstance().postFrameCallback(this)
         }

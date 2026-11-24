@@ -24,6 +24,10 @@ import android.widget.TextView
  */
 class GlassClockView @JvmOverloads constructor(c: Context, attrs: AttributeSet? = null) : TextView(c, attrs) {
 
+    // Drawn once into its own layer and reused until the time (or wallpaper) changes: the frosted glass, rim and soft
+    // shadow are costly, and anything else animating on the home screen (the pets) otherwise redrew them every frame.
+    init { setLayerType(LAYER_TYPE_HARDWARE, null) }
+
     private var glass: Bitmap? = null
     private var glassShader: BitmapShader? = null
     private var stageW = 0
