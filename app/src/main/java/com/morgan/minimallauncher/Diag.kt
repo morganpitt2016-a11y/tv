@@ -122,6 +122,8 @@ object Diag {
             cmd == "info" -> send(app, "info", info(app))
             // The away remote: record something (see AwayRemote).
             cmd.startsWith("away:") -> AwayRemote.record(app, cmd.removePrefix("away:"))
+            // The same as the iPhone's "I'm home" Shortcut (for testing the wake-up from standby).
+            cmd == "arrive" -> android.os.Handler(android.os.Looper.getMainLooper()).post { send(app, "away", "arrive: " + AwayRemote.arrive(app)) }
             cmd == "tunelog" -> send(app, "tunelog", TiviTuner.logText())
             cmd == "perf" -> send(app, "perf", Perf.text())
             cmd == "screen" -> send(app, "screen", onMain { TiviTuner.tiviScreen() })
