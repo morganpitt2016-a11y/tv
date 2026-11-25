@@ -178,7 +178,11 @@ object MagicHue {
         }
 
         /** The next colour to show. Only the newest is sent if the lights fall behind - never a queue of old ones. */
+        /** Set the moment the lights are handed back: late colours from a picture read already under way are dropped. */
+        @Volatile private var closed = false
+
         override fun colour(r: Int, g: Int, b: Int) {
+            if (closed) return
             pending = intArrayOf(r, g, b)
             if (busy) return
             busy = true
@@ -186,6 +190,7 @@ object MagicHue {
             try { exec.execute {
                 try {
                     while (true) {
+                        if (closed) break
                         val c = pending ?: break
                         pending = null
                         if (!ensure()) break
@@ -202,7 +207,8 @@ object MagicHue {
         @Volatile var asleep = false
 
         /** Put the lights back to the colour they had, then hang up (on/off is left alone - it can't be trusted). */
-        fun end() = exec.execute {
+        fun end() { closed = true; endNow() }
+        private fun endNow() = exec.execute {
             val b = before
             if (asleep) { if (ensure()) send(0x71, 0x24, 0x0F) }
             else if (ensure() && b != null) send(0x31, b.third[0], b.third[1], b.third[2], 0x00, 0xF0, 0x0F)
@@ -212,7 +218,7 @@ object MagicHue {
         }
 
         /** Hang up without changing the lights (the next thing to use them carries on from here). */
-        fun hangUp() = exec.execute { close(); exec.shutdown() }
+        fun hangUp() { closed = true; exec.execute { close(); exec.shutdown() } }
 
         private fun close() { if (holding) { holding = false; Line.release() } }
     }

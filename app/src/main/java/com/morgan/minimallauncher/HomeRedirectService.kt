@@ -147,6 +147,7 @@ class HomeRedirectService : AccessibilityService() {
 
     override fun onDestroy() {
         if (instance === this) instance = null
+        mainHandler.removeCallbacksAndMessages(null)        // the 30 s reminder loop and the long-press timer
         if (wakeReceiverRegistered) {
             try { unregisterReceiver(wakeReceiver) } catch (_: Exception) {}
             wakeReceiverRegistered = false

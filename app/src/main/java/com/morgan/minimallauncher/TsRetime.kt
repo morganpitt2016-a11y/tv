@@ -38,6 +38,7 @@ object TsRetime {
                 val d = signed(raw - prev)
                 if (d < -5 * HZ || (pcr && d > 60 * HZ)) {
                     dup = false
+                    if (pcr && d > -60 * HZ && d < 0) { lastRaw[key] = raw; lastSeg[key] = seg; return }   // the picture/sound decide
                     if (d > -60 * HZ && d < -5 * HZ) {
                         dup = true; caught = false; tKey = key; target = prev; dups++
                         after = HashMap(); for (p in pes) { val k = p * 4; if (lastSeg[k] == seg) lastRaw[k]?.let { after[p] = it } }
@@ -147,7 +148,9 @@ object TsRetime {
 
     fun repair(file: File): Result {
         if (marker(file).exists()) return Result(0, 0, 0)        // once per recording, never again
-        if (count(file) == 0) { try { marker(file).createNewFile() } catch (_: Exception) {}; return Result(0, 0, 0) }
+        val changes = count(file)
+        // Never wipe out a recording: if smoothing would drop more than 15% of it, leave the file as it is.
+        if (changes == 0 || lastDropped * 188L > file.length() * 15 / 100) { try { marker(file).createNewFile() } catch (_: Exception) {}; return Result(0, 0, 0) }
         val clock = Fixer()
         RandomAccessFile(file, "rw").use { f ->
             val len = f.length()
@@ -191,6 +194,8 @@ object TsRetime {
                 System.arraycopy(buf, p, buf, 0, have - p); have -= p
             }
         }
+        lastDropped = clock.dropped
         return clock.changed
     }
+    @Volatile private var lastDropped = 0L
 }

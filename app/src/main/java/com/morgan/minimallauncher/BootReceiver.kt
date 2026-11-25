@@ -18,6 +18,7 @@ class BootReceiver : BroadcastReceiver() {
         RemoteService.startIfEnabled(context)
         try { AwayRemote.start(context) } catch (_: Exception) {}
         SelfEnable.enableAll(context)
+        try { Recordings.recover(context) } catch (_: Exception) {}
         if (!AutoLaunch.onBoot(context)) return
         RedirectDiag.event(context, "boot")
         try {

@@ -132,13 +132,13 @@ object Diag {
             // Read / change the launcher's own settings remotely (no clicking through menus). Anything that looks
             // like a login, key or address is never shown or changed this way.
             cmd == "prefs" -> {
-                val secret = Regex("(?i)key|pass|token|user|server|login|code|secret|xtream|url|email|account")
+                val secret = Regex("(?i)key|pass|token|user|server|login|code|secret|xtream|url|email|account|pin|activat")
                 val all = app.getSharedPreferences("launcher_settings", Context.MODE_PRIVATE).all
                 send(app, "prefs", all.filterKeys { !secret.containsMatchIn(it) }.toSortedMap().entries.joinToString("\n") { "${it.key} = ${it.value}" }.take(8000))
             }
             cmd.startsWith("set:") -> {
                 val kv = cmd.removePrefix("set:"); val k = kv.substringBefore('=').trim(); val v = kv.substringAfter('=', "").trim()
-                val secret = Regex("(?i)key|pass|token|user|server|login|code|secret|xtream|url|email|account")
+                val secret = Regex("(?i)key|pass|token|user|server|login|code|secret|xtream|url|email|account|pin|activat")
                 if (k.isEmpty() || secret.containsMatchIn(k)) send(app, "prefs", "not changed: $k")
                 else {
                     val e = app.getSharedPreferences("launcher_settings", Context.MODE_PRIVATE).edit()

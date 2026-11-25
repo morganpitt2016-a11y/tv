@@ -53,7 +53,7 @@
   async function ask() {
     again.hidden = true; input.value = ''; draw(); input.disabled = false; input.focus();
     say('Look at your TV…');
-    try { await fetch('/api/pair/request', { method: 'POST' }); say('A code is on your TV.'); }
+    try { const r = await (await fetch('/api/pair/request', { method: 'POST' })).json(); if (r.locked) say('Too many wrong codes - pairing is paused for an hour.', 'bad'); else say('A code is on your TV.'); }
     catch (_) { say('Can’t reach the TV. Is it on this Wi-Fi?', 'bad'); }
   }
 

@@ -30,6 +30,10 @@ object Pairing {
         private set
     private var tries = 0
     private var requestedAt = 0L
+    /** Wrong codes across all attempts: 10 locks pairing for an hour (stops anyone on the Wi-Fi guessing all 10,000). */
+    private var failures = 0
+    @Volatile var lockedUntil = 0L
+        private set
     private val random = SecureRandom()
 
     fun active() = code != null && System.currentTimeMillis() < expiresAt
@@ -37,7 +41,9 @@ object Pairing {
     /** A phone wants to pair: make (or keep, if it just asked) a code. */
     @Synchronized fun request(): String {
         val now = System.currentTimeMillis()
-        if (active() && now - requestedAt < 5_000L) return code!!
+        if (now < lockedUntil) { code = null; return "" }
+        // A code stays the same for its two minutes: asking again neither changes it nor resets the wrong-try count.
+        if (active()) return code!!
         code = "%04d".format(random.nextInt(10_000))
         expiresAt = now + TTL_MS
         tries = 0
@@ -47,9 +53,10 @@ object Pairing {
 
     /** Returns the number of tries left on a wrong code, 0 if it's locked or expired, or -1 if the code was right. */
     @Synchronized fun confirm(entered: String): Int {
-        if (!active()) return 0
-        if (entered.trim() == code) { code = null; pairedAt = System.currentTimeMillis(); return -1 }
-        tries++
+        if (!active() || System.currentTimeMillis() < lockedUntil) return 0
+        if (entered.trim() == code) { code = null; failures = 0; pairedAt = System.currentTimeMillis(); return -1 }
+        tries++; failures++
+        if (failures >= 10) { code = null; lockedUntil = System.currentTimeMillis() + 3_600_000L; failures = 0; return 0 }
         if (tries >= MAX_TRIES) { code = null; return 0 }
         return MAX_TRIES - tries
     }

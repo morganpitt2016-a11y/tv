@@ -117,6 +117,14 @@ object Recordings {
     }
 
     fun isRecording(r: Rec) = !r.done && System.currentTimeMillis() < r.stop
+    /** Being recorded right now (started, not finished). */
+    fun isCapturing(r: Rec) = !r.done && System.currentTimeMillis().let { it >= r.start && it < r.stop }
+
+    /** After a restart, update or power cut: carry on recordings still in their slot, finish ones whose time is up. */
+    fun recover(c: Context) {
+        val now = System.currentTimeMillis()
+        list(c).filter { !it.done && now >= it.start }.forEach { r -> if (now < r.stop) continueInBackground(c, r) else finished(c, r.id) }
+    }
 
     // ---------- TiviMate's own recordings ----------
     // When recording goes through TiviMate (no provider login), TiviMate saves the file

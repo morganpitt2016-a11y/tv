@@ -30,6 +30,8 @@ object Updater {
     /** Someone is watching: the player or the guide is up, or sound is playing (from any app). */
     fun busy(c: Context): Boolean {
         if (PlayerActivity.watching || guideOpen) return true
+        // A recording in progress (often overnight, screen off): an update would cut it off.
+        if (try { Recordings.list(c).any { Recordings.isCapturing(it) } } catch (_: Exception) { false }) return true
         val am = c.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
         return am.isMusicActive
     }
@@ -68,6 +70,7 @@ object Updater {
             mapOf("Accept" to "application/vnd.github.raw"))
         if (!viaApi && !Net.download("$BASE/app-debug.apk?t=$stamp", file)) return "Build $latest found but the download failed"
         val info = c.packageManager.getPackageArchiveInfo(file.path, 0)
+        if (info != null && info.packageName != c.packageName) { file.delete(); return "Downloaded file isn't this launcher - not installed" }
         val got = info?.let { if (Build.VERSION.SDK_INT >= 28) it.longVersionCode.toInt() else @Suppress("DEPRECATION") it.versionCode } ?: -1
         if (got <= have) { file.delete(); return "Downloaded file is build $got, not newer than $have - waiting for the next one" }
         val pending = Prefs.string(c, "upd_pending")?.split(":")
@@ -129,6 +132,7 @@ class PackageReplacedReceiver : BroadcastReceiver() {
         try { AppWatchService.startIfNeeded(c) } catch (_: Exception) {}
         try { RemoteService.startIfEnabled(c) } catch (_: Exception) {}
         try { AwayRemote.start(c) } catch (_: Exception) {}
+        try { Recordings.recover(c) } catch (_: Exception) {}
         try { RecordingAnalyzer.catchUp(c) } catch (_: Exception) {}
         // Fire TV: the open-on-Home service doesn't come back by itself after an update - check once it's had time to.
         val app = c.applicationContext

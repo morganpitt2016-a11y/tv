@@ -37,6 +37,8 @@ class RemoteServer(private val context: Context) {
     companion object {
         const val PORT = 8765
         private const val MAX_UPLOAD = 25 * 1024 * 1024
+        private val HOST_OK = Regex("^(\\d{1,3}\\.){3}\\d{1,3}(:\\d+)?$|^localhost(:\\d+)?$|^\\[[0-9a-fA-F:.]+\\](:\\d+)?$")
+        private val slots = java.util.concurrent.Semaphore(16)
 
         fun key(c: Context): String {
             Prefs.string(c, "remote_key")?.let { return it }
@@ -74,7 +76,9 @@ class RemoteServer(private val context: Context) {
         thread(name = "remote-server", isDaemon = true) {
             while (!s.isClosed) {
                 val client = try { s.accept() } catch (e: Exception) { break }
-                thread(isDaemon = true) { handle(client) }
+                // At most 16 at once: a flood of connections can't run the TV out of memory.
+                if (!slots.tryAcquire()) { try { client.close() } catch (_: Exception) {}; continue }
+                thread(isDaemon = true) { try { handle(client) } finally { slots.release() } }
             }
         }
     }
@@ -101,6 +105,9 @@ class RemoteServer(private val context: Context) {
             input.reset()
             val out = sock.getOutputStream()
             val req = try { read(input) } catch (e: Exception) { null } ?: return
+            // A web page can't trick a phone's browser into talking to the TV: only requests addressed to an IP.
+            val host = req.headers["host"]
+            if (host != null && !HOST_OK.matches(host)) { send(out, 403, "text/plain", ByteArray(0)); return }
             try {
                 route(req, out)
             } catch (e: Exception) {
@@ -126,6 +133,11 @@ class RemoteServer(private val context: Context) {
         val headers = lines.drop(1).filter { ':' in it }.associate { it.substringBefore(':').trim().lowercase() to it.substringAfter(':').trim() }
         val len = headers["content-length"]?.toIntOrNull() ?: 0
         if (len > MAX_UPLOAD) return null
+        // Only photo uploads are big, and only from a paired phone: anything else over 64 KB is refused before reading.
+        if (len > 65_536) {
+            val k = parts[1].substringAfter('?', "").split('&').firstOrNull { it.startsWith("k=") }?.let { URLDecoder.decode(it.substringAfter('='), "UTF-8") }
+            if ((headers["x-key"] ?: k) != key(context)) return null
+        }
         val body = ByteArray(len)
         var read = 0
         while (read < len) {
@@ -154,7 +166,8 @@ class RemoteServer(private val context: Context) {
         val authorised = req.query["k"] == key || req.headers["x-key"] == key
         // Pairing needs no key: the code on the TV is the proof you're in the room.
         if (req.path == "/api/pair/request") {
-            Pairing.request()
+            // Too many wrong codes recently: pairing is locked for an hour (no code is made or shown).
+            if (Pairing.request().isEmpty()) { json(out, JSONObject().put("ok", false).put("locked", true)); return }
             main.post { start(Intent(context, PairActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)) }
             json(out, JSONObject().put("ok", true)); return
         }
