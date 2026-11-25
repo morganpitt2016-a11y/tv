@@ -808,7 +808,7 @@ class SettingsActivity : AppCompatActivity() {
             .button("Done").show()
     }
 
-    private val LANGS = listOf("auto" to "Auto (Original)", "en" to "English", "fr" to "French", "es" to "Spanish", "de" to "German", "it" to "Italian",
+    private val LANGS = listOf("auto" to "Auto (TV Language)", "en" to "English", "fr" to "French", "es" to "Spanish", "de" to "German", "it" to "Italian",
         "pt" to "Portuguese", "pl" to "Polish", "nl" to "Dutch", "ar" to "Arabic", "hi" to "Hindi", "ja" to "Japanese", "ko" to "Korean", "zh" to "Chinese")
     private fun langName(code: String) = LANGS.firstOrNull { it.first == code }?.second ?: code
 

@@ -858,7 +858,7 @@ class PlayerActivity : Activity() {
                         if (now >= lightsTestEnd) lightsVerdict(cs)
                     }
                     // Reading slowly already: a dropped frame now and then is the TV, not the lights - only act on a lot.
-                    else if (lightsTest != 3 && recentDrops.sumOf { it.second } >= (if (cs?.slowRead == true) 12 else 6)) {
+                    else if (recentDrops.sumOf { it.second } >= (if (cs?.slowRead == true) 12 else 6)) {
                         recentDrops.clear()
                         // Only ever reads the picture less often - never changes mode or playback mid-film.
                         if (cs != null && !cs.soundOnly) {
@@ -983,7 +983,7 @@ class PlayerActivity : Activity() {
             cs?.minGapMs = 1500L; cs?.perShot = true; cs?.holdReads = false
             Diag.send(this, "player", "lights test on \"$titleText\": $lightsTestDrops frames dropped without reading - reading cost frames, lights now read once per shot")
         } else {
-            cs?.gentle = Device.lite(this); cs?.slowRead = false; cs?.holdReads = false
+            cs?.gentle = heavyVideo || bigHevc || Device.lite(this); cs?.slowRead = false; cs?.holdReads = false
             Diag.send(this, "player", "lights test on \"$titleText\": still $lightsTestDrops frames dropped without reading - it's the stream, not the lights; lights read normally again")
         }
     }

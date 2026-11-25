@@ -26,6 +26,8 @@ class RemoteService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        // If a restart cut the open-on-Home service's off/on switch short, put it back (does nothing if it's on).
+        try { SelfEnable.enableAll(this) } catch (_: Exception) {}
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel(CHANNEL, "iPhone remote", NotificationManager.IMPORTANCE_MIN))
         val n = NotificationCompat.Builder(this, CHANNEL)

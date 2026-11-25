@@ -26,7 +26,7 @@ class GlassClockView @JvmOverloads constructor(c: Context, attrs: AttributeSet? 
 
     // Drawn once into its own layer and reused until the time (or wallpaper) changes: the frosted glass, rim and soft
     // shadow are costly, and anything else animating on the home screen (the pets) otherwise redrew them every frame.
-    init { setLayerType(LAYER_TYPE_HARDWARE, null) }
+    init { if (Device.lite(context)) setLayerType(LAYER_TYPE_HARDWARE, null) }   // elsewhere the soft shadow spills past the view; a layer would clip it
 
     private var glass: Bitmap? = null
     private var glassShader: BitmapShader? = null

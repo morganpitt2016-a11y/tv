@@ -99,6 +99,8 @@
 
         <activity
             android:name=".PairActivity"
+            android:taskAffinity=""
+            android:excludeFromRecents="true"
             android:exported="false"
             android:launchMode="singleTop"
             android:screenOrientation="landscape"
@@ -222,6 +224,7 @@
 
         <activity
             android:name=".ClaudeActivity"
+            android:launchMode="singleTop"
             android:exported="false"
             android:screenOrientation="landscape"
             android:parentActivityName=".MainActivity"
@@ -244,6 +247,7 @@
 
         <activity
             android:name=".CalibrateActivity"
+            android:launchMode="singleTop"
             android:exported="false"
             android:screenOrientation="landscape"
             android:theme="@style/Theme.MinimalLauncher" />
