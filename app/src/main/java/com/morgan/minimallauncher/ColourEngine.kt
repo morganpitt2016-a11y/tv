@@ -295,9 +295,12 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
         val cover = if (litN > 0) (binN[(best + 17) % 18] + binN[best] + binN[(best + 1) % 18]).toFloat() / litN else 0f
         // Reds and oranges read far stronger on an LED strip than on screen, so they need more of the picture (a
         // quarter of it to start tinting, most of it for full colour); other colours start at an eighth.
-        val warm = best <= 2 || best == 17
-        val coverK = (if (warm) ((cover - 0.25f) / 0.45f) else ((cover - 0.12f) / 0.38f)).coerceIn(0f, 1f).let { it * it * (3 - 2 * it) }
-        if (cw > 0 && cw >= neutral * 0.35 && coverK > 0f) { richer(cr / cw, cg / cw, cb / cw); hsv[1] *= coverK }
+        // Red and orange only (0-40°, and 340-360°) - yellow is a different matter. They start tinting at 15% of the lit
+        // picture and are full at 55%; other colours start at 10% and are full at 45%. A big area of colour (a third of
+        // the screen of sunlit wall) colours the room; a muzzle flash or a beret doesn't.
+        val warm = best <= 1 || best == 17
+        val coverK = (if (warm) ((cover - 0.15f) / 0.40f) else ((cover - 0.10f) / 0.35f)).coerceIn(0f, 1f).let { it * it * (3 - 2 * it) }
+        if (cw > 0 && cw >= neutral * 0.2 && coverK > 0f) { richer(cr / cw, cg / cw, cb / cw); hsv[1] *= coverK }
         else if (wsum > 0) { richer(wr / wsum, wg / wsum, wb / wsum); hsv[1] = min(hsv[1], 0.15f) }
         else { hsv[0] = 0f; hsv[1] = 0f; hsv[2] = 1f }
         val neutralScene = hsv[1] <= 0.15f
@@ -319,14 +322,14 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
         // Only a real flashing light, not one-frame noise: the same colour has to flash on two frames running.
         // Muzzle flashes, fires and tail lights are red/orange and everywhere in action films: those only count as a
         // flashing light when it's a big, clear flash.
-        if (ab >= 0 && (ab <= 2 || ab == 17) && (accN < t.accMin * 3 || flashN < t.flashMin * 3)) ab = -1
+        if (ab >= 0 && (ab <= 1 || ab == 17) && (accN < t.accMin * 3 || flashN < t.flashMin * 3)) ab = -1
         val confirmed = ab >= 0 && (!t.confirm || (pendingBin >= 0 && minOf((ab - pendingBin + 18) % 18, (pendingBin - ab + 18) % 18) <= 1))
         pendingBin = ab
         if (confirmed) {
             var aw = 0.0; var ar = 0.0; var ag = 0.0; var abl = 0.0
             for (k in intArrayOf((ab + 17) % 18, ab, (ab + 1) % 18)) { aw += accW[k]; ar += accR[k]; ag += accG[k]; abl += accB[k] }
             if (aw > 0) {
-                richer(ar / aw, ag / aw, abl / aw); hsv[1] = max(hsv[1], if (ab <= 2 || ab == 17) 0.6f else 0.85f)
+                richer(ar / aw, ag / aw, abl / aw); hsv[1] = max(hsv[1], if (ab <= 1 || ab == 17) 0.6f else 0.85f)
                 val ac = Color.HSVToColor(hsv)
                 accR0 = Color.red(ac).toFloat(); accG0 = Color.green(ac).toFloat(); accB0 = Color.blue(ac).toFloat()
                 accLevel = (0.55f + 0.45f * (accY / accN)).coerceAtMost(1f)

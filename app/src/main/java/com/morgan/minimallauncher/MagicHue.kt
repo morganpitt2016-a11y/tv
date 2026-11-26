@@ -102,8 +102,13 @@ object MagicHue {
         /** Why the line last dropped mid-use (logged when it reconnects). */
         var lostWhy: String? = null
 
+        /** When the line last failed: reconnecting straight away, again and again, is what jams these controllers. */
+        var failedAt = 0L
+
         @Synchronized fun ensure(h: String, log: (String) -> Unit): Boolean {
             if (host == h && sock?.isConnected == true && sock?.isClosed == false) return true
+            // After a failure, wait 2 s before trying again (colours meanwhile are skipped - the next one catches up).
+            if (android.os.SystemClock.uptimeMillis() - failedAt < 2_000L) return false
             drop()
             return try {
                 val s = Socket(); s.tcpNoDelay = true; s.soTimeout = 1500
@@ -111,7 +116,7 @@ object MagicHue {
                 host = h; sock = s; out = s.getOutputStream(); input = s.getInputStream()
                 lostWhy?.let { log("Magic Hue: line dropped ($it) - reconnected"); lostWhy = null }
                 true
-            } catch (e: Exception) { log("Magic Hue: can't connect to $h (${e.javaClass.simpleName}: ${e.message})"); drop(); false }
+            } catch (e: Exception) { failedAt = android.os.SystemClock.uptimeMillis(); log("Magic Hue: can't connect to $h (${e.javaClass.simpleName}: ${e.message})"); drop(); false }
         }
 
         @Synchronized fun send(b: IntArray) {
@@ -122,7 +127,7 @@ object MagicHue {
             var sum = 0
             for (i in b.indices) { bytes[i] = b[i].toByte(); sum += b[i] }
             bytes[b.size] = (sum and 0xFF).toByte()
-            try { out?.write(bytes); out?.flush() } catch (e: Exception) { lostWhy = "${e.javaClass.simpleName}: ${e.message}"; drop() }
+            try { out?.write(bytes); out?.flush() } catch (e: Exception) { lostWhy = "${e.javaClass.simpleName}: ${e.message}"; failedAt = android.os.SystemClock.uptimeMillis(); drop() }
             lastSend = android.os.SystemClock.uptimeMillis()
         }
 
