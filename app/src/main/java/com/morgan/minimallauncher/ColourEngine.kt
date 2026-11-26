@@ -293,7 +293,10 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
         // How much of the lit picture that colour covers: a red costume filling the frame makes a red room; a small red
         // thing in the corner only tints it. (One strip can't show several colours, but it can show them in proportion.)
         val cover = if (litN > 0) (binN[(best + 17) % 18] + binN[best] + binN[(best + 1) % 18]).toFloat() / litN else 0f
-        val coverK = ((cover - 0.06f) / 0.34f).coerceIn(0f, 1f).let { it * it * (3 - 2 * it) }
+        // Reds and oranges read far stronger on an LED strip than on screen, so they need more of the picture (a
+        // quarter of it to start tinting, most of it for full colour); other colours start at an eighth.
+        val warm = best <= 2 || best == 17
+        val coverK = (if (warm) ((cover - 0.25f) / 0.45f) else ((cover - 0.12f) / 0.38f)).coerceIn(0f, 1f).let { it * it * (3 - 2 * it) }
         if (cw > 0 && cw >= neutral * 0.35 && coverK > 0f) { richer(cr / cw, cg / cw, cb / cw); hsv[1] *= coverK }
         else if (wsum > 0) { richer(wr / wsum, wg / wsum, wb / wsum); hsv[1] = min(hsv[1], 0.15f) }
         else { hsv[0] = 0f; hsv[1] = 0f; hsv[2] = 1f }
@@ -314,13 +317,16 @@ class ColourEngine(private val link: MagicHue.Sink, style: Int = 1) {
             for (k in 1 until 18) if (accW[k] + 0.5 * (accW[(k + 17) % 18] + accW[(k + 1) % 18]) > accW[ab] + 0.5 * (accW[(ab + 17) % 18] + accW[(ab + 1) % 18])) ab = k
         }
         // Only a real flashing light, not one-frame noise: the same colour has to flash on two frames running.
+        // Muzzle flashes, fires and tail lights are red/orange and everywhere in action films: those only count as a
+        // flashing light when it's a big, clear flash.
+        if (ab >= 0 && (ab <= 2 || ab == 17) && (accN < t.accMin * 3 || flashN < t.flashMin * 3)) ab = -1
         val confirmed = ab >= 0 && (!t.confirm || (pendingBin >= 0 && minOf((ab - pendingBin + 18) % 18, (pendingBin - ab + 18) % 18) <= 1))
         pendingBin = ab
         if (confirmed) {
             var aw = 0.0; var ar = 0.0; var ag = 0.0; var abl = 0.0
             for (k in intArrayOf((ab + 17) % 18, ab, (ab + 1) % 18)) { aw += accW[k]; ar += accR[k]; ag += accG[k]; abl += accB[k] }
             if (aw > 0) {
-                richer(ar / aw, ag / aw, abl / aw); hsv[1] = max(hsv[1], 0.85f)
+                richer(ar / aw, ag / aw, abl / aw); hsv[1] = max(hsv[1], if (ab <= 2 || ab == 17) 0.6f else 0.85f)
                 val ac = Color.HSVToColor(hsv)
                 accR0 = Color.red(ac).toFloat(); accG0 = Color.green(ac).toFloat(); accB0 = Color.blue(ac).toFloat()
                 accLevel = (0.55f + 0.45f * (accY / accN)).coerceAtMost(1f)
